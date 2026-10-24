@@ -1,20 +1,38 @@
-const CACHE = 'gonulplak-v1';
-const FILES = ['./', 'index.html', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png'];
+/* Gönül Plak — offline önbellek. Sürümü değiştirince eski önbellek silinir. */
+const CACHE = 'gonulplak-v3';
+const CORE = ['./', 'index.html', 'app.js', 'config.js', 'stretch.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png'];
+const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
+
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
-  e.respondWith(
-    caches.match(e.request).then(hit => hit || fetch(e.request).then(res => {
-      if (res.ok && (e.request.url.startsWith(self.location.origin) || e.request.url.includes('fonts.g'))) {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, copy));
-      }
-      return res;
-    }).catch(() => caches.match('index.html')))
-  );
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  const same = url.origin === self.location.origin;
+  if (!same && !CDN.includes(url.hostname)) return; // Spotify, Supabase vb. hep canlı
+
+  if (same) {
+    // Önce önbellekten anında aç, arkadan güncelle (bir sonraki açılışta yeni sürüm)
+    const key = req.mode === 'navigate' ? 'index.html' : req;
+    e.respondWith(caches.open(CACHE).then(async c => {
+      const hit = await c.match(key, { ignoreSearch: req.mode === 'navigate' });
+      const net = fetch(req).then(r => { if (r.ok) c.put(key, r.clone()); return r; }).catch(() => hit);
+      if (hit) { e.waitUntil(net.catch(() => {})); return hit; }
+      return net;
+    }));
+    return;
+  }
+  // CDN: sürümlü dosyalar, önbellek öncelikli
+  e.respondWith(caches.open(CACHE).then(async c => {
+    const hit = await c.match(req);
+    if (hit) return hit;
+    const r = await fetch(req);
+    if (r.ok || r.type === 'opaque') c.put(req, r.clone());
+    return r;
+  }));
 });
