@@ -256,7 +256,7 @@ function registerWorkletProcessor(Module, audioNodeKey) {
 			// Check the input/output channel counts
 			if (outputList[0].length != this.channels) {
 				this.channels = outputList[0]?.length || 0;
-				configure();
+				this.configure();
 			}
 			let outputBlockSize = outputList[0][0].length;
 
