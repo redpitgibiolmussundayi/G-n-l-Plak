@@ -1,5 +1,5 @@
 /* Gönül Plak — offline önbellek. Sürümü değiştirince eski önbellek silinir. */
-const CACHE = 'gonulplak-v6';
+const CACHE = 'gonulplak-v7';
 const CORE = ['./', 'index.html', 'app.js', 'config.js', 'stretch.js', 'dsp-worker.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png'];
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 

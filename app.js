@@ -807,6 +807,7 @@ async function playSong(id, queue) {
     if (!s.duration) { s.duration = Engine.duration; DB.put('songs', s); }
     UI.busy(null);
     Engine.play();
+    AI.onSong(s);
   } catch (e) {
     if (tok !== loadToken) return;
     UI.busy(null);
@@ -1049,6 +1050,13 @@ const UI = {
     el.innerHTML = `<div class="toprow"><div><span class="kicker">hesabım</span><h1>Ben</h1></div></div>
       <div class="group"><h3>Bulut</h3>${cloud}</div>
       <div class="group"><h3>Spotify</h3>${sp}</div>
+      <div class="group"><h3>Gönül Dostu</h3>
+        <p class="msg">Şarkılara yorum yapan, seninle sohbet eden yapay zekâ (Claude). Kendi anahtarınla çalışır; anahtar sadece bu telefonda saklanır, GitHub'a gitmez. Bir mesaj ortalama bir kuruşun çok altında tutar.</p>
+        <div class="field"><label for="aiKey">Claude API anahtarı</label><input id="aiKey" type="password" autocomplete="off" placeholder="sk-ant-..." value="${esc(AI.key)}"></div>
+        <p class="msg" id="aiMsg" hidden></p>
+        <div class="btns"><button class="btn primary" id="aiSave">Kaydet ve dene</button>${AI.key ? '<button class="btn danger" id="aiDel">Anahtarı sil</button>' : ''}</div>
+        <div class="toggle"><div class="tl"><span>Şarkı başlayınca yorum yapsın</span><span class="sub">Her şarkıya bir kez, kısa bir laf</span></div><button class="sw" id="aiAuto" role="switch" aria-checked="${AI.auto}" aria-label="Otomatik yorum"></button></div>
+        <button class="btn" id="aiClear">Sohbet geçmişini temizle</button></div>
       <div class="group"><h3>Ses motoru</h3>
         <div class="seg" id="engSeg"><button data-m="live" aria-pressed="${d.mode === 'live'}">Canlı</button><button data-m="render" aria-pressed="${d.mode === 'render'}">Hazırlamalı</button></div>
         <p class="msg">${d.mode === 'live' ? 'Canlı: ayarlar anında duyulur. Telefon desteklemezse uygulama kendiliğinden hazırlamalıya geçer.' : 'Hazırlamalı: ses arka planda işlenip çalınır. Her iPhone\'da çalışır, kilit ekranında da devam eder. Ayar değişince yaklaşık bir saniyede güncellenir.'}</p>
@@ -1125,65 +1133,199 @@ $('modes').addEventListener('click', e => {
 });
 const custom = patch => Engine.setFx(Object.assign(patch, { preset: 'custom' }));
 
-/* ================= Ses masası düğmeleri ================= */
-const KNOBS = [
-  { id: 'rate', l: 'Tempo', min: 50, max: 150, def: 100, bi: true, get: () => fx.rate * 100, set: v => ({ rate: Math.round(v) / 100 }), fmt: v => '%' + Math.round(v), steps: 1 },
-  { id: 'semi', l: 'Ton', min: -12, max: 12, def: 0, bi: true, get: () => fx.semi, set: v => ({ semi: Math.round(v * 20) / 20 }), fmt: v => signed(v, Math.abs(v - Math.round(v)) < 0.001 ? 0 : 2), steps: 1, snap: 0.08 },
-  { id: 'rvb', l: 'Yankı', min: 0, max: 100, def: 0, get: () => fx.rvbOn ? fx.rvbMix * 100 : 0, set: v => ({ rvbMix: Math.round(v) / 100, rvbOn: v >= 1 }), fmt: v => v >= 1 ? '%' + Math.round(v) : 'kapalı' },
-  { id: 'echo', l: 'Eko', min: 0, max: 100, def: 0, get: () => fx.echoOn ? fx.echoMix * 100 : 0, set: v => ({ echoMix: Math.round(v) / 100, echoOn: v >= 1 }), fmt: v => v >= 1 ? '%' + Math.round(v) : 'kapalı' }
+/* ================= Ses masası: radyo kadranları ================= */
+const DIALS = [
+  { id: 'rate', l: 'Tempo', min: 50, max: 150, def: 100, marks: [50, 75, 100, 125, 150], mk: v => '%' + v, get: () => fx.rate * 100, set: v => ({ rate: Math.round(v) / 100 }), fmt: v => '%' + Math.round(v), step: 1, snap: 1.2 },
+  { id: 'semi', l: 'Ton', min: -12, max: 12, def: 0, marks: [-12, -6, 0, 6, 12], mk: v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v), get: () => fx.semi, set: v => ({ semi: Math.round(v * 20) / 20 }), fmt: v => signed(v, Math.abs(v - Math.round(v)) < 0.001 ? 0 : 2) + ' yarım ton', step: 1, snap: 0.15, semi: true },
+  { id: 'rvb', l: 'Yankı', min: 0, max: 100, def: 0, marks: [0, 25, 50, 75, 100], mk: v => v, get: () => fx.rvbOn ? fx.rvbMix * 100 : 0, set: v => ({ rvbMix: Math.round(v) / 100, rvbOn: v >= 1 }), fmt: v => v >= 1 ? '%' + Math.round(v) + ' · ' + RVB_TYPES[fx.rvbType] : 'kapalı', step: 5 },
+  { id: 'echo', l: 'Eko', min: 0, max: 100, def: 0, marks: [0, 25, 50, 75, 100], mk: v => v, get: () => fx.echoOn ? fx.echoMix * 100 : 0, set: v => ({ echoMix: Math.round(v) / 100, echoOn: v >= 1 }), fmt: v => v >= 1 ? '%' + Math.round(v) : 'kapalı', step: 5 }
 ];
-const pt = (a, r) => [37 + r * Math.cos((a - 90) * Math.PI / 180), 37 + r * Math.sin((a - 90) * Math.PI / 180)];
-const arc = (a0, a1, r) => { if (Math.abs(a1 - a0) < 0.5) return ''; const [x0, y0] = pt(a0, r), [x1, y1] = pt(a1, r); return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${Math.abs(a1 - a0) > 180 ? 1 : 0} ${a1 > a0 ? 1 : 0} ${x1.toFixed(2)} ${y1.toFixed(2)}`; };
 function buildKnobs() {
-  $('knobs').innerHTML = KNOBS.map(k => `<div class="knob"><div class="kdial" data-knob="${k.id}" role="slider" aria-label="${k.l}" tabindex="0">
-      <svg viewBox="0 0 74 74"><circle cx="37" cy="37" r="35" fill="#140c10"/><path d="${arc(-135, 135, 31)}" stroke="#3b262c" stroke-width="5" fill="none" stroke-linecap="round"/>
-      <path id="ka-${k.id}" stroke="${k.id === 'semi' || k.id === 'rate' ? '#ff3f6d' : '#f4b13e'}" stroke-width="5" fill="none" stroke-linecap="round"/>
-      <circle cx="37" cy="37" r="23" fill="url(#kg)"/><circle cx="37" cy="37" r="23" fill="none" stroke="#00000080"/>
-      <line id="kp-${k.id}" x1="37" y1="37" x2="37" y2="18" stroke="#130b0f" stroke-width="3" stroke-linecap="round"/>
-      <defs><radialGradient id="kg" cx=".4" cy=".3" r=".9"><stop offset="0" stop-color="#f6e6c8"/><stop offset="1" stop-color="#b79c7a"/></radialGradient></defs></svg></div>
-    <span class="kval" id="kv-${k.id}"></span><span class="klbl">${k.l}</span>
-    ${k.steps ? `<span class="ksteps"><button data-kstep="${k.id}" data-d="-1" aria-label="${k.l} azalt">−</button><button data-kstep="${k.id}" data-d="1" aria-label="${k.l} artır">+</button></span>` : ''}</div>`).join('');
+  $('knobs').innerHTML = DIALS.map(d => `<div class="dial">
+    <div class="dtop"><span class="dl">${d.l}</span><span class="dv" id="dv-${d.id}"></span>
+      <span class="dsteps"><button data-dstep="${d.id}" data-d="-1" aria-label="${d.l} azalt">−</button><button data-dstep="${d.id}" data-d="1" aria-label="${d.l} artır">+</button><button data-dreset="${d.id}" aria-label="${d.l} sıfırla">↺</button></span></div>
+    <div class="dscale" data-dial="${d.id}" role="slider" tabindex="0" aria-label="${d.l}">
+      <span class="dfill" id="df-${d.id}"></span>
+      ${d.marks.map((m, i) => `<span class="dmark${i === 0 ? ' l' : i === d.marks.length - 1 ? ' r' : ''}" style="left:${(m - d.min) / (d.max - d.min) * 100}%"><i></i>${d.mk(m)}</span>`).join('')}
+      <span class="dneedle" id="dn-${d.id}"></span>
+    </div></div>`).join('');
 }
-function knobUI(k) {
-  const v = k.get(), f = (v - k.min) / (k.max - k.min), a = -135 + f * 270;
-  const a0 = k.bi ? -135 + (k.def - k.min) / (k.max - k.min) * 270 : -135;
-  $('ka-' + k.id).setAttribute('d', arc(Math.min(a0, a), Math.max(a0, a), 31));
-  const [x, y] = pt(a, 19); const l = $('kp-' + k.id); l.setAttribute('x2', x.toFixed(2)); l.setAttribute('y2', y.toFixed(2));
-  $('kv-' + k.id).textContent = k.fmt(v);
+function dialUI(d) {
+  const v = d.get(), f = (v - d.min) / (d.max - d.min), f0 = (d.def - d.min) / (d.max - d.min);
+  $('dn-' + d.id).style.left = (f * 100) + '%';
+  const fl = $('df-' + d.id); fl.style.left = (Math.min(f, f0) * 100) + '%'; fl.style.width = (Math.abs(f - f0) * 100) + '%';
+  $('dv-' + d.id).textContent = d.fmt(v);
+  $('dv-' + d.id).classList.toggle('off', Math.abs(v - d.def) < 0.001);
 }
 (() => {
-  let act = null, lastTap = 0;
+  let act = null;
+  const clampSnap = (d, v) => { v = Math.max(d.min, Math.min(d.max, v)); const r = Math.round(v); if (d.snap && Math.abs(v - r) < (d.semi ? d.snap : d.snap)) v = r; return v; };
+  const at = (d, e, el) => { const r = el.getBoundingClientRect(); return d.min + Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (d.max - d.min); };
   $('knobs').addEventListener('pointerdown', e => {
-    const d = e.target.closest('[data-knob]'); if (!d) return;
-    const k = KNOBS.find(x => x.id === d.dataset.knob);
-    const now = Date.now();
-    if (now - lastTap < 320 && act === null && lastTap.k === k.id) { custom(k.set(k.def)); renderFx(); lastTap = 0; return; }
-    lastTap = now; lastTap = Object.assign(new Number(now), { k: k.id });
-    act = { k, y: e.clientY, v: k.get() }; d.setPointerCapture(e.pointerId);
+    const el = e.target.closest('[data-dial]'); if (!el) return;
+    const d = DIALS.find(x => x.id === el.dataset.dial);
+    act = { d, el, x: e.clientX, y: e.clientY, v: d.get(), moved: false, id: e.pointerId };
   });
   $('knobs').addEventListener('pointermove', e => {
-    if (!act) return;
-    const { k } = act; let v = act.v + (act.y - e.clientY) * (k.max - k.min) / 220;
-    v = Math.max(k.min, Math.min(k.max, v));
-    if (k.snap && Math.abs(v - Math.round(v)) < k.snap) v = Math.round(v);
-    custom(k.set(v)); renderFx();
+    if (!act || e.pointerId !== act.id) return;
+    const dx = e.clientX - act.x, dy = e.clientY - act.y;
+    if (!act.moved) { if (Math.abs(dx) < 6) return; if (Math.abs(dy) > Math.abs(dx)) { act = null; return; } act.moved = true; try { act.el.setPointerCapture(e.pointerId); } catch (er) {} }
+    const r = act.el.getBoundingClientRect(), d = act.d;
+    custom(d.set(clampSnap(d, act.v + dx / r.width * (d.max - d.min)))); renderFx();
   });
-  const end = () => act = null;
+  const end = e => {
+    if (!act || e.pointerId !== act.id) return;
+    if (!act.moved && e.type === 'pointerup') { const d = act.d; custom(d.set(clampSnap(d, at(d, e, act.el)))); renderFx(); }
+    act = null;
+  };
   $('knobs').addEventListener('pointerup', end); $('knobs').addEventListener('pointercancel', end);
   $('knobs').addEventListener('click', e => {
-    const b = e.target.closest('[data-kstep]'); if (!b) return;
-    const k = KNOBS.find(x => x.id === b.dataset.kstep), d = +b.dataset.d;
-    let v = k.get(); v = k.id === 'semi' ? (d > 0 ? Math.floor(v + 1e-6) + 1 : Math.ceil(v - 1e-6) - 1) : v + d;
-    custom(k.set(Math.max(k.min, Math.min(k.max, v)))); renderFx();
+    const r = e.target.closest('[data-dreset]'); if (r) { const d = DIALS.find(x => x.id === r.dataset.dreset); custom(d.set(d.def)); renderFx(); return; }
+    const b = e.target.closest('[data-dstep]'); if (!b) return;
+    const d = DIALS.find(x => x.id === b.dataset.dstep), s = +b.dataset.d;
+    let v = d.get();
+    v = d.semi ? (s > 0 ? Math.floor(v + 1e-6) + 1 : Math.ceil(v - 1e-6) - 1) : Math.round((v + s * d.step) / d.step) * d.step;
+    custom(d.set(Math.max(d.min, Math.min(d.max, v)))); renderFx();
   });
   $('knobs').addEventListener('keydown', e => {
-    const d = e.target.closest('[data-knob]'); if (!d) return;
-    const k = KNOBS.find(x => x.id === d.dataset.knob), st = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
+    const el = e.target.closest('[data-dial]'); if (!el) return;
+    const d = DIALS.find(x => x.id === el.dataset.dial), st = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
     if (!st) return; e.preventDefault();
-    custom(k.set(Math.max(k.min, Math.min(k.max, k.get() + st * (k.id === 'semi' ? 0.5 : 1))))); renderFx();
+    custom(d.set(Math.max(d.min, Math.min(d.max, d.get() + st * (d.semi ? 0.5 : d.step))))); renderFx();
   });
 })();
 $('formant').onclick = () => { custom({ formant: !fx.formant }); renderFx(); };
+
+/* ================= Gönül Dostu (yapay zekâ sohbet) ================= */
+const AI = (() => {
+  const MODEL = 'claude-haiku-5-5';
+  let key = LS.get('gp-ai-key', '');
+  let auto = LS.get('gp-ai-auto', true);
+  let log = LS.get('gp-ai-log', []);          // {r:'u'|'a'|'n', t, hide?, mode?}
+  const said = LS.get('gp-ai-said', {});       // şarkı başına ilk yorum (tekrar para harcamasın)
+  let busy = false, songTimer = 0;
+  const save = () => { log = log.slice(-60); LS.set('gp-ai-log', log); };
+
+  function context() {
+    const s = App.byId(App.curId);
+    const effects = [];
+    if (Math.abs(fx.rate - 1) > 0.001) effects.push('tempo %' + Math.round(fx.rate * 100));
+    if (Math.abs(fx.semi) > 0.01) effects.push('ton ' + signed(fx.semi, 1) + ' yarım ton');
+    if (fx.rvbOn) effects.push(RVB_TYPES[fx.rvbType] + ' yankısı');
+    if (fx.echoOn) effects.push('eko'); if (fx.tapeOn) effects.push('eski kaset efekti'); if (fx.vinylOn) effects.push('plak cızırtısı'); if (fx.radioOn) effects.push('dolmuş hoparlörü'); if (fx.d8On) effects.push('8D');
+    const mode = PRESETS.find(p => p.id === fx.preset);
+    const arc = App.songs.slice(-60).map(x => `${x.title}${x.artist ? ' – ' + x.artist : ''}`).join('; ');
+    const now = new Date();
+    return `Şu an çalan: ${s ? `"${s.title}"${s.artist ? ' – ' + s.artist : ''}${s.album ? ', albüm: ' + s.album : ''}${s.year ? ', ' + s.year : ''}` : 'hiçbir şey çalmıyor'}.
+Çalma durumu: ${Engine.playing ? 'çalıyor' : 'durdu'}. Mod: ${mode ? mode.n : 'özel ayar'}. Efektler: ${effects.join(', ') || 'yok'}.
+Saat: ${now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}.
+Kullanıcının arşivindeki şarkılar (öneri yaparken önce buradan seç): ${arc || 'arşiv boş'}.
+Uygulanabilir modlar (id: ad): ${PRESETS.map(p => p.id + ': ' + p.n).join(', ')}.`;
+  }
+  const SYSTEM = () => `Sen "Gönül Dostu"sun: Gönül Plak adlı arabesk müzik çalarının içindeki sohbet arkadaşısın. Bir kahvehanede çay içerken arabesk konuşan, eski kasetleri bilen, samimi ve sıcak bir dost gibisin.
+Kurallar:
+- Türkçe konuş, kısa tut: genelde 2-4 cümle. Doğal, içten, abartısız; arada bir arabesk deyimi olabilir ama klişeye boğma.
+- Şarkı sözlerini asla alıntılama ya da yazma; sözlerin ne anlattığını kendi cümlelerinle özetleyebilirsin.
+- Bir şarkı, sanatçı ya da yıl hakkında emin değilsen uydurma; "tam emin değilim" de veya genel konuş.
+- Şarkı önerirken önce kullanıcının arşivindeki şarkılardan seç; arşiv dışından önerirsen bunu belirt.
+- Kullanıcının ruh haline uyan bir mod önermek istersen cevabının en sonuna sadece bir kez [MOD:id] yaz (id listeden). Kullanıcı istemedikçe her cevapta mod önerme.
+- Kullanıcı gerçekten kötü hissettiğini, kendine zarar vermeyi düşündüğünü söylerse dertleşmeyi sürdür ama nazikçe güvendiği biriyle ya da bir uzmanla konuşmasını öner; Almanya'da 0800 111 0 111 (Telefonseelsorge, ücretsiz, 7/24) numarasını verebilirsin.
+- Markdown başlık ya da liste kullanma, düz yazı yaz.
+${context()}`;
+
+  function apiMessages() {
+    const m = [];
+    log.filter(x => x.r === 'u' || x.r === 'a').slice(-16).forEach(x => {
+      const role = x.r === 'u' ? 'user' : 'assistant';
+      if (m.length && m[m.length - 1].role === role) m[m.length - 1].content += '\n' + x.t;
+      else m.push({ role, content: x.t });
+    });
+    while (m.length && m[0].role !== 'user') m.shift();
+    return m;
+  }
+  async function call(messages, max) {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: MODEL, max_tokens: max || 420, system: SYSTEM(), messages })
+    });
+    if (!r.ok) {
+      let m = ''; try { const j = await r.json(); m = (j.error && j.error.message) || ''; } catch (e) {}
+      if (r.status === 401) throw new Error('Anahtar geçersiz. Ben sekmesinden kontrol et.');
+      if (r.status === 429) throw new Error('Çok hızlı gittik, birazdan tekrar dene.');
+      if (/credit|balance|billing/i.test(m)) throw new Error('Claude hesabında kredi kalmamış. console.anthropic.com\'dan yükleme yapabilirsin.');
+      throw new Error(m || 'Bağlantı hatası (' + r.status + ')');
+    }
+    const j = await r.json();
+    return (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();
+  }
+  function parse(t) {
+    let mode = null;
+    t = t.replace(/\[MOD:([a-z0-9]+)\]/gi, (_, id) => { if (PRESETS.find(p => p.id === id.toLowerCase())) mode = id.toLowerCase(); return ''; }).trim();
+    return { t, mode };
+  }
+  async function send(text) {
+    if (!key || busy || !text.trim()) return;
+    log.push({ r: 'u', t: text.trim() }); save(); busy = true; render();
+    try { const p = parse(await call(apiMessages())); log.push({ r: 'a', t: p.t, mode: p.mode }); }
+    catch (e) { log.push({ r: 'e', t: e.message }); }
+    busy = false; save(); render();
+  }
+  async function onSong(s) {
+    clearTimeout(songTimer);
+    if (!key || !auto || !s) return;
+    songTimer = setTimeout(async () => {
+      if (App.curId !== s.id || !Engine.playing) return;
+      const last = log[log.length - 1];
+      if (!(last && last.r === 'n' && last.id === s.id)) { log.push({ r: 'n', id: s.id, t: s.title + (s.artist ? ' · ' + s.artist : '') }); save(); }
+      if (said[s.id]) { if (!log.some(x => x.r === 'a' && x.t === said[s.id])) { log.push({ r: 'u', t: `(${s.title} başladı)`, hide: true }, { r: 'a', t: said[s.id] }); save(); } render(); return; }
+      busy = true; render();
+      try {
+        const p = parse(await call(apiMessages().concat([{ role: 'user', content: `(Sistem notu: "${s.title}"${s.artist ? ' – ' + s.artist : ''} şimdi başladı. Bu şarkıya dair 1-2 cümlelik kısa, samimi bir yorumla sohbet aç. Mod önerme.)` }]).reduce((a, m) => { if (a.length && a[a.length - 1].role === m.role) a[a.length - 1].content += '\n' + m.content; else a.push(m); return a; }, []), 160));
+        log.push({ r: 'u', t: `(${s.title} başladı)`, hide: true }, { r: 'a', t: p.t });
+        said[s.id] = p.t; const keys = Object.keys(said); if (keys.length > 300) delete said[keys[0]]; LS.set('gp-ai-said', said);
+      } catch (e) { /* sessizce geç: otomatik yorum zorunlu değil */ }
+      busy = false; save(); render();
+    }, 3500);
+  }
+  function lastLine() { for (let i = log.length - 1; i >= 0; i--) if (log[i].r === 'a') return log[i]; return null; }
+  function bubble(x) {
+    if (x.r === 'n') return `<div class="cnote">♪ ${esc(x.t)}</div>`;
+    if (x.r === 'e') return `<div class="cmsg err">${esc(x.t)}</div>`;
+    if (x.hide) return '';
+    const m = x.mode && PRESETS.find(p => p.id === x.mode);
+    return `<div class="cmsg ${x.r === 'u' ? 'me' : 'gd'}">${esc(x.t).replace(/\n/g, '<br>')}${m ? `<button class="chipbtn" data-apply="${m.id}">${esc(m.n)} modunu aç</button>` : ''}</div>`;
+  }
+  function render() {
+    const c = $('gdCard');
+    if (c) {
+      if (!key) c.innerHTML = `<div class="gdav">${TEA}</div><div class="gdtx"><b>Gönül Dostu</b><span>Şarkılara yorum yapan, seninle dertleşen bir sohbet arkadaşı. Açmak için Ben sekmesinden anahtarını ekle.</span></div><button class="chipbtn" id="gdSetup">Kur</button>`;
+      else { const l = lastLine(); c.innerHTML = `<div class="gdav">${TEA}</div><div class="gdtx"><b>Gönül Dostu</b><span>${busy && !l ? 'düşünüyor…' : l ? esc(l.t) : 'Bir şarkı aç, lafa girelim.'}</span></div><button class="chipbtn" id="gdOpen">Sohbet</button>`; }
+    }
+    const box = $('chatLog'); if (!box || $('chatSheet').hidden) return;
+    box.innerHTML = log.map(bubble).join('') + (busy ? '<div class="cmsg gd typing"><i></i><i></i><i></i></div>' : '') || '';
+    if (!log.length && !busy) box.innerHTML = `<div class="cnote">Merhaba! Bir şarkı aç ya da aşağıdan bir şey sor.</div>`;
+    box.scrollTop = box.scrollHeight;
+    $('chatSend').disabled = busy;
+  }
+  return {
+    get key() { return key; }, get auto() { return auto; },
+    setKey(k) { key = k.trim(); LS.set('gp-ai-key', key); render(); },
+    setAuto(v) { auto = v; LS.set('gp-ai-auto', v); },
+    clear() { log = []; save(); render(); },
+    async test() { const t = await call([{ role: 'user', content: 'Tek cümleyle merhaba de.' }], 60); return t; },
+    send, onSong, render
+  };
+})();
+const TEA = '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#2a1920"/><path d="M13 13h14l-1.6 15.5a2 2 0 0 1-2 1.8h-6.8a2 2 0 0 1-2-1.8z" fill="#f5e7d0" opacity=".9"/><path d="M14.1 19h11.8l-.9 9.3a1.6 1.6 0 0 1-1.6 1.4h-6.8a1.6 1.6 0 0 1-1.6-1.4z" fill="#c2412d"/><path d="M12 31.5h16" stroke="#f4b13e" stroke-width="2" stroke-linecap="round"/><path d="M17 10c0-2 2-2 2-4M22 10c0-2 2-2 2-4" stroke="#b39a90" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>';
+document.addEventListener('click', e => {
+  if (e.target.closest('#gdOpen')) { openSheet('chatSheet'); AI.render(); return; }
+  if (e.target.closest('#gdSetup')) { setView('acct'); setTimeout(() => { const k = $('aiKey'); if (k) k.scrollIntoView({ block: 'center' }); }, 60); return; }
+  const ap = e.target.closest('[data-apply]');
+  if (ap) { const m = PRESETS.find(p => p.id === ap.dataset.apply); if (m) { Engine.setFx(Object.assign({}, BASE, m.id === 'orijinal' ? { eq: FREQS.map(() => 0), eqPreset: 'flat', preOn: false } : {}, m.p, { preset: m.id })); renderFx(); UI.now(); toast(m.n + ' açıldı'); } return; }
+  const q = e.target.closest('[data-ask]'); if (q) { AI.send(q.dataset.ask); return; }
+});
+$('chatForm').addEventListener('submit', e => { e.preventDefault(); const i = $('chatIn'); const t = i.value; i.value = ''; AI.send(t); });
 
 /* ================= Efekt kartları ================= */
 const FXCARDS = [
@@ -1229,7 +1371,7 @@ $('fxReset').onclick = () => { Engine.setFx(Object.assign({}, FX_DEFAULT, { eq: 
 $('npExport').onclick = () => { if (App.curId) openExport(App.curId); else toast('Önce bir şarkı çal'); };
 
 function renderFx() {
-  KNOBS.forEach(knobUI);
+  DIALS.forEach(dialUI);
   $('formant').setAttribute('aria-checked', fx.formant);
   FXCARDS.forEach(c => {
     const on = !!fx[c.on], card = $('fx-' + c.id);
@@ -1525,6 +1667,16 @@ $('vAcct').addEventListener('click', async e => {
   else if (id === 'acSpIn') Spotify.login();
   else if (id === 'acSpOut') { Spotify.logout(); UI.account(); UI.lists(); }
   else if (id === 'acSpImport') openSpImport();
+  else if (id === 'aiSave') {
+    const k = $('aiKey').value.trim(), m = $('aiMsg'); m.hidden = false; m.className = 'msg';
+    if (!k) { m.className = 'msg err'; m.textContent = 'Önce anahtarı yapıştır.'; return; }
+    AI.setKey(k); m.textContent = 'Deneniyor…'; e.target.disabled = true;
+    try { const t = await AI.test(); m.textContent = 'Çalışıyor: ' + t; } catch (er) { m.className = 'msg err'; m.textContent = er.message; }
+    e.target.disabled = false;
+  }
+  else if (id === 'aiDel') { AI.setKey(''); UI.account(); }
+  else if (id === 'aiAuto') { AI.setAuto(!AI.auto); e.target.setAttribute('aria-checked', AI.auto); }
+  else if (id === 'aiClear') { AI.clear(); toast('Sohbet temizlendi'); }
   else if (id === 'diagCopy') {
     const txt = $('diagText').textContent;
     try { await navigator.clipboard.writeText(txt); toast('Kopyalandı'); }
@@ -1595,7 +1747,7 @@ $('search').addEventListener('input', raf(() => { App.query = $('search').value;
   const [songs, lists] = await Promise.all([DB.all('songs'), DB.all('lists')]);
   App.songs = songs; App.lists = lists; App.sortSongs();
   App.queue = App.filtered().map(s => s.id);
-  renderFx(); UI.lib();
+  renderFx(); UI.lib(); AI.render(); $('chatAv').innerHTML = TEA;
   setView(App.songs.length ? 'now' : 'lib');
   document.documentElement.classList.remove('booting');
   const back = await Spotify.handleRedirect();

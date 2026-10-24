@@ -260,6 +260,50 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 @keyframes up{from{transform:translateY(40px);opacity:.6}}
 @keyframes fade{from{opacity:0}}
 
+
+/* Radyo kadranları */
+.dials{display:flex;flex-direction:column;gap:16px}
+.dial{display:flex;flex-direction:column;gap:8px}
+.dtop{display:flex;align-items:center;gap:10px}
+.dl{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);width:58px;flex:none}
+.dv{flex:1;min-width:0;color:var(--amber);font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dv.off{color:var(--dim);font-weight:500}
+.dsteps{display:flex;gap:6px;flex:none}
+.dsteps button{width:36px;height:32px;border-radius:9px;background:var(--card2);color:var(--cream);font-size:1.05rem;line-height:1}
+.dscale{position:relative;height:52px;border-radius:10px;cursor:ew-resize;touch-action:pan-y;overflow:hidden;
+  background:repeating-linear-gradient(90deg,#f4b13e40 0 1px,transparent 1px 10%),repeating-linear-gradient(90deg,#f4b13e1f 0 1px,transparent 1px 2.5%),linear-gradient(180deg,#2b1a10,#1a0f0a);
+  box-shadow:inset 0 2px 8px #000c,inset 0 0 0 1px #4a2f1c;background-position:0 0,0 0,0 0;background-size:100% 40%,100% 22%,100% 100%;background-repeat:no-repeat}
+.dscale::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,#ffffff10,transparent 40%);pointer-events:none}
+.dmark{position:absolute;bottom:6px;transform:translateX(-50%);font-size:.66rem;color:#f4b13ecc;font-variant-numeric:tabular-nums;pointer-events:none;white-space:nowrap}
+.dmark i{position:absolute;left:50%;bottom:16px;width:1px;height:12px;background:#f4b13e99}
+.dmark.l{transform:none;padding-left:7px}.dmark.l i{left:1px}.dmark.r{transform:translateX(-100%);padding-right:7px}.dmark.r i{left:auto;right:1px}
+.dfill{position:absolute;top:0;height:42%;background:linear-gradient(180deg,rgba(255,63,109,.35),transparent);pointer-events:none}
+.dneedle{position:absolute;top:0;bottom:0;width:3px;margin-left:-1.5px;background:var(--neon);box-shadow:0 0 10px var(--neon),0 0 2px #fff;border-radius:2px;pointer-events:none}
+/* Gönül Dostu */
+.gdcard{display:flex;align-items:center;gap:12px;margin-top:18px;padding:12px 12px 12px 10px;border-radius:16px;background:var(--card);border:1px solid var(--line)}
+.gdav{width:42px;height:42px;flex:none;display:block}
+.gdav svg{width:100%;height:100%}
+.gdtx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.gdtx b{font-family:var(--slab);font-weight:400;font-size:.95rem;color:var(--amber)}
+.gdtx span{font-size:.88rem;color:var(--cream);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.chat-card{height:86%;display:flex;flex-direction:column}
+.chat-inner{flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;width:100%}
+.chathead{display:flex;align-items:center;gap:12px}
+.chathead .kicker{font-size:1rem}
+.chatlog{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:10px;padding:4px 2px;-webkit-user-select:text;user-select:text}
+.cmsg{max-width:86%;padding:10px 13px;border-radius:16px;font-size:.95rem;line-height:1.45;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.cmsg.gd{background:var(--card2);border-top-left-radius:4px;align-self:flex-start}
+.cmsg.me{background:linear-gradient(180deg,#5a1a2e,#46162a);border-top-right-radius:4px;align-self:flex-end}
+.cmsg.err{background:transparent;border:1px dashed #ff8a9c66;color:#ff8a9c;align-self:center;font-size:.85rem}
+.cnote{align-self:center;font-family:var(--hand);color:var(--amber);font-size:1.05rem;text-align:center}
+.typing{flex-direction:row;gap:5px;padding:14px}
+.typing i{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:blink 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
+.chatchips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}.chatchips::-webkit-scrollbar{display:none}.chatchips .chip{flex:none}
+.chatform{display:flex;gap:10px;align-items:center}
+.chatform input{flex:1;min-width:0;height:46px;border-radius:23px;border:1px solid var(--line);background:var(--bg);color:var(--cream);padding:0 16px;font:inherit;font-size:16px}
+
 /* Geniş ekran: kaset solda sabit, sağda arşiv */
 @media (min-width:920px){
   body{padding-bottom:40px}
@@ -331,13 +375,14 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       <button class="tb sm" id="repeat" aria-pressed="false" aria-label="Tekrarla"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg><span class="one" id="repeatOne" hidden>1</span></button>
     </div>
     <div class="upnext" id="upnext"></div>
+    <div class="gdcard" id="gdCard"></div>
 
     <div class="sechead"><h2>Modlar</h2><span class="kicker">ruhuna göre</span></div>
     <div class="modes" id="modes"></div>
 
     <div class="sechead"><h2>Ses masası</h2><span class="kicker" id="engineTag"></span></div>
     <div class="desk">
-      <div class="knobs" id="knobs"></div>
+      <div class="dials" id="knobs"></div>
       <div class="deskrow"><div class="tl"><span>Doğal vokal</span><span class="sub">Ton değişince ses karakteri korunur</span></div><button class="sw" id="formant" role="switch" aria-checked="true" aria-label="Doğal vokal"></button></div>
     </div>
 
@@ -424,6 +469,18 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   <div id="exProg" hidden style="display:flex;flex-direction:column;gap:8px"><div class="progress"><i id="exBar"></i></div><p class="msg" id="exMsg"></p></div>
   <div class="btns" id="exBtns"><button class="btn primary" id="exGo">Dışa aktar</button></div>
   <div class="btns" id="exDone" hidden><button class="btn primary" id="exSave">Kaydet / Paylaş</button><button class="btn" id="exClose">Kapat</button></div>
+</div></div></div>
+
+<div class="sheet" id="chatSheet" hidden><div class="sheet-card chat-card"><div class="sheet-inner chat-inner">
+  <div class="chathead"><span class="gdav" id="chatAv"></span><div><h3>Gönül Dostu</h3><span class="kicker">çay demlendi, anlat bakalım</span></div></div>
+  <div class="chatlog" id="chatLog"></div>
+  <div class="chips chatchips">
+    <button class="chip" data-ask="Bu şarkıyı bana biraz anlat.">Bu şarkıyı anlat</button>
+    <button class="chip" data-ask="Ruh halime göre bir mod seçer misin? Bugün biraz buruğum.">Ruhuma göre mod seç</button>
+    <button class="chip" data-ask="Arşivimden bunun ardından ne dinleyeyim?">Sırada ne dinleyeyim?</button>
+    <button class="chip" data-ask="Biraz dertleşelim mi?">Dertleşelim</button>
+  </div>
+  <form class="chatform" id="chatForm"><input id="chatIn" autocomplete="off" placeholder="Bir şey yaz…" enterkeyhint="send"><button class="iconbtn neon" id="chatSend" aria-label="Gönder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></form>
 </div></div></div>
 
 <div class="sheet" id="spSheet" hidden><div class="sheet-card"><div class="sheet-inner">
