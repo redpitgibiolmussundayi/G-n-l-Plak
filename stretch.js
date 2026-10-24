@@ -362,6 +362,7 @@ function registerWorkletProcessor(Module, audioNodeKey) {
 	@param {Object} options - channel configuration (as per [options]{@link https://developer.mozilla.org/en-US/docs/Web/API/AudioWorkletNode/AudioWorkletNode#options})
 	@returns {Promise<StretchNode>}
 */
+var SignalsmithStretchModule = SignalsmithStretch; // Gönül Plak: dışa aktarma için WASM fabrikası
 SignalsmithStretch = ((Module, audioNodeKey) => {
 	if (typeof AudioWorkletProcessor === "function" && typeof registerProcessor === "function") {
 		// AudioWorklet side

@@ -179,10 +179,20 @@ const Img = {
 /* ================= Ses motoru ================= */
 const Engine = (() => {
   const FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
-  const fx = Object.assign({ rate: 1, semi: 0, formant: true, eqOn: true, eq: FREQS.map(() => 0), eqPreset: 'flat' }, LS.get('gp-fx', {}));
-  let ctx = null, stretch = null, pre = null, bands = [], initP = null, keep = null;
+  const fx = Object.assign({ rate: 1, semi: 0, formant: true, eqOn: true, eq: FREQS.map(() => 0), eqPreset: 'flat', preOn: false, pre: 0 }, LS.get('gp-fx', {}));
+  let ctx = null, stretch = null, pre = null, bands = [], initP = null;
   let duration = 0, pos = 0, playing = false, loadedId = null;
-  const listeners = { time: () => {}, end: () => {} };
+  const listeners = { time: () => {}, end: () => {}, mode: () => {}, state: () => {}, peaks: () => {} };
+  let peaks = null;
+  function computePeaks(L, R, n = 700) {
+    const out = new Uint8Array(n), step = L.length / n;
+    for (let i = 0; i < n; i++) {
+      let m = 0; const a = Math.floor(i * step), b = Math.min(L.length, Math.floor((i + 1) * step));
+      for (let j = a; j < b; j += 4) { const v = Math.abs(L[j]) + (R ? Math.abs(R[j]) : Math.abs(L[j])); if (v > m) m = v; }
+      out[i] = Math.min(255, Math.round(m * 0.5 * 255));
+    }
+    return out;
+  }
 
   function silentUrl() {
     const sr = 8000, n = sr, b = new ArrayBuffer(44 + n * 2), v = new DataView(b);
@@ -193,24 +203,56 @@ const Engine = (() => {
     return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
   }
 
+  /* --- Teşhis kaydı --- */
+  const diag = { events: [], mode: 'fx' };
+  function log(m) { const d = new Date(); diag.events.push(d.toTimeString().slice(0, 8) + ' ' + m); if (diag.events.length > 40) diag.events.shift(); }
+  window.addEventListener('error', e => log('JS hata: ' + (e.message || '')));
+  window.addEventListener('unhandledrejection', e => log('Hata: ' + ((e.reason && e.reason.message) || e.reason)));
+
+  /* --- İki motor: 'fx' (tempo+ton+EQ) ve 'simple' (yedek, sadece tempo) --- */
+  let mode = LS.get('gp-engine', 'fx') === 'simple' ? 'simple' : 'fx';
+  let el = null, elUrl = null, silent = null, curBlob = null, watchdog = 0;
+
+  function makeEl() {
+    if (el) return;
+    el = new Audio(); el.setAttribute('playsinline', ''); el.preload = 'auto';
+    el.addEventListener('timeupdate', () => { if (mode !== 'simple' || el.loop) return; pos = el.currentTime; listeners.time(pos); });
+    el.addEventListener('ended', () => { if (mode !== 'simple' || el.loop) return; playing = false; listeners.end(); });
+    el.addEventListener('error', () => { if (mode === 'simple' && !el.loop) log('Yedek oynatıcı dosyayı açamadı'); });
+  }
+
   // Kullanıcı dokunuşu içinde senkron çağrılmalı (iOS kuralı)
+  const needKeep = !navigator.audioSession;
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {} // sessiz modda da çalsın
   function unlock() {
-    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {} // sessiz moddayken de çalsın
+    try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (e) {}
+    makeEl();
+    if (!el.src && (mode === 'simple' || needKeep)) { silent = silent || silentUrl(); el.src = silent; el.loop = true; el.play().then(() => { if (el.loop && mode === 'fx' && !playing) el.pause(); }).catch(() => {}); }
+    if (mode === 'simple') return;
     if (!ctx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      ctx = new AC({ latencyHint: 'playback' });
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        ctx = new AC({ latencyHint: 'playback' });
+        log('AudioContext oluşturuldu, ' + ctx.sampleRate + ' Hz, durum ' + ctx.state);
+        ctx.onstatechange = () => { log('AudioContext durumu: ' + ctx.state); if (playing && ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().catch(() => {}); };
+      } catch (e) { log('AudioContext açılamadı'); toSimple(); return; }
     }
-    if (ctx.state !== 'running') ctx.resume().catch(() => {});
-    if (!keep) { keep = new Audio(silentUrl()); keep.loop = true; keep.setAttribute('playsinline', ''); }
-    keep.play().catch(() => {});
+    if (ctx.state !== 'running') ctx.resume().catch(e => log('resume hatası: ' + e.message));
   }
 
   function init() {
     if (initP) return initP;
     initP = (async () => {
       if (!ctx) unlock();
+      if (!ctx) throw new Error('ctx yok');
       await stretchLib();
-      stretch = await window.SignalsmithStretch(ctx);
+      if (!ctx.audioWorklet) throw new Error('AudioWorklet desteklenmiyor');
+      stretch = await Promise.race([
+        window.SignalsmithStretch(ctx),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('ses motoru 6 sn içinde açılmadı')), 6000))
+      ]);
+      log('Ses motoru hazır');
+      stretch.onprocessorerror = () => { log('Ses motoru çöktü (processorerror)'); if (playing) failFx(); };
       pre = ctx.createGain();
       bands = FREQS.map((f, i) => {
         const b = ctx.createBiquadFilter();
@@ -222,25 +264,72 @@ const Engine = (() => {
       stretch.connect(pre); let n = pre; bands.forEach(b => { n.connect(b); n = b; }); n.connect(limiter); limiter.connect(ctx.destination);
       applyEq(true);
       stretch.setUpdateInterval(0.08, t => {
+        if (mode !== 'fx') return;
         pos = t; listeners.time(t);
         if (playing && duration && t >= duration - 0.04) { playing = false; stretch.schedule({ active: false }); listeners.end(); }
       });
     })();
-    initP.catch(() => { initP = null; });
+    initP.catch(e => { log('Motor hatası: ' + e.message); initP = null; });
     return initP;
   }
 
+  function loadSimple(blob) {
+    makeEl();
+    return new Promise((res, rej) => {
+      if (elUrl) URL.revokeObjectURL(elUrl);
+      elUrl = URL.createObjectURL(blob);
+      el.pause(); el.loop = false;
+      const ok = () => { cleanup(); duration = el.duration || 0; res(); };
+      const bad = () => { cleanup(); rej(new Error('decode')); };
+      const cleanup = () => { el.removeEventListener('loadedmetadata', ok); el.removeEventListener('error', bad); };
+      el.addEventListener('loadedmetadata', ok); el.addEventListener('error', bad);
+      el.src = elUrl; el.load();
+    });
+  }
+  function rateSimple() { if (!el) return; el.preservesPitch = true; el.webkitPreservesPitch = true; el.defaultPlaybackRate = fx.rate; el.playbackRate = fx.rate; }
+
+  function toSimple() {
+    if (mode === 'simple') return;
+    mode = 'simple'; diag.mode = 'simple'; LS.set('gp-engine', 'simple');
+    log('Yedek moda geçildi');
+    if (stretch) try { stretch.schedule({ active: false }); } catch (e) {}
+    listeners.mode();
+  }
+  async function failFx() {
+    const at = pos, wasId = loadedId;
+    toSimple();
+    if (!curBlob) return;
+    try {
+      await loadSimple(curBlob); loadedId = wasId;
+      el.currentTime = at; rateSimple();
+      await el.play(); playing = true; listeners.time(at);
+    } catch (e) { playing = false; log('Yedek oynatma başlatılamadı: ' + e.message); }
+    listeners.state();
+  }
+
   async function load(id, blob, cancelled) {
-    await init();
-    playing = false;
+    curBlob = blob; playing = false; loadedId = null; duration = 0; pos = 0;
+    clearTimeout(watchdog);
+    if (mode === 'simple') {
+      peaks = null;
+      blob.arrayBuffer().then(ab => new Promise((res, rej) => { const oc = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 1, 22050); oc.decodeAudioData(ab, res, rej); }))
+        .then(b => { if (curBlob !== blob) return; peaks = computePeaks(b.getChannelData(0), null); listeners.peaks(peaks, id); }).catch(() => {});
+      await loadSimple(blob);
+      if (cancelled()) return false;
+      loadedId = id; return true;
+    }
+    try { await init(); }
+    catch (e) { toSimple(); return load(id, blob, cancelled); }
     stretch.schedule({ active: false });
     await stretch.dropBuffers();
-    loadedId = null; duration = 0; pos = 0;
     const ab = await blob.arrayBuffer();
     if (cancelled()) return false;
-    const buf = await new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej));
+    let buf;
+    try { buf = await new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej)); }
+    catch (e) { log('Çözümleme hatası, yedek mod deneniyor'); toSimple(); return load(id, blob, cancelled); }
     if (cancelled()) return false;
     const L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : null;
+    peaks = computePeaks(L, R); listeners.peaks(peaks, id);
     const CH = Math.round(ctx.sampleRate * 8);
     duration = buf.duration;
     for (let i = 0; i < buf.length; i += CH) {
@@ -249,6 +338,7 @@ const Engine = (() => {
       if (cancelled()) return false;
     }
     stretch.schedule({ input: 0, output: ctx.currentTime, active: false });
+    log('Şarkı yüklendi (' + Math.round(duration) + ' sn)');
     loadedId = id;
     return true;
   }
@@ -256,17 +346,44 @@ const Engine = (() => {
   function params() { return { rate: fx.rate, semitones: fx.semi, formantCompensation: fx.formant, formantBaseHz: 0 }; }
 
   function play() {
-    if (!stretch || !loadedId) return;
+    if (!loadedId) return;
+    if (mode === 'simple') {
+      if (pos >= duration - 0.1) el.currentTime = 0;
+      rateSimple(); playing = true;
+      el.play().catch(e => { playing = false; log('Oynatma reddedildi: ' + e.message); listeners.state(); });
+      return;
+    }
+    if (!stretch) return;
     if (pos >= duration - 0.1) seek(0);
+    if (ctx.state !== 'running') ctx.resume().catch(() => {});
     stretch.schedule(Object.assign({ active: true, output: ctx.currentTime + 0.03 }, params()));
     playing = true;
-    if (ctx.state !== 'running') ctx.resume().catch(() => {});
-    if (keep) keep.play().catch(() => {});
+    if (needKeep && el && el.loop) el.play().catch(() => {});
+    // Bekçi: 2 saniyede zaman ilerlemezse motor çalışmıyordur, yedeğe geç
+    const p0 = pos;
+    clearTimeout(watchdog);
+    watchdog = setTimeout(() => {
+      if (mode === 'fx' && playing && Math.abs(pos - p0) < 0.3) { log('Motor ilerlemiyor (ctx ' + ctx.state + '), yedeğe geçiliyor'); failFx(); }
+    }, 2200);
   }
-  function pause() { if (!stretch) return; stretch.schedule({ active: false, output: ctx.currentTime }); playing = false; if (keep) keep.pause(); }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && playing && ctx.state !== 'running') ctx.resume().catch(() => {}); });
-  function seek(t) { if (!stretch) return; t = Math.max(0, Math.min(duration, t)); pos = t; stretch.schedule(Object.assign({ input: t, output: ctx.currentTime, active: playing }, params())); }
-  const pushParams = raf(() => { if (stretch && playing) stretch.schedule(Object.assign({ output: ctx.currentTime + 0.02 }, params())); });
+  function pause() {
+    clearTimeout(watchdog);
+    playing = false;
+    if (mode === 'simple') { if (el) el.pause(); return; }
+    if (stretch) stretch.schedule({ active: false, output: ctx.currentTime });
+    if (el && el.loop) el.pause();
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && playing && mode === 'fx' && ctx.state !== 'running') ctx.resume().catch(() => {}); });
+  function seek(t) {
+    t = Math.max(0, Math.min(duration, t)); pos = t;
+    if (mode === 'simple') { if (el) el.currentTime = t; return; }
+    if (!stretch) return;
+    stretch.schedule(Object.assign({ input: t, output: ctx.currentTime, active: playing }, params()));
+  }
+  const pushParams = raf(() => {
+    if (mode === 'simple') return rateSimple();
+    if (stretch && playing) stretch.schedule(Object.assign({ output: ctx.currentTime + 0.02 }, params()));
+  });
 
   function setFx(patch) { Object.assign(fx, patch); LS.set('gp-fx', fx); pushParams(); }
 
@@ -276,7 +393,7 @@ const Engine = (() => {
     const t = ctx.currentTime;
     g.forEach((v, i) => instant ? bands[i].gain.value = v : bands[i].gain.setTargetAtTime(v, t, 0.03));
     const boost = Math.max(0, ...g);
-    const pg = Math.pow(10, (-boost * 0.6) / 20); // kırpmayı önlemek için ön kazanç
+    const pg = fx.preOn ? Math.pow(10, fx.pre / 20) : Math.pow(10, (-boost * 0.6) / 20); // ön kazanç (kapalıysa kırpmaya karşı otomatik pay)
     instant ? pre.gain.value = pg : pre.gain.setTargetAtTime(pg, t, 0.03);
   }
   function setEq(patch) { Object.assign(fx, patch); LS.set('gp-fx', fx); applyEq(false); }
@@ -284,7 +401,6 @@ const Engine = (() => {
   function response(freqs) { // çizim için toplam EQ eğrisi (dB)
     const out = new Float32Array(freqs.length);
     if (!bands.length) {
-      // motor hazır değilken yaklaşık eğri
       freqs.forEach((f, k) => { let s = 0; FREQS.forEach((c, i) => { const g = fx.eqOn ? fx.eq[i] : 0; const d = Math.log2(f / c); s += g * Math.exp(-d * d * 1.6); }); out[k] = s; });
       return out;
     }
@@ -298,9 +414,18 @@ const Engine = (() => {
     return out;
   }
 
+  function info() {
+    return {
+      mode, ctx: ctx ? ctx.state + ' · ' + ctx.sampleRate + ' Hz' : 'yok', worklet: !!(window.AudioWorkletNode), motor: !!stretch,
+      session: navigator.audioSession ? navigator.audioSession.type : 'yok', ua: navigator.userAgent.replace(/^Mozilla\/5\.0 /, ''), events: diag.events.slice()
+    };
+  }
+  function retryFx() { LS.set('gp-engine', 'fx'); location.reload(); }
+
   return {
-    FREQS, fx, unlock, init, load, play, pause, seek, setFx, setEq, response,
+    FREQS, fx, unlock, init, load, play, pause, seek, setFx, setEq, response, info, retryFx, log,
     on(ev, fn) { listeners[ev] = fn; },
+    get mode() { return mode; }, get peaks() { return peaks; },
     get duration() { return duration; }, get pos() { return pos; }, get playing() { return playing; }, get loadedId() { return loadedId; }
   };
 })();
@@ -499,7 +624,7 @@ const Spotify = (() => {
 const App = {
   songs: [], lists: [], queue: [], curId: null, loadingId: null,
   view: 'lib', openList: null, query: '',
-  prefs: Object.assign({ shuffle: false, repeat: 'off' }, LS.get('gp-prefs', {})),
+  prefs: Object.assign({ shuffle: false, repeat: 'off', sort: 'added' }, LS.get('gp-prefs', {})),
   byId(id) { return this.songs.find(s => s.id === id); },
   sortSongs() { this.songs.sort((a, b) => (a.added || 0) - (b.added || 0)); },
   savePrefs() { LS.set('gp-prefs', this.prefs); },
@@ -510,8 +635,13 @@ const App = {
     return this.songs.find(s => norm(s.title) === nt && (!na || !s.artist || norm(s.artist).includes(na) || na.includes(norm(s.artist).split(' ').slice(0, 2).join(' ')))) || null;
   },
   filtered() {
-    const q = norm(this.query); if (!q) return this.songs;
-    return this.songs.filter(s => norm([s.title, s.artist, s.album].join(' ')).includes(q));
+    const q = norm(this.query);
+    let list = q ? this.songs.filter(s => norm([s.title, s.artist, s.album].join(' ')).includes(q)) : this.songs.slice();
+    const k = this.prefs.sort;
+    if (k === 'title') list.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'tr'));
+    else if (k === 'artist') list.sort((a, b) => (a.artist || '~').localeCompare(b.artist || '~', 'tr') || (a.title || '').localeCompare(b.title || '', 'tr'));
+    else list.reverse(); // en yeni üstte
+    return list;
   }
 };
 
@@ -521,10 +651,11 @@ async function playSong(id, queue) {
   const s = App.byId(id); if (!s) return;
   Engine.unlock();
   if (queue) App.queue = queue;
-  if (!App.queue.includes(id)) App.queue = App.songs.map(x => x.id);
+  if (!App.queue.includes(id)) App.queue = App.filtered().map(x => x.id);
   const tok = ++loadToken;
   App.curId = id; App.loadingId = id;
-  UI.now(); UI.lib(); UI.lists(); UI.busy('Plak hazırlanıyor…');
+  Wave.set(s.peaks ? Uint8Array.from(s.peaks) : null);
+  UI.now(); UI.lib(); UI.lists(); UI.busy('Hazırlanıyor…');
   try {
     let blob = s.blob;
     if (!blob) {
@@ -533,7 +664,7 @@ async function playSong(id, queue) {
       blob = await Cloud.download(s.audioPath);
       if (tok !== loadToken) return;
       s.blob = blob; DB.put('songs', s);
-      UI.busy('Plak hazırlanıyor…');
+      UI.busy('Hazırlanıyor…');
     }
     const ok = await Engine.load(id, blob, () => tok !== loadToken);
     if (!ok || tok !== loadToken) return;
@@ -550,25 +681,38 @@ function toggle() {
   Engine.unlock();
   if (App.loadingId) return;
   if (!App.curId || Engine.loadedId !== App.curId) {
-    const first = App.curId || (App.prefs.shuffle ? App.songs[Math.floor(Math.random() * App.songs.length)] : App.songs[0] || {}).id;
+    const list = App.filtered();
+    const first = App.curId || (App.prefs.shuffle ? list[Math.floor(Math.random() * list.length)] : list[0] || {}).id;
     if (first) playSong(first); return;
   }
   Engine.playing ? Engine.pause() : Engine.play();
   UI.now();
 }
-function step(dir, auto) {
+function nextId(dir) {
   const q = App.queue.filter(id => App.byId(id));
-  if (!q.length) return;
+  if (!q.length) return null;
+  const i = q.indexOf(App.curId);
+  if (App.prefs.shuffle && q.length > 1 && dir > 0) { let n; do n = Math.floor(Math.random() * q.length); while (n === i); return q[n]; }
+  let n = i + dir;
+  if (n >= q.length) n = 0; if (n < 0) n = q.length - 1;
+  return q[n];
+}
+function step(dir, auto) {
   if (auto && App.prefs.repeat === 'one') { Engine.seek(0); Engine.play(); UI.now(); return; }
   if (dir < 0 && Engine.pos > 3) { Engine.seek(0); return; }
-  let i = q.indexOf(App.curId), n;
-  if (App.prefs.shuffle && q.length > 1 && dir > 0) { do n = Math.floor(Math.random() * q.length); while (n === i); }
-  else n = i + dir;
-  if (n >= q.length) { if (auto && App.prefs.repeat === 'off') { UI.now(); return; } n = 0; }
-  if (n < 0) n = q.length - 1;
-  playSong(q[n]);
+  const q = App.queue.filter(id => App.byId(id));
+  if (auto && App.prefs.repeat === 'off' && !App.prefs.shuffle && q.indexOf(App.curId) === q.length - 1) { UI.now(); return; }
+  const id = nextId(dir); if (id) playSong(id);
 }
+function skip(sec) { if (Engine.loadedId !== App.curId) return; Engine.seek(Engine.pos + sec * Engine.fx.rate); setSeek(Engine.pos, Engine.duration); }
 Engine.on('end', () => step(1, true));
+Engine.on('state', () => UI.now());
+Engine.on('mode', () => { toast('Gelişmiş ses motoru başlamadı, yedek moda geçildi. Ses gelmezse çal tuşuna bir kez daha bas.'); UI.now(); renderFx(); });
+Engine.on('peaks', (pk, id) => {
+  const s = App.byId(id); if (!s) return;
+  if (!s.peaks) { s.peaks = Array.from(pk); DB.put('songs', s); }
+  if (id === App.curId) Wave.set(pk);
+});
 
 /* Kilit ekranı / kulaklık */
 const Media = {
@@ -593,139 +737,227 @@ if ('mediaSession' in navigator) {
   h('pause', () => { Engine.pause(); UI.now(); });
   h('previoustrack', () => step(-1));
   h('nexttrack', () => step(1));
+  h('seekbackward', () => skip(-10));
+  h('seekforward', () => skip(10));
   h('seekto', d => { if (d && isFinite(d.seekTime)) Engine.seek(d.seekTime); });
 }
 
-/* ================= Arayüz ================= */
+/* ================= Simgeler ================= */
 const ICON = {
-  play: '<path d="M8 5v14l11-7z"/>', pause: '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>',
+  note: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 3.5 20 1.5v13.2a3.3 3.3 0 1 1-2-3V5.4l-6 1.2v10.1a3.3 3.3 0 1 1-2-3z"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12.5-7.5z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4.2v16H6zM13.8 4H18v16h-4.2z"/></svg>',
   more: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
   cloud: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18z"/></svg>',
   cloudDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v7m-3-3 3 3 3-3"/></svg>',
-  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>'
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+  export: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-4-4 4 4 4-4"/><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
+  sort: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M6 12h12M10 18h4"/></svg>',
+  wave: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10M21 12h0"/></svg>'
 };
-const initial = s => esc((s.title || '?').trim().charAt(0).toLocaleUpperCase('tr-TR'));
-const thumb = (url, s) => `<span class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : initial(s)}</span>`;
+const thumb = url => `<span class="thumb">${url ? `<img src="${esc(url)}" alt="" loading="lazy" decoding="async">` : ICON.note}</span>`;
+function setThumb(el, url) {
+  const img = el.querySelector('img');
+  if (url) { if (!img || img.getAttribute('src') !== url) el.innerHTML = `<img src="${esc(url)}" alt="">`; }
+  else if (img || !el.firstChild) el.innerHTML = ICON.note;
+}
+const rangeFill = el => el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%');
+
+/* ================= Dalga formu ================= */
+const Wave = (() => {
+  const cv = $('wave'), g = cv.getContext('2d');
+  let pk = null, drag = false;
+  function size() { const w = Math.round(cv.clientWidth * (window.devicePixelRatio || 2)); if (w && cv.width !== w) { cv.width = w; cv.height = Math.round(96 * (window.devicePixelRatio || 2)); } }
+  const draw = raf(() => {
+    if ($('player').classList.contains('closed')) return;
+    size();
+    const W = cv.width, H = cv.height;
+    g.clearRect(0, 0, W, H);
+    $('waveHint').hidden = !!pk;
+    if (!pk) return;
+    const n = pk.length, bw = W / n, prog = Engine.duration && Engine.loadedId === App.curId ? Engine.pos / Engine.duration : 0;
+    const cut = prog * W;
+    for (let i = 0; i < n; i++) {
+      const x = i * bw, h = Math.max(2, (pk[i] / 255) * H * 0.92);
+      g.fillStyle = x < cut ? '#5d1f8c' : '#2c1340';
+      g.fillRect(x, (H - h) / 2, Math.max(1, bw * 0.9), h);
+    }
+  });
+  function seekFrom(e) {
+    if (!Engine.duration || Engine.loadedId !== App.curId) return;
+    const r = cv.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    Engine.seek(f * Engine.duration); setSeek(Engine.pos, Engine.duration); draw();
+  }
+  cv.addEventListener('pointerdown', e => { drag = true; cv.setPointerCapture(e.pointerId); seekFrom(e); });
+  cv.addEventListener('pointermove', e => { if (drag) seekFrom(e); });
+  cv.addEventListener('pointerup', () => drag = false);
+  cv.addEventListener('pointercancel', () => drag = false);
+  window.addEventListener('resize', draw);
+  return { set(p) { pk = p; draw(); }, draw };
+})();
+
+/* ================= Arayüz ================= */
+function setSeek(t, d) {
+  const v = d ? t / d * 1000 : 0;
+  const s = $('seek'); s.value = v; rangeFill(s);
+  $('cur').textContent = fmt(t / (Engine.fx.rate || 1)); $('dur').textContent = fmt(d / (Engine.fx.rate || 1));
+}
+let dragging = false;
+Engine.on('time', t => { if (!dragging && Engine.loadedId === App.curId) { setSeek(t, Engine.duration); Wave.draw(); } Media.pos(); });
 
 const UI = {
   now() {
     const s = App.byId(App.curId);
-    $('title').textContent = s ? s.title : (App.songs.length ? 'Çalmaya hazır' : 'Henüz plak yok');
-    $('artist').textContent = s ? [s.artist, s.album].filter(Boolean).join(' · ') || 'Bilinmeyen sanatçı' : (App.songs.length ? 'Bir şarkı seç ya da çal tuşuna bas' : 'Şarkılarını ekle, gerisi kolay');
     const url = Img.url(s);
-    const label = $('label'), img = label.querySelector('img');
-    if (url) { if (!img) label.insertAdjacentHTML('afterbegin', '<img alt="">'); const im = label.querySelector('img'); if (im.getAttribute('src') !== url) im.src = url; }
-    else if (img) img.remove();
-    label.querySelector('.rpm').hidden = !!url; $('labelText').hidden = !!url;
-    $('labelText').textContent = s ? s.title : 'Plak koy';
+    $('mini').hidden = !s;
+    if (s) {
+      $('miniT').textContent = s.title; $('miniA').textContent = s.artist || 'Bilinmeyen sanatçı';
+      $('pT').textContent = s.title; $('pA').textContent = [s.artist || 'Bilinmeyen sanatçı', s.album].filter(Boolean).join(' · ');
+      setThumb($('miniThumb'), url); setThumb($('pThumb'), url);
+    } else { $('pT').textContent = 'Henüz şarkı seçilmedi'; $('pA').textContent = 'Kütüphaneden bir şarkıya dokun'; setThumb($('pThumb'), null); }
     const on = Engine.playing && Engine.loadedId === App.curId;
-    $('app').classList.toggle('playing', on);
-    $('playIcon').innerHTML = on ? ICON.pause : ICON.play;
+    $('miniPlay').innerHTML = on ? ICON.pause : ICON.play; $('play').innerHTML = on ? ICON.pause : ICON.play;
     $('play').setAttribute('aria-label', on ? 'Duraklat' : 'Çal');
-    ['prev', 'next', 'play'].forEach(id => $(id).disabled = !App.songs.length);
-    if (Engine.loadedId !== App.curId) { setSeek(0, 0); } else { $('dur').textContent = fmt(Engine.duration); }
-    Media.pos();
+    ['prev', 'next', 'play', 'back10', 'fwd10'].forEach(id => $(id).disabled = !App.songs.length);
+    if (Engine.loadedId !== App.curId) setSeek(0, s && s.duration || 0); else setSeek(Engine.pos, Engine.duration);
+    const nid = s ? (App.prefs.repeat === 'one' ? s.id : (App.prefs.shuffle ? null : nextId(1))) : null;
+    const ns = nid && (nid !== App.curId || App.prefs.repeat === 'one') ? App.byId(nid) : null;
+    $('upnextT').textContent = App.prefs.shuffle ? 'Sıradaki: karışık' : ns ? 'Sıradaki: ' + ns.title : '';
+    $('fxNote').hidden = Engine.mode !== 'simple';
+    Wave.draw(); Media.pos();
   },
-  busy(t) { $('busy').hidden = !t; if (t) $('busyText').textContent = t; },
+  busy(t) { $('busy').hidden = !t; if (t) $('busy').textContent = t; },
   modes() {
     $('shuffle').setAttribute('aria-pressed', App.prefs.shuffle);
     $('repeat').setAttribute('aria-pressed', App.prefs.repeat !== 'off');
     $('repeatOne').hidden = App.prefs.repeat !== 'one';
     $('repeat').setAttribute('aria-label', 'Tekrarla: ' + ({ off: 'kapalı', all: 'tüm liste', one: 'tek şarkı' })[App.prefs.repeat]);
   },
-  chips() {
-    const f = Engine.fx;
-    $('chipTempoV').textContent = num(f.rate) + '×';
-    $('chipPitchV').textContent = 'Ton ' + (f.semi > 0.04 ? '+' : '') + (Math.abs(f.semi) < 0.05 ? '0' : num(f.semi, 1));
-    $('chipEqV').textContent = 'EQ';
-    $('chipTempo').classList.toggle('on', Math.abs(f.rate - 1) > 0.001);
-    $('chipPitch').classList.toggle('on', Math.abs(f.semi) > 0.04);
-    $('chipEq').classList.toggle('on', f.eqOn && f.eq.some(v => v));
-  },
   lib() {
     if (App.view !== 'lib') return;
     const list = App.filtered();
-    $('count').textContent = App.songs.length + ' şarkı' + (App.query ? ` · ${list.length} sonuç` : '');
+    $('count').textContent = App.songs.length ? App.songs.length + ' şarkı' + (App.query ? ` · ${list.length} sonuç` : '') : '';
     $('empty').hidden = App.songs.length > 0;
     $('syncState').textContent = Cloud.state;
     $('list').innerHTML = list.map(s => {
       const st = s.cloud ? (s.blob ? ICON.cloud : ICON.cloudDown) : '';
-      return `<li class="row${s.id === App.curId ? ' on' : ''}" data-id="${esc(s.id)}">${thumb(Img.url(s), s)}
-        <span class="m"><div class="st">${esc(s.title)}</div><div class="sa">${st}<span>${esc(s.artist || 'Bilinmeyen sanatçı')}${s.album ? ' · ' + esc(s.album) : ''}</span></div></span>
-        <button class="more" data-edit="${esc(s.id)}" aria-label="Düzenle">${ICON.more}</button></li>`;
+      return `<li class="row${s.id === App.curId ? ' on' : ''}" data-id="${esc(s.id)}">${thumb(Img.url(s))}
+        <span class="m"><div class="t">${esc(s.title)}</div><div class="a">${st}<span>${esc(s.artist || 'Bilinmeyen sanatçı')}</span></div></span>
+        <button class="more" data-edit="${esc(s.id)}" aria-label="Seçenekler">${ICON.more}</button></li>`;
     }).join('');
   },
   lists() {
     if (App.view !== 'lists') return;
-    const v = $('listsView');
+    const v = $('vLists');
     if (App.openList) {
       const L = App.lists.find(l => l.id === App.openList);
       if (!L) { App.openList = null; return UI.lists(); }
       const rows = L.tracks.map((t, i) => ({ t, i, s: App.match(t) }));
       const ready = rows.filter(r => r.s).length;
-      v.innerHTML = `<div class="list-head"><button class="back" id="listBack" aria-label="Geri">${ICON.back}</button>
+      v.innerHTML = `<div class="top"></div><div class="lhead"><button class="circle" id="listBack" aria-label="Geri">${ICON.back}</button>
           <div class="grow"><h2>${esc(L.name)}</h2><div class="sub">${ready}/${L.tracks.length} şarkı çalınabilir</div></div>
           <button class="btn primary" id="listPlay" ${ready ? '' : 'disabled'}>Çal</button></div>
-        <ul class="rows">${rows.map(({ t, i, s }) => `<li class="row${s ? '' : ' missing'}${s && s.id === App.curId ? ' on' : ''}" ${s ? `data-id="${esc(s.id)}" data-list="1"` : ''}>
-          ${thumb(s ? Img.url(s) || t.coverUrl : t.coverUrl, t)}
-          <span class="m"><div class="st">${esc(t.title)}</div><div class="sa"><span>${esc(t.artist)}</span></div></span>
-          ${s ? `<button class="more" data-edit="${esc(s.id)}" aria-label="Düzenle">${ICON.more}</button>` : `<button class="mini" data-attach="${i}">Dosya ekle</button>`}</li>`).join('')}</ul>
-        <button class="btn danger" id="listDel">Listeyi sil</button>`;
+        <ul class="rows">${rows.map(({ t, i, s }) => `<li class="row${s ? '' : ' missing'}${s && s.id === App.curId ? ' on' : ''}" ${s ? `data-id="${esc(s.id)}"` : ''}>
+          ${thumb(s ? Img.url(s) || t.coverUrl : t.coverUrl)}
+          <span class="m"><div class="t">${esc(t.title)}</div><div class="a"><span>${esc(t.artist)}</span></div></span>
+          ${s ? `<button class="more" data-edit="${esc(s.id)}" aria-label="Seçenekler">${ICON.more}</button>` : `<button class="chipbtn" data-attach="${i}">Dosya ekle</button>`}</li>`).join('')}</ul>
+        <div style="height:18px"></div><button class="btn danger" id="listDel" style="width:100%">Listeyi sil</button>`;
       return;
     }
-    const sp = Spotify.enabled
-      ? (Spotify.connected ? `<button class="btn sp" id="spImport">Spotify'dan liste aktar</button>` : `<button class="btn sp" id="spConnect">Spotify ile bağlan</button>`)
-      : '';
-    v.innerHTML = `<div class="list-head"><div class="grow"><h2>Listeler</h2></div>${sp}</div>` +
+    const sp = Spotify.enabled ? (Spotify.connected ? `<button class="btn sp" id="spImport">Spotify'dan aktar</button>` : `<button class="btn sp" id="spConnect">Spotify ile bağlan</button>`) : '';
+    v.innerHTML = `<div class="top">${sp}</div><h1>Listeler</h1>` +
       (App.lists.length ? `<div class="cards">${App.lists.map(L => {
         const ready = L.tracks.filter(t => App.match(t)).length;
-        return `<button class="card" data-list-open="${esc(L.id)}"><span class="img" style="${L.image ? `background-image:url('${esc(L.image)}')` : ''}">${L.image ? '' : '♪'}</span>
-          <span class="cb"><span class="cn">${esc(L.name)}</span><span class="cs">${ready}/${L.tracks.length} hazır</span></span></button>`;
+        return `<button class="card" data-list-open="${esc(L.id)}"><span class="img" style="${L.image ? `background-image:url('${esc(L.image)}')` : ''}">${L.image ? '' : ICON.note}</span>
+          <span class="cn">${esc(L.name)}</span><span class="cs">${ready}/${L.tracks.length} hazır</span></button>`;
       }).join('')}</div>` :
-      `<div class="empty"><p><strong>Henüz liste yok.</strong> ${Spotify.enabled
-        ? 'Spotify\'ı bağla, listelerini ve beğendiklerini getir. Elindeki MP3\'ler isimlerine göre otomatik eşleşir, eksikler için "Dosya ekle" ile şarkıyı seçince Spotify\'daki ad, sanatçı ve kapak dosyaya işlenir.'
-        : 'Spotify listelerini getirmek için kurulum rehberindeki Spotify adımını yap ve config.js\'e Client ID\'yi yaz.'}</p></div>`);
+      `<div class="empty"><p><strong>Henüz liste yok.</strong></p><p>${Spotify.enabled
+        ? 'Spotify\'ı bağla, listelerini ve beğendiklerini getir. Elindeki şarkılar isimlerine göre otomatik eşleşir; eksikler için "Dosya ekle" deyince Spotify\'daki ad, sanatçı ve kapak dosyaya işlenir.'
+        : 'Spotify listelerini getirmek için rehberdeki Spotify adımını yapıp config.js dosyasına Client ID\'yi yaz.'}</p></div>`);
   },
-  acctBtn() {
-    const b = $('acctBtn');
-    if (Cloud.user) { b.innerHTML = esc((Cloud.user.email || '?').charAt(0).toUpperCase()) + '<span class="dot"></span>'; b.style.color = 'var(--gold)'; }
-    else { b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>'; b.style.color = ''; }
-  },
+  acctBtn() {},
   account() {
-    const el = $('acctBody'); if (!el) return;
+    const el = $('vAcct'); if (!el) return;
     let cloud;
     if (!Cloud.enabled) cloud = `<p class="msg">Bulut henüz kurulmadı. Rehberdeki Supabase adımını yapıp config.js dosyasına adresi ve anahtarı yazınca burada giriş ekranı çıkar.</p>`;
-    else if (Cloud.user) cloud = `<p class="msg">Giriş yapıldı: <strong style="color:var(--fg)">${esc(Cloud.user.email)}</strong></p>
-      <p class="msg" id="acSync">${esc(Cloud.state || '')}</p>
+    else if (Cloud.user) cloud = `<p class="msg">Giriş yapıldı: <strong>${esc(Cloud.user.email)}</strong></p><p class="msg">${esc(Cloud.state || '')}</p>
       <div class="btns"><button class="btn" id="acSyncBtn">Şimdi eşitle</button><button class="btn danger" id="acOut">Çıkış yap</button></div>`;
-    else cloud = `<p class="msg">Giriş yaparsan şarkıların, bilgileri ve kapaklarıyla buluta yedeklenir. Telefon değişse de kaybolmaz.</p>
+    else cloud = `<p class="msg">Giriş yaparsan şarkıların bilgileri ve kapaklarıyla buluta yedeklenir, telefon değişse de kaybolmaz.</p>
       <div class="field"><label for="acMail">E-posta</label><input id="acMail" type="email" autocomplete="email" inputmode="email"></div>
       <div class="field"><label for="acPw">Şifre (en az 6 karakter)</label><input id="acPw" type="password" autocomplete="current-password"></div>
       <p class="msg" id="acMsg" hidden></p>
       <div class="btns"><button class="btn primary" id="acIn">Giriş yap</button><button class="btn" id="acUp">Hesap oluştur</button></div>`;
     let sp;
     if (!Spotify.enabled) sp = `<p class="msg">Spotify bağlantısı için rehberdeki Spotify adımını yapıp Client ID'yi config.js'e yaz.</p>`;
-    else if (Spotify.connected) sp = `<p class="msg">Bağlı hesap: <strong style="color:var(--fg)">${esc(Spotify.me ? Spotify.me.name : 'Spotify')}</strong></p>
+    else if (Spotify.connected) sp = `<p class="msg">Bağlı hesap: <strong>${esc(Spotify.me ? Spotify.me.name : 'Spotify')}</strong></p>
       <div class="btns"><button class="btn sp" id="acSpImport">Liste aktar</button><button class="btn danger" id="acSpOut">Bağlantıyı kes</button></div>`;
     else sp = `<p class="msg">Listelerini ve beğendiklerini getirir, şarkılarına doğru ad ve kapak bulur.</p><button class="btn sp" id="acSpIn">Spotify ile bağlan</button>`;
-    el.innerHTML = `<div class="grip"></div><div class="sec"><h3>Hesap</h3>${cloud}</div><div class="sec"><h4>Spotify</h4>${sp}</div>`;
+    const d = Engine.info();
+    el.innerHTML = `<div class="top"></div><h1>Hesap</h1>
+      <div class="group"><h3>Bulut</h3>${cloud}</div>
+      <div class="group"><h3>Spotify</h3>${sp}</div>
+      <div class="group"><h3>Ses motoru</h3>
+        <p class="msg">Şu an: <strong>${d.mode === 'fx' ? 'Gelişmiş (tempo + ton + ekolayzır)' : 'Yedek (sadece tempo)'}</strong></p>
+        <pre class="diag" id="diagText">${esc(['motor: ' + d.mode + (d.motor ? ' (hazır)' : ''), 'ses: ' + d.ctx, 'oturum: ' + d.session, 'worklet: ' + (d.worklet ? 'var' : 'yok'), d.ua, '', ...d.events].join('\n'))}</pre>
+        <div class="btns"><button class="btn" id="diagCopy">Kopyala</button>${d.mode === 'simple' ? '<button class="btn" id="diagRetry">Gelişmiş motoru dene</button>' : ''}</div></div>`;
   }
 };
 
-function setSeek(t, d) {
-  const v = d ? t / d * 1000 : 0;
-  const s = $('seek'); s.value = v; s.style.setProperty('--p', (v / 10) + '%');
-  $('cur').textContent = fmt(t); $('dur').textContent = fmt(d);
+/* ================= Sekmeler ================= */
+function setView(v) {
+  App.view = v;
+  $('vLib').hidden = v !== 'lib'; $('vLists').hidden = v !== 'lists'; $('vAcct').hidden = v !== 'acct';
+  $('tLib').setAttribute('aria-selected', v === 'lib'); $('tLists').setAttribute('aria-selected', v === 'lists'); $('tAcct').setAttribute('aria-selected', v === 'acct');
+  if (v === 'acct') UI.account();
+  UI.lib(); UI.lists();
+  window.scrollTo(0, 0);
 }
-let dragging = false;
-Engine.on('time', t => { if (!dragging && Engine.loadedId === App.curId) setSeek(t, Engine.duration); Media.pos(); });
+$('tLib').onclick = () => setView('lib');
+$('tLists').onclick = () => { App.openList = null; setView('lists'); };
+$('tAcct').onclick = () => setView('acct');
+$('tNow').onclick = () => openPlayer();
+
+/* ================= Tam ekran oynatıcı ================= */
+function openPlayer() {
+  const p = $('player'); p.classList.remove('closed'); p.setAttribute('aria-hidden', 'false'); p.style.transform = '';
+  $('tNow').setAttribute('aria-selected', 'true'); document.body.style.overflow = 'hidden';
+  renderFx(); UI.now(); requestAnimationFrame(() => Wave.draw());
+}
+function closePlayer() {
+  const p = $('player'); p.classList.add('closed'); p.setAttribute('aria-hidden', 'true'); p.style.transform = '';
+  $('tNow').setAttribute('aria-selected', 'false'); document.body.style.overflow = '';
+}
+(() => { // aşağı çekerek kapat
+  const h = $('phDrag'), p = $('player'); let y0 = null, dy = 0;
+  h.addEventListener('pointerdown', e => { if (e.target.closest('button')) return; y0 = e.clientY; dy = 0; h.setPointerCapture(e.pointerId); p.style.transition = 'none'; });
+  h.addEventListener('pointermove', e => { if (y0 == null) return; dy = Math.max(0, e.clientY - y0); p.style.transform = `translateY(${dy}px)`; });
+  const end = () => { if (y0 == null) return; p.style.transition = ''; y0 = null; if (dy > 110) closePlayer(); else p.style.transform = ''; };
+  h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
+  h.addEventListener('click', e => { if (!e.target.closest('button') && dy < 5) closePlayer(); });
+})();
+$('miniOpen').onclick = openPlayer;
+$('miniThumb').onclick = openPlayer;
+$('miniPlay').onclick = toggle;
+$('miniNext').onclick = () => { Engine.unlock(); step(1); };
 
 /* ================= Sheet yönetimi ================= */
 function openSheet(id) { $(id).hidden = false; document.body.style.overflow = 'hidden'; }
-function closeSheet(id) { $(id).hidden = true; if (![...document.querySelectorAll('.sheet')].some(s => !s.hidden)) document.body.style.overflow = ''; }
-document.querySelectorAll('.sheet').forEach(sh => sh.addEventListener('click', e => { if (e.target === sh) closeSheet(sh.id); }));
+function closeSheet(id) { $(id).hidden = true; if (![...document.querySelectorAll('.sheet')].some(s => !s.hidden) && $('player').classList.contains('closed')) document.body.style.overflow = ''; }
+document.querySelectorAll('.sheet').forEach(sh => sh.addEventListener('click', e => { if (e.target === sh && sh.id !== 'cropSheet') closeSheet(sh.id); }));
+function menu(items) {
+  $('menuBody').innerHTML = `<div class="menu">${items.map((it, i) => `<button data-i="${i}" class="${it.cls || ''}">${it.icon || ''}<span>${esc(it.label)}</span></button>`).join('')}</div><button class="btn" id="menuClose">Vazgeç</button>`;
+  $('menuBody').onclick = e => {
+    if (e.target.closest('#menuClose')) return closeSheet('menuSheet');
+    const b = e.target.closest('[data-i]'); if (!b) return;
+    const it = items[+b.dataset.i]; if (!it.keep) closeSheet('menuSheet'); it.run(b);
+  };
+  openSheet('menuSheet');
+}
 
-/* ================= Ses sayfası ================= */
+/* ================= Ses ayarları ================= */
 const EQ_PRESETS = {
   flat:    { n: 'Düz',            g: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
   vokal:   { n: 'Arabesk vokal',  g: [-1, 0, 0, -1, -1, 1, 3, 3, 2, 1] },
@@ -735,91 +967,123 @@ const EQ_PRESETS = {
   kulak:   { n: 'Kulaklık',       g: [3, 2, 1, 0, -1, 0, 1, 2, 3, 2] },
   hoparlor:{ n: 'Telefon hoparlörü', g: [-4, -2, 2, 3, 2, 1, 1, 2, 2, 0] }
 };
-const RATE_PRESETS = [0.75, 0.85, 0.9, 1, 1.1, 1.25];
 const MODES = [
   { n: 'Orijinal', rate: 1, semi: 0 },
-  { n: 'Slowed', rate: 0.85, semi: +(12 * Math.log2(0.85)).toFixed(1) },
+  { n: 'Slowed', rate: 0.85, semi: Math.round(1200 * Math.log2(0.85)) / 100 },
   { n: 'Ağır damar', rate: 0.92, semi: -1 },
-  { n: 'Speed up', rate: 1.2, semi: +(12 * Math.log2(1.2)).toFixed(1) },
+  { n: 'Speed up', rate: 1.2, semi: Math.round(1200 * Math.log2(1.2)) / 100 },
+  { n: 'Nightcore', rate: 1.25, semi: 3 },
   { n: 'Karaoke tonu −2', rate: 1, semi: -2 },
   { n: 'Karaoke tonu +2', rate: 1, semi: 2 }
 ];
-function buildFx() {
-  $('ratePills').innerHTML = RATE_PRESETS.map(r => `<button class="pill" data-rate="${r}">${num(r)}×</button>`).join('');
-  $('modePills').innerHTML = MODES.map((m, i) => `<button class="pill" data-mode="${i}">${m.n}</button>`).join('');
+const signed = (v, d) => (v > 0.0001 ? '+' : '') + (Math.abs(v) < 0.005 ? (0).toFixed(d).replace('.', ',') : num(v, d));
+function buildEq() {
   $('eqPills').innerHTML = Object.entries(EQ_PRESETS).map(([k, p]) => `<button class="pill" data-eq="${k}">${p.n}</button>`).join('');
-  $('bands').innerHTML = Engine.FREQS.map((f, i) => `<div class="band"><span>${f >= 1000 ? f / 1000 + 'k' : f}</span>
-    <input type="range" class="center" id="b${i}" data-band="${i}" min="-12" max="12" step="0.5" aria-label="${f} Hz"><span id="bv${i}"></span></div>`).join('');
+  $('eqGrid').innerHTML = Engine.FREQS.map((f, i) => `<div class="eqb"><span class="v" id="ev${i}"></span>
+    <div class="vs" data-band="${i}"><span class="tr"></span><span class="mid"></span><span class="fill" id="ef${i}"></span><span class="kn" id="ek${i}"></span></div>
+    <span class="f">${f >= 1000 ? f / 1000 + 'k' : f}</span></div>`).join('');
+}
+function bandUI(i, v) {
+  const H = 170, y = (1 - (v + 12) / 24) * H, mid = H / 2;
+  $('ek' + i).style.top = y + 'px';
+  const f = $('ef' + i); f.style.top = Math.min(y, mid) + 'px'; f.style.height = Math.abs(y - mid) + 'px';
+  $('ev' + i).textContent = (v > 0 ? '+' : '') + num(v, 1);
 }
 function renderFx() {
   const f = Engine.fx;
-  $('rate').value = Math.round(f.rate * 100); $('rateV').textContent = num(f.rate) + '×';
-  $('semi').value = Math.round(f.semi * 10); $('semiV').textContent = (f.semi > 0.04 ? '+' : '') + (Math.abs(f.semi) < 0.05 ? '0' : num(f.semi, 1));
-  $('formant').setAttribute('aria-checked', f.formant);
-  $('eqOn').setAttribute('aria-checked', f.eqOn);
-  document.querySelectorAll('[data-rate]').forEach(b => b.classList.toggle('on', Math.abs(+b.dataset.rate - f.rate) < 0.001));
-  document.querySelectorAll('[data-mode]').forEach(b => { const m = MODES[+b.dataset.mode]; b.classList.toggle('on', Math.abs(m.rate - f.rate) < 0.001 && Math.abs(m.semi - f.semi) < 0.05); });
+  $('rate').value = Math.round(f.rate * 100); $('rateV').textContent = Math.round(f.rate * 100) + ' %';
+  $('semi').value = Math.round(f.semi * 100); $('semiV').textContent = signed(f.semi, 2);
+  $('pre').value = Math.round(f.pre * 10); $('preV').textContent = signed(f.pre, 1) + ' dB';
+  $('preV').classList.toggle('off', !f.preOn); $('pre').classList.toggle('dim', !f.preOn); $('preReset').classList.toggle('off', !f.preOn);
+  $('preOn').setAttribute('aria-checked', f.preOn);
+  $('formant').classList.toggle('on', f.formant);
+  $('eqOn').setAttribute('aria-checked', f.eqOn); $('eqBlk').classList.toggle('eqoff', !f.eqOn);
   document.querySelectorAll('[data-eq]').forEach(b => b.classList.toggle('on', b.dataset.eq === f.eqPreset));
-  f.eq.forEach((v, i) => { $('b' + i).value = v; $('bv' + i).textContent = (v > 0 ? '+' : '') + num(v, 1) + ' dB'; });
-  ['rate', 'semi', ...f.eq.map((_, i) => 'b' + i)].forEach(id => { const el = $(id); el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); });
-  drawEq(); UI.chips();
+  f.eq.forEach((v, i) => bandUI(i, v));
+  ['rate', 'semi', 'pre'].forEach(id => rangeFill($(id)));
+  $('fxNote').hidden = Engine.mode !== 'simple';
 }
-const drawEq = raf(() => {
-  const cv = $('eqCurve'); if ($('fxSheet').hidden) return;
-  const g = cv.getContext('2d'), W = cv.width, H = cv.height;
-  const css = getComputedStyle(document.documentElement);
-  const N = 120, freqs = [...Array(N)].map((_, i) => 20 * Math.pow(1000, i / (N - 1)));
-  const r = Engine.response(freqs);
-  g.clearRect(0, 0, W, H);
-  g.strokeStyle = css.getPropertyValue('--line'); g.lineWidth = 1;
-  [-12, 0, 12].forEach(db => { const y = H / 2 - db / 15 * (H / 2); g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); });
-  const gold = css.getPropertyValue('--gold').trim();
-  g.beginPath();
-  r.forEach((db, i) => { const x = i / (N - 1) * W, y = H / 2 - Math.max(-15, Math.min(15, db)) / 15 * (H / 2); i ? g.lineTo(x, y) : g.moveTo(x, y); });
-  g.strokeStyle = gold; g.lineWidth = 3; g.stroke();
-  g.lineTo(W, H / 2); g.lineTo(0, H / 2); g.closePath(); g.fillStyle = gold + '22'; g.fill();
-});
-function setRate(r) { r = Math.round(Math.max(0.5, Math.min(1.5, r)) * 100) / 100; Engine.setFx({ rate: r }); renderFx(); Media.pos(); }
-function setSemi(s) { s = Math.round(Math.max(-12, Math.min(12, s)) * 10) / 10; Engine.setFx({ semi: s }); renderFx(); }
-
+function setRate(r) { r = Math.round(Math.max(0.5, Math.min(1.5, r)) * 100) / 100; Engine.setFx({ rate: r }); renderFx(); UI.now(); }
+function setSemi(s) { s = Math.round(Math.max(-12, Math.min(12, s)) * 100) / 100; Engine.setFx({ semi: s }); renderFx(); }
 $('rate').addEventListener('input', e => setRate(e.target.value / 100));
-$('semi').addEventListener('input', e => setSemi(e.target.value / 10));
-$('rateDown').onclick = () => setRate(Engine.fx.rate - 0.05);
-$('rateUp').onclick = () => setRate(Engine.fx.rate + 0.05);
-$('semiDown').onclick = () => setSemi(Math.ceil(Engine.fx.semi - 1e-9) - 1);
-$('semiUp').onclick = () => setSemi(Math.floor(Engine.fx.semi + 1e-9) + 1);
-$('formant').onclick = () => { Engine.setFx({ formant: !Engine.fx.formant }); renderFx(); };
+$('semi').addEventListener('input', e => { let v = e.target.value / 100; if (Math.abs(v - Math.round(v)) < 0.06) v = Math.round(v); setSemi(v); });
+$('rateReset').onclick = () => setRate(1);
+$('semiReset').onclick = () => setSemi(0);
+$('formant').onclick = () => { Engine.setFx({ formant: !Engine.fx.formant }); renderFx(); toast(Engine.fx.formant ? 'Doğal vokal açık: ton değişince ses karakteri korunur' : 'Doğal vokal kapalı'); };
+$('pre').addEventListener('input', e => { Engine.setEq({ pre: e.target.value / 10, preOn: true }); renderFx(); });
+$('preOn').onclick = () => { Engine.setEq({ preOn: !Engine.fx.preOn }); renderFx(); };
+$('preReset').onclick = () => { Engine.setEq({ pre: 0 }); renderFx(); };
 $('eqOn').onclick = () => { Engine.setEq({ eqOn: !Engine.fx.eqOn }); renderFx(); };
-$('fxSheet').addEventListener('click', e => {
-  const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.rate) setRate(+b.dataset.rate);
-  else if (b.dataset.mode) { const m = MODES[+b.dataset.mode]; Engine.setFx({ rate: m.rate, semi: m.semi }); renderFx(); Media.pos(); }
-  else if (b.dataset.eq) { Engine.setEq({ eq: EQ_PRESETS[b.dataset.eq].g.slice(), eqPreset: b.dataset.eq, eqOn: true }); renderFx(); }
-});
-$('bands').addEventListener('input', e => {
-  const i = e.target.dataset.band; if (i == null) return;
-  const eq = Engine.fx.eq.slice(); eq[+i] = +e.target.value;
-  Engine.setEq({ eq, eqPreset: 'custom' }); renderFx();
-});
-$('fxReset').onclick = () => { Engine.setFx({ rate: 1, semi: 0, formant: true }); Engine.setEq({ eq: Engine.FREQS.map(() => 0), eqPreset: 'flat', eqOn: true }); renderFx(); Media.pos(); };
-const openFx = () => { openSheet('fxSheet'); renderFx(); Engine.init().then(drawEq).catch(() => {}); };
-$('chipTempo').onclick = openFx; $('chipPitch').onclick = openFx; $('chipEq').onclick = openFx;
+$('eqReset').onclick = () => { Engine.setEq({ eq: Engine.FREQS.map(() => 0), eqPreset: 'flat' }); renderFx(); };
+$('eqPills').addEventListener('click', e => { const b = e.target.closest('[data-eq]'); if (!b) return; Engine.setEq({ eq: EQ_PRESETS[b.dataset.eq].g.slice(), eqPreset: b.dataset.eq, eqOn: true }); renderFx(); });
+(() => { // dikey EQ kaydırıcıları
+  let act = null;
+  const val = (e, el) => { const r = el.getBoundingClientRect(); let v = (1 - (e.clientY - r.top) / r.height) * 24 - 12; v = Math.max(-12, Math.min(12, Math.round(v * 10) / 10)); if (Math.abs(v) < 0.35) v = 0; return v; };
+  const set = (i, v) => { const eq = Engine.fx.eq.slice(); eq[i] = v; Engine.setEq({ eq, eqPreset: 'custom', eqOn: true }); bandUI(i, v); if (!Engine.fx.eqOn) renderFx(); document.querySelectorAll('[data-eq]').forEach(b => b.classList.remove('on')); };
+  $('eqGrid').addEventListener('pointerdown', e => { const el = e.target.closest('.vs'); if (!el) return; act = { el, i: +el.dataset.band }; el.setPointerCapture(e.pointerId); set(act.i, val(e, el)); });
+  $('eqGrid').addEventListener('pointermove', e => { if (act) set(act.i, val(e, act.el)); });
+  const end = () => act = null;
+  $('eqGrid').addEventListener('pointerup', end); $('eqGrid').addEventListener('pointercancel', end);
+})();
+$('pModes').onclick = () => menu(MODES.map(m => ({
+  label: `${m.n}  ·  ${Math.round(m.rate * 100)} %  ·  ton ${signed(m.semi, 2)}`, icon: ICON.wave,
+  cls: Math.abs(m.rate - Engine.fx.rate) < 0.001 && Math.abs(m.semi - Engine.fx.semi) < 0.005 ? 'on' : '',
+  run: () => { Engine.setFx({ rate: m.rate, semi: m.semi }); renderFx(); UI.now(); }
+})));
+
+/* ================= Kontroller ================= */
+$('play').onclick = toggle;
+$('next').onclick = () => { Engine.unlock(); step(1); };
+$('prev').onclick = () => { Engine.unlock(); step(-1); };
+$('back10').onclick = () => skip(-10);
+$('fwd10').onclick = () => skip(10);
+$('shuffle').onclick = () => { App.prefs.shuffle = !App.prefs.shuffle; App.savePrefs(); UI.modes(); UI.now(); };
+$('repeat').onclick = () => { App.prefs.repeat = { off: 'all', all: 'one', one: 'off' }[App.prefs.repeat]; App.savePrefs(); UI.modes(); UI.now(); };
+const seekEl = $('seek');
+seekEl.addEventListener('input', () => { dragging = true; rangeFill(seekEl); if (Engine.duration) $('cur').textContent = fmt(seekEl.value / 1000 * Engine.duration / Engine.fx.rate); });
+seekEl.addEventListener('change', () => { if (Engine.duration && Engine.loadedId === App.curId) Engine.seek(seekEl.value / 1000 * Engine.duration); dragging = false; Wave.draw(); });
+$('pMore').onclick = () => { const s = App.byId(App.curId); if (s) songMenu(s.id); };
+$('pExport').onclick = () => { if (App.curId) openExport(App.curId); else toast('Önce bir şarkı çal'); };
+
+function songMenu(id) {
+  const s = App.byId(id); if (!s) return;
+  menu([
+    { label: 'Bilgileri ve kapağı düzenle', icon: ICON.edit, run: () => openEdit(id) },
+    { label: 'Dışa aktar', icon: ICON.export, run: () => openExport(id) },
+    { label: 'Şarkıyı sil', icon: ICON.trash, cls: 'danger', keep: true, run: b => {
+      if (!b.dataset.sure) { b.dataset.sure = 1; b.querySelector('span').textContent = 'Emin misin? Tekrar bas'; return; }
+      closeSheet('menuSheet'); deleteSong(id);
+    } }
+  ]);
+}
+async function deleteSong(id) {
+  const s = App.byId(id); if (!s) return;
+  App.songs.splice(App.songs.indexOf(s), 1); Img.drop(s.id);
+  await DB.del('songs', s.id); Cloud.remove(s);
+  if (App.curId === s.id) { Engine.pause(); App.curId = null; Wave.set(null); }
+  UI.lib(); UI.lists(); UI.now(); toast('Silindi');
+}
+$('libMenuBtn').onclick = () => menu([['added', 'En yeni üstte'], ['title', 'Şarkı adına göre'], ['artist', 'Sanatçıya göre']].map(([k, l]) => ({
+  label: l, icon: ICON.sort, cls: App.prefs.sort === k ? 'on' : '', run: () => { App.prefs.sort = k; App.savePrefs(); UI.lib(); }
+})));
 
 /* ================= Şarkı ekleme ================= */
 async function addFiles(files, preset) {
   const added = [];
-  UI.busy(files.length > 1 ? `${files.length} şarkı okunuyor…` : 'Şarkı okunuyor…');
+  const old = $('player').classList.contains('closed');
+  toast(files.length > 1 ? `${files.length} şarkı okunuyor…` : 'Şarkı okunuyor…');
   for (const f of files) {
     const meta = await Tags.read(f);
     const s = Object.assign({ id: newId(), blob: f, added: Date.now() + added.length, updated: Date.now(), cloud: false, album: '', year: '' }, meta);
     if (preset) {
       Object.assign(s, { title: preset.title, artist: preset.artist, album: preset.album || s.album, year: preset.year || s.year, spId: preset.spId });
       if (preset.coverUrl) { s.coverUrl = preset.coverUrl; const b = await Img.fromUrl(preset.coverUrl); if (b) s.cover = b; }
+      if (preset.cover) s.cover = preset.cover;
     }
     App.songs.push(s); added.push(s);
     await DB.put('songs', s);
   }
-  UI.busy(null); UI.lib(); UI.lists(); UI.now();
+  UI.lib(); UI.lists(); UI.now();
   if (Cloud.user) Cloud.sync();
   return added;
 }
@@ -837,15 +1101,59 @@ $('attachInput').addEventListener('change', async e => {
   toast('Şarkı eşleşti, bilgileri ve kapağı işlendi');
 });
 
-/* ================= Düzenleme sayfası ================= */
-let edit = null; // {id, cover:Blob|null|undefined, coverUrl}
+/* ================= Kapak kırpma ================= */
+const Crop = (() => {
+  const box = $('cropBox'), img = $('cropImg'), zoom = $('cropZoom');
+  let w = 0, h = 0, S = 0, min = 1, sc = 1, tx = 0, ty = 0, url = null, done = null;
+  const pts = new Map(); let last = null;
+  const clamp = () => { tx = Math.min(0, Math.max(S - w * sc, tx)); ty = Math.min(0, Math.max(S - h * sc, ty)); };
+  const apply = () => { clamp(); img.style.transform = `translate(${tx}px,${ty}px) scale(${sc})`; zoom.value = Math.round(sc / min * 100); rangeFill(zoom); };
+  const zoomAt = (px, py, ns) => { ns = Math.max(min, Math.min(min * 5, ns)); tx = px - (px - tx) * (ns / sc); ty = py - (py - ty) * (ns / sc); sc = ns; apply(); };
+  function open(file, cb) {
+    done = cb; if (url) URL.revokeObjectURL(url); url = URL.createObjectURL(file);
+    openSheet('cropSheet');
+    img.onload = () => {
+      w = img.naturalWidth; h = img.naturalHeight; img.style.width = w + 'px'; img.style.height = h + 'px';
+      S = box.clientWidth; min = S / Math.min(w, h); sc = min; tx = (S - w * sc) / 2; ty = (S - h * sc) / 2; apply();
+    };
+    img.onerror = () => { closeSheet('cropSheet'); toast('Bu resim açılamadı'); };
+    img.src = url;
+  }
+  const local = e => { const r = box.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  box.addEventListener('pointerdown', e => { box.setPointerCapture(e.pointerId); pts.set(e.pointerId, local(e)); last = null; });
+  box.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    const prev = pts.get(e.pointerId), cur = local(e); pts.set(e.pointerId, cur);
+    if (pts.size === 1) { tx += cur.x - prev.x; ty += cur.y - prev.y; apply(); }
+    else if (pts.size === 2) {
+      const [a, b] = [...pts.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y), m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      if (last) { tx += m.x - last.m.x; ty += m.y - last.m.y; zoomAt(m.x, m.y, sc * d / last.d); }
+      last = { d, m };
+    }
+  });
+  const up = e => { pts.delete(e.pointerId); last = null; };
+  box.addEventListener('pointerup', up); box.addEventListener('pointercancel', up);
+  box.addEventListener('wheel', e => { e.preventDefault(); const p = local(e); zoomAt(p.x, p.y, sc * (e.deltaY < 0 ? 1.08 : 0.93)); }, { passive: false });
+  zoom.addEventListener('input', () => zoomAt(S / 2, S / 2, min * zoom.value / 100));
+  $('cropCancel').onclick = () => { closeSheet('cropSheet'); };
+  $('cropOk').onclick = () => {
+    const c = document.createElement('canvas'); c.width = c.height = 800;
+    const g = c.getContext('2d'); g.imageSmoothingQuality = 'high';
+    g.drawImage(img, -tx / sc, -ty / sc, S / sc, S / sc, 0, 0, 800, 800);
+    c.toBlob(b => { closeSheet('cropSheet'); if (b && done) done(b); }, 'image/jpeg', 0.9);
+  };
+  return { open };
+})();
+
+/* ================= Düzenleme ================= */
+let edit = null;
 function edThumb() {
   const s = App.byId(edit.id);
   let url = null;
   if (edit.cover instanceof Blob) { if (edit.tmpUrl) URL.revokeObjectURL(edit.tmpUrl); edit.tmpUrl = URL.createObjectURL(edit.cover); url = edit.tmpUrl; }
-  else if (edit.cover === null) url = null;
-  else url = Img.url(s);
-  $('edCover').innerHTML = url ? `<img src="${esc(url)}" alt="">` : initial({ title: $('edTitle').value || s.title });
+  else if (edit.cover !== null) url = Img.url(s);
+  setThumb($('edCover'), url);
 }
 function openEdit(id) {
   const s = App.byId(id); if (!s) return;
@@ -857,12 +1165,14 @@ function openEdit(id) {
   edThumb(); openSheet('editSheet');
 }
 $('edCoverBtn').onclick = () => $('coverInput').click();
-$('coverInput').addEventListener('change', async e => {
+$('edCover').onclick = () => $('coverInput').click();
+$('coverInput').addEventListener('change', e => {
   const f = e.target.files && e.target.files[0]; e.target.value = '';
   if (!f || !edit) return;
-  edit.cover = await Img.square(f); edit.coverUrl = null; edThumb();
+  Crop.open(f, b => { edit.cover = b; edit.coverUrl = null; edThumb(); });
 });
 $('edCoverDel').onclick = () => { edit.cover = null; edit.coverUrl = null; edThumb(); };
+$('edSwap').onclick = () => { const t = $('edTitle').value; $('edTitle').value = $('edArtist').value; $('edArtist').value = t; };
 $('edSpBtn').onclick = async () => {
   const q = [$('edTitle').value, $('edArtist').value].filter(Boolean).join(' ');
   const msg = $('edSpMsg'); msg.hidden = false; msg.className = 'msg'; msg.textContent = 'Aranıyor…';
@@ -870,7 +1180,7 @@ $('edSpBtn').onclick = async () => {
     const res = await Spotify.search(q);
     edit.results = res;
     msg.textContent = res.length ? 'Doğru olana dokun:' : 'Sonuç bulunamadı. Adı düzeltip tekrar dene.';
-    $('edSpRes').innerHTML = res.map((t, i) => `<div class="row" data-res="${i}">${thumb(t.coverUrl, t)}<span class="m"><div class="st">${esc(t.title)}</div><div class="sa"><span>${esc(t.artist)} · ${esc(t.album)} ${esc(t.year)}</span></div></span></div>`).join('');
+    $('edSpRes').innerHTML = res.map((t, i) => `<li class="row" data-res="${i}">${thumb(t.coverUrl)}<span class="m"><div class="t">${esc(t.title)}</div><div class="a"><span>${esc(t.artist)} · ${esc(t.album)} ${esc(t.year)}</span></div></span><span></span></li>`).join('');
   } catch (e) { msg.className = 'msg err'; msg.textContent = e.message; }
 };
 $('edSpRes').addEventListener('click', async e => {
@@ -898,20 +1208,98 @@ $('edSave').onclick = async () => {
   closeSheet('editSheet'); UI.lib(); UI.lists(); UI.now(); if (s.id === App.curId) Media.meta();
   toast('Kaydedildi');
 };
-$('edDel').onclick = async () => {
+$('edDel').onclick = () => {
   const b = $('edDel');
   if (!b.classList.contains('sure')) { b.classList.add('sure'); b.textContent = 'Emin misin? Tekrar bas'; return; }
-  const s = App.byId(edit.id); if (!s) return;
-  App.songs.splice(App.songs.indexOf(s), 1); Img.drop(s.id);
-  await DB.del('songs', s.id); Cloud.remove(s);
-  if (App.curId === s.id) { Engine.pause(); App.curId = null; }
-  closeSheet('editSheet'); UI.lib(); UI.lists(); UI.now();
-  toast('Silindi');
+  closeSheet('editSheet'); deleteSong(edit.id);
 };
 
-/* ================= Hesap sayfası ================= */
-$('acctBtn').onclick = () => { UI.account(); openSheet('acctSheet'); };
-$('acctBody').addEventListener('click', async e => {
+/* ================= Dışa aktarma ================= */
+const Exp = { id: null, fmt: 'mp3-320', fx: true, lib: false, blob: null, name: '', busy: false };
+function fxSuffix() {
+  const f = Engine.fx, p = [];
+  const m = MODES.find(m => m.n !== 'Orijinal' && Math.abs(m.rate - f.rate) < 0.001 && Math.abs(m.semi - f.semi) < 0.005);
+  if (m) p.push(m.n);
+  else {
+    if (Math.abs(f.rate - 1) > 0.001) p.push(Math.round(f.rate * 100) + '%');
+    if (Math.abs(f.semi) > 0.004) p.push('ton ' + signed(f.semi, 2));
+  }
+  return p.join(' ');
+}
+function exRender() {
+  const f = Engine.fx, s = App.byId(Exp.id);
+  const fxParts = [`tempo ${Math.round(f.rate * 100)} %`, `ton ${signed(f.semi, 2)}`, f.eqOn && f.eq.some(Boolean) ? 'ekolayzır açık' : 'ekolayzır yok', f.preOn && f.pre ? `ön kazanç ${signed(f.pre, 1)} dB` : ''].filter(Boolean);
+  $('exSummary').innerHTML = `<strong>${esc(s ? s.title : '')}</strong><br>${Exp.fx ? esc(fxParts.join(' · ')) : 'Orijinal ses, sadece format değişir'}`;
+  document.querySelectorAll('#exFmt button').forEach(b => b.setAttribute('aria-pressed', b.dataset.f === Exp.fmt));
+  $('exFx').setAttribute('aria-checked', Exp.fx); $('exLib').setAttribute('aria-checked', Exp.lib);
+}
+function openExport(id) {
+  if (Exp.busy) { openSheet('exportSheet'); return; }
+  Exp.id = id; Exp.blob = null;
+  $('exProg').hidden = true; $('exDone').hidden = true; $('exBtns').hidden = false; $('exGo').disabled = false;
+  exRender(); openSheet('exportSheet');
+}
+$('exFmt').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b && !Exp.busy) { Exp.fmt = b.dataset.f; exRender(); } });
+$('exFx').onclick = () => { if (!Exp.busy) { Exp.fx = !Exp.fx; exRender(); } };
+$('exLib').onclick = () => { if (!Exp.busy) { Exp.lib = !Exp.lib; exRender(); } };
+$('exClose').onclick = () => closeSheet('exportSheet');
+$('exGo').onclick = async () => {
+  const s = App.byId(Exp.id); if (!s || Exp.busy) return;
+  Exp.busy = true; $('exGo').disabled = true; $('exProg').hidden = false;
+  const bar = $('exBar'), msg = $('exMsg'); const prog = (t, p) => { msg.textContent = t; bar.style.width = Math.round(p * 100) + '%'; };
+  try {
+    let blob = s.blob;
+    if (!blob) { if (!Cloud.user || !s.audioPath) throw new Error('Bu şarkının dosyası bu cihazda yok'); prog('Buluttan indiriliyor', 0.02); blob = await Cloud.download(s.audioPath); s.blob = blob; DB.put('songs', s); }
+    prog('Ses çözülüyor', 0.04);
+    const ab = await blob.arrayBuffer();
+    const OC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    const buf = await new Promise((res, rej) => new OC(2, 44100, 44100).decodeAudioData(ab, res, rej));
+    const L = buf.getChannelData(0).slice(), R = (buf.numberOfChannels > 1 ? buf.getChannelData(1) : buf.getChannelData(0)).slice();
+    const f = Engine.fx, mp3 = Exp.fmt !== 'wav';
+    let cover = null; if (s.cover instanceof Blob) cover = await (await Img.square(s.cover, 800)).arrayBuffer();
+    const suffix = Exp.fx ? fxSuffix() : '';
+    const title = s.title + (suffix ? ` (${suffix})` : '');
+    const msgData = {
+      L, R, sr: buf.sampleRate, freqs: Engine.FREQS,
+      rate: Exp.fx ? f.rate : 1, semi: Exp.fx ? f.semi : 0, formant: f.formant,
+      eq: Exp.fx && f.eqOn ? f.eq.slice() : null, preDb: Exp.fx && f.preOn ? f.pre : 0,
+      format: mp3 ? 'mp3' : 'wav', kbps: Exp.fmt === 'mp3-192' ? 192 : 320,
+      tags: { title, artist: s.artist || '', album: s.album || '', year: s.year || '', cover }
+    };
+    const out = await new Promise((res, rej) => {
+      const w = new Worker('export-worker.js');
+      w.onmessage = e => {
+        const d = e.data;
+        if (d.type === 'stage') prog(d.text, 0.08 + d.p * 0.9);
+        else if (d.type === 'done') { w.terminate(); res(d); }
+        else if (d.type === 'error') { w.terminate(); rej(new Error(d.message)); }
+      };
+      w.onerror = e => { w.terminate(); rej(new Error(e.message || 'işçi başlatılamadı')); };
+      w.postMessage(msgData, [L.buffer, R.buffer].concat(cover ? [cover] : []));
+    });
+    const safe = t => t.replace(/[\\/:*?"<>|]+/g, ' ').trim();
+    Exp.blob = out.blob; Exp.name = safe(`${s.artist ? s.artist + ' - ' : ''}${title}`) + (mp3 ? '.mp3' : '.wav');
+    prog(`Hazır · ${(out.blob.size / 1048576).toFixed(1)} MB · ${fmt(out.duration)}`, 1);
+    if (Exp.lib) {
+      const file = new File([out.blob], Exp.name, { type: out.blob.type });
+      await addFiles([file], { title, artist: s.artist, album: s.album, year: s.year, cover: s.cover instanceof Blob ? s.cover : null, coverUrl: s.cover ? null : s.coverUrl });
+    }
+    $('exBtns').hidden = true; $('exDone').hidden = false;
+  } catch (e) { prog('Olmadı: ' + e.message, 0); $('exGo').disabled = false; }
+  Exp.busy = false;
+};
+$('exSave').onclick = async () => {
+  if (!Exp.blob) return;
+  const file = new File([Exp.blob], Exp.name, { type: Exp.blob.type });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: Exp.name }); return; }
+  } catch (e) { if (e.name === 'AbortError') return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = Exp.name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+};
+
+/* ================= Hesap sekmesi ================= */
+$('vAcct').addEventListener('click', async e => {
   const id = e.target.id;
   const msg = t => { const m = $('acMsg'); if (m) { m.hidden = false; m.className = 'msg err'; m.textContent = t; } };
   const tr = er => {
@@ -931,13 +1319,19 @@ $('acctBody').addEventListener('click', async e => {
       else { const needConfirm = await Cloud.signUp(mail, pw); if (needConfirm) { const m = $('acMsg'); m.hidden = false; m.className = 'msg'; m.textContent = 'Hesap açıldı. E-postana gelen onay linkine bas, sonra giriş yap.'; e.target.disabled = false; return; } }
       UI.account(); toast('Giriş yapıldı');
     } catch (er) { msg(tr(er)); }
-    e.target.disabled = false;
+    if ($(id)) $(id).disabled = false;
   }
-  else if (id === 'acOut') { await Cloud.signOut(); UI.account(); UI.acctBtn(); UI.lib(); }
-  else if (id === 'acSyncBtn') { Cloud.sync(); closeSheet('acctSheet'); }
+  else if (id === 'acOut') { await Cloud.signOut(); UI.account(); UI.lib(); }
+  else if (id === 'acSyncBtn') { Cloud.sync(); toast('Eşitleniyor'); }
   else if (id === 'acSpIn') Spotify.login();
   else if (id === 'acSpOut') { Spotify.logout(); UI.account(); UI.lists(); }
-  else if (id === 'acSpImport') { closeSheet('acctSheet'); openSpImport(); }
+  else if (id === 'acSpImport') openSpImport();
+  else if (id === 'diagRetry') Engine.retryFx();
+  else if (id === 'diagCopy') {
+    const txt = $('diagText').textContent;
+    try { await navigator.clipboard.writeText(txt); toast('Kopyalandı'); }
+    catch (er) { const r = document.createRange(); r.selectNodeContents($('diagText')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast('Metni seçtim, Kopyala de'); }
+  }
 });
 
 /* ================= Spotify aktarma ================= */
@@ -949,8 +1343,8 @@ async function openSpImport() {
     msg.hidden = true;
     const items = [{ id: 'liked', name: 'Beğenilen Şarkılar', sub: 'Kalpli şarkıların', image: null }]
       .concat(pls.map(p => ({ id: p.id, name: p.name, sub: (p.items || p.tracks || {}).total != null ? ((p.items || p.tracks).total + ' şarkı') : '', image: p.images && p.images[0] ? p.images[0].url : null })));
-    ul.innerHTML = items.map(p => `<li class="row" data-pl="${esc(p.id)}" data-name="${esc(p.name)}" data-img="${esc(p.image || '')}">${thumb(p.image, { title: p.name })}
-      <span class="m"><div class="st">${esc(p.name)}</div><div class="sa"><span>${esc(p.sub)}</span></div></span><span class="mini">Aktar</span></li>`).join('');
+    ul.innerHTML = items.map(p => `<li class="row" data-pl="${esc(p.id)}" data-name="${esc(p.name)}" data-img="${esc(p.image || '')}">${thumb(p.image)}
+      <span class="m"><div class="t">${esc(p.name)}</div><div class="a"><span>${esc(p.sub)}</span></div></span><span class="chipbtn">Aktar</span></li>`).join('');
   } catch (e) { msg.className = 'msg err'; msg.textContent = e.message; }
 }
 $('spLists').addEventListener('click', async e => {
@@ -969,16 +1363,8 @@ $('spLists').addEventListener('click', async e => {
   prog.hidden = true; delete $('spSheet').dataset.busy;
 });
 
-/* ================= Liste görünümü olayları ================= */
-function setView(v) {
-  App.view = v;
-  $('tabLib').setAttribute('aria-selected', v === 'lib'); $('tabLists').setAttribute('aria-selected', v === 'lists');
-  $('libView').hidden = v !== 'lib'; $('listsView').hidden = v !== 'lists';
-  UI.lib(); UI.lists();
-}
-$('tabLib').onclick = () => setView('lib');
-$('tabLists').onclick = () => { App.openList = null; setView('lists'); };
-$('listsView').addEventListener('click', async e => {
+/* ================= Liste ve kütüphane olayları ================= */
+$('vLists').addEventListener('click', async e => {
   const t = e.target;
   if (t.closest('#listBack')) { App.openList = null; return UI.lists(); }
   if (t.closest('#spConnect')) return Spotify.login();
@@ -990,50 +1376,35 @@ $('listsView').addEventListener('click', async e => {
     if (!b.classList.contains('sure')) { b.classList.add('sure'); b.textContent = 'Emin misin? Tekrar bas'; return; }
     App.lists.splice(App.lists.indexOf(L), 1); await DB.del('lists', L.id); App.openList = null; return UI.lists();
   }
-  const open = t.closest('[data-list-open]'); if (open) { App.openList = open.dataset.listOpen; return UI.lists(); }
+  const open = t.closest('[data-list-open]'); if (open) { App.openList = open.dataset.listOpen; window.scrollTo(0, 0); return UI.lists(); }
   const at = t.closest('[data-attach]'); if (at && L) { attachTrack = L.tracks[+at.dataset.attach]; $('attachInput').click(); return; }
-  const ed = t.closest('[data-edit]'); if (ed) return openEdit(ed.dataset.edit);
+  const ed = t.closest('[data-edit]'); if (ed) return songMenu(ed.dataset.edit);
   const row = t.closest('[data-id]');
-  if (row && L) { const q = L.tracks.map(x => App.match(x)).filter(Boolean).map(s => s.id); row.dataset.id === App.curId ? toggle() : playSong(row.dataset.id, q); }
+  if (row && L) { const q = L.tracks.map(x => App.match(x)).filter(Boolean).map(s => s.id); row.dataset.id === App.curId && Engine.loadedId === row.dataset.id ? toggle() : playSong(row.dataset.id, q); }
 });
 $('list').addEventListener('click', e => {
-  const ed = e.target.closest('[data-edit]'); if (ed) return openEdit(ed.dataset.edit);
+  const ed = e.target.closest('[data-edit]'); if (ed) return songMenu(ed.dataset.edit);
   const row = e.target.closest('[data-id]'); if (!row) return;
   const id = row.dataset.id;
   id === App.curId && Engine.loadedId === id ? toggle() : playSong(id, App.filtered().map(s => s.id));
 });
 $('search').addEventListener('input', raf(() => { App.query = $('search').value; UI.lib(); }));
 
-/* ================= Kontroller ================= */
-$('play').onclick = toggle;
-$('next').onclick = () => { Engine.unlock(); step(1); };
-$('prev').onclick = () => { Engine.unlock(); step(-1); };
-$('shuffle').onclick = () => { App.prefs.shuffle = !App.prefs.shuffle; App.savePrefs(); UI.modes(); };
-$('repeat').onclick = () => { App.prefs.repeat = { off: 'all', all: 'one', one: 'off' }[App.prefs.repeat]; App.savePrefs(); UI.modes(); };
-const seekEl = $('seek');
-seekEl.addEventListener('input', () => {
-  dragging = true; seekEl.style.setProperty('--p', (seekEl.value / 10) + '%');
-  if (Engine.duration) $('cur').textContent = fmt(seekEl.value / 1000 * Engine.duration);
-});
-seekEl.addEventListener('change', () => { if (Engine.duration && Engine.loadedId === App.curId) Engine.seek(seekEl.value / 1000 * Engine.duration); dragging = false; });
-
 /* ================= Başlat ================= */
 (async () => {
-  if (navigator.standalone) document.querySelector('.note').hidden = true;
-  buildFx(); UI.modes(); UI.chips();
+  buildEq(); UI.modes();
   await DB.open();
   const [songs, lists] = await Promise.all([DB.all('songs'), DB.all('lists')]);
   App.songs = songs; App.lists = lists; App.sortSongs();
-  App.queue = App.songs.map(s => s.id);
-  UI.now(); UI.lib(); UI.acctBtn();
+  App.queue = App.filtered().map(s => s.id);
+  UI.now(); UI.lib(); renderFx();
   document.documentElement.classList.remove('booting');
   const back = await Spotify.handleRedirect();
   if (back) { setView('lists'); openSpImport(); }
   Cloud.init();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  // ses motorunu arka planda hazırla (ilk çalışta bekleme olmasın)
-  if ('requestIdleCallback' in window) requestIdleCallback(() => stretchLib().catch(() => {}));
+  if ('requestIdleCallback' in window) requestIdleCallback(() => stretchLib().catch(() => {})); else setTimeout(() => stretchLib().catch(() => {}), 1500);
 })();
 
 })();
