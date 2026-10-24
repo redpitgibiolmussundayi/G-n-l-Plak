@@ -755,6 +755,144 @@ const Spotify = (() => {
     logout() { tok = null; me = null; LS.del('gp-sp-token'); LS.del('gp-sp-me'); } };
 })();
 
+/* ================= Stuttgart manzarası: gerçek saat, gün batımı, ay ve hava ================= */
+const Scene = (() => {
+  const LAT = 48.7758, LNG = 9.1829;
+  const SCENES = {
+    gunduz: { f: 'stg-gunduz.webp', n: 'gündüz', night: false, day: true },
+    altin: { f: 'stg-altin.webp', n: 'altın saat', night: false },
+    gunbatimi: { f: 'stg-gunbatimi.webp', n: 'gün batımı', night: false },
+    alacakaranlik: { f: 'stg-alacakaranlik.webp', n: 'alacakaranlık', night: false, dusk: true },
+    gece: { f: 'stg-gece.webp', n: 'gece', night: true },
+    dolunay: { f: 'stg-dolunay.webp', n: 'dolunay gecesi', night: true }
+  };
+  /* Güneş hesabı (SunCalc yöntemi) */
+  const rad = Math.PI / 180, J2000 = 2451545, J0 = 0.0009;
+  const toDays = ms => ms / 864e5 - 0.5 + 2440588 - J2000;
+  const fromJ = j => (j + 0.5 - 2440588) * 864e5;
+  function sun(date) {
+    const lw = -LNG * rad, phi = LAT * rad, d = toDays(date.getTime());
+    const n = Math.round(d - J0 - lw / (2 * Math.PI)), ds = J0 + lw / (2 * Math.PI) + n;
+    const M = rad * (357.5291 + 0.98560028 * ds);
+    const C = rad * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
+    const L = M + C + rad * 102.9372 + Math.PI;
+    const dec = Math.asin(Math.sin(L) * Math.sin(rad * 23.4397));
+    const noon = J2000 + ds + 0.0053 * Math.sin(M) - 0.0069 * Math.sin(2 * L);
+    const at = h => {
+      const w = Math.acos((Math.sin(h * rad) - Math.sin(phi) * Math.sin(dec)) / (Math.cos(phi) * Math.cos(dec)));
+      const set = J2000 + J0 + (w + lw) / (2 * Math.PI) + n + 0.0053 * Math.sin(M) - 0.0069 * Math.sin(2 * L);
+      return [fromJ(noon - (set - noon)), fromJ(set)];
+    };
+    const [rise, set] = at(-0.833), [dawn, dusk] = at(-6);
+    return { rise, set, dawn, dusk };
+  }
+  function moonIllum(date) {
+    const jd = date.getTime() / 864e5 + 2440587.5;
+    const p = ((jd - 2451550.1) / 29.530588853) % 1;
+    return (1 - Math.cos(2 * Math.PI * (p < 0 ? p + 1 : p))) / 2;
+  }
+  function pickAuto(now = new Date()) {
+    const t = now.getTime(), s = sun(now), m = 60000;
+    if (t < s.dawn || t > s.dusk + 25 * m) return moonIllum(now) > 0.6 ? 'dolunay' : 'gece';
+    if (t < s.rise) return 'alacakaranlik';
+    if (t < s.rise + 60 * m) return 'altin';
+    if (t < s.set - 100 * m) return 'gunduz';
+    if (t < s.set - 30 * m) return 'altin';
+    if (t < s.set + 8 * m) return 'gunbatimi';
+    return 'alacakaranlik';
+  }
+
+  /* Hava (Open-Meteo, anahtarsız) */
+  const WX = c => c === 0 ? ['clear', 'açık'] : c <= 2 ? ['cloud', 'parçalı bulutlu'] : c === 3 ? ['cloud', 'bulutlu'] : c <= 48 ? ['fog', 'sisli']
+    : c <= 57 ? ['rain', 'çiseliyor'] : c <= 67 ? ['rain', 'yağmurlu'] : c <= 77 ? ['snow', 'karlı'] : c <= 82 ? ['rain', 'sağanak'] : c <= 86 ? ['snow', 'kar sağanağı'] : ['storm', 'fırtınalı'];
+  let wx = LS.get('gp-wx', null), mode = LS.get('gp-scene', 'auto'), wxOn = LS.get('gp-wx-on', true), cur = null, front = 'A';
+  async function fetchWx() {
+    if (!wxOn) return;
+    if (wx && Date.now() - wx.at < 15 * 60000) return;
+    try {
+      const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LNG}&current=temperature_2m,weather_code&timezone=Europe%2FBerlin`);
+      const j = await r.json(); const c = j.current;
+      wx = { t: Math.round(c.temperature_2m), code: c.weather_code, at: Date.now() }; LS.set('gp-wx', wx);
+      apply();
+    } catch (e) {}
+  }
+
+  /* Çizim: yıldız parıltısı, Fernsehturm ışığı, yağmur/kar */
+  const cv = $('sky'), g = cv.getContext('2d');
+  let stars = [], drops = [], kind = null, running = false, lastT = 0;
+  function sizeCanvas() {
+    const r = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+    if (w && (cv.width !== w || cv.height !== h)) {
+      cv.width = w; cv.height = h;
+      stars = Array.from({ length: 70 }, () => ({ x: Math.random() * w, y: Math.random() * h * 0.42, p: Math.random() * 6.28, s: Math.random() < 0.15 ? 2 : 1 }));
+      drops = Array.from({ length: kind === 'snow' ? 90 : 140 }, () => ({ x: Math.random() * w, y: Math.random() * h, v: 0.6 + Math.random() * 0.8 }));
+    }
+  }
+  function frame(t) {
+    if (!running) return;
+    requestAnimationFrame(frame);
+    if (document.hidden || window.scrollY > cv.getBoundingClientRect().height + 200) return;
+    const dt = lastT ? Math.min(50, t - lastT) : 16; lastT = t;
+    sizeCanvas();
+    const W = cv.width, H = cv.height, dpr = W / Math.max(1, cv.getBoundingClientRect().width);
+    g.clearRect(0, 0, W, H);
+    if (cur && SCENES[cur].night && kind !== 'rain' && kind !== 'storm') {
+      for (const s of stars) { const a = 0.25 + 0.75 * Math.max(0, Math.sin(t / 900 + s.p)); g.fillStyle = `rgba(255,248,230,${(a * 0.8).toFixed(2)})`; g.fillRect(Math.round(s.x), Math.round(s.y), s.s * dpr, s.s * dpr); }
+    }
+    if (kind === 'rain' || kind === 'storm') {
+      g.fillStyle = 'rgba(190,210,255,0.45)';
+      for (const d of drops) { d.y += d.v * dt * 0.9 * dpr; d.x -= d.v * dt * 0.18 * dpr; if (d.y > H) { d.y = -20; d.x = Math.random() * W * 1.2; } g.fillRect(Math.round(d.x), Math.round(d.y), 2 * dpr, 10 * dpr * d.v); }
+    } else if (kind === 'snow') {
+      g.fillStyle = 'rgba(255,255,255,0.8)';
+      for (const d of drops) { d.y += d.v * dt * 0.06 * dpr; d.x += Math.sin((t / 1000) + d.v * 9) * 0.3 * dpr; if (d.y > H) { d.y = -5; d.x = Math.random() * W; } g.fillRect(Math.round(d.x), Math.round(d.y), 3 * dpr, 3 * dpr); }
+    }
+  }
+  function setRun() {
+    const need = !matchMedia('(prefers-reduced-motion: reduce)').matches && cur && (SCENES[cur].night || kind === 'rain' || kind === 'snow' || kind === 'storm');
+    if (need && !running) { running = true; lastT = 0; requestAnimationFrame(frame); }
+    else if (!need && running) { running = false; g.clearRect(0, 0, cv.width, cv.height); }
+  }
+
+  function apply() {
+    const box = $('scene');
+    document.documentElement.classList.toggle('has-scene', mode !== 'off');
+    if (mode === 'off') { box.hidden = true; running = false; label(); return; }
+    box.hidden = false;
+    const name = mode === 'auto' ? pickAuto() : (SCENES[mode] ? mode : pickAuto());
+    kind = wxOn && wx && Date.now() - wx.at < 3 * 3600000 ? WX(wx.code)[0] : null;
+    if (name !== cur) {
+      const sc = SCENES[name], a = $('sceneA'), b = $('sceneB');
+      const next = front === 'A' ? b : a, prev = front === 'A' ? a : b;
+      next.onload = () => { next.style.opacity = 1; prev.style.opacity = 0; front = front === 'A' ? 'B' : 'A'; };
+      next.src = sc.f; cur = name;
+      box.className = 'scene' + (sc.day ? ' day' : '') + (sc.night ? ' night' : '') + (sc.dusk ? ' dusk' : '');
+    }
+    box.classList.toggle('wet', kind === 'rain' || kind === 'storm' || kind === 'fog');
+    stars = []; cv.width = 0; // yeniden ölçülsün
+    setRun(); label();
+  }
+  function label() {
+    const el = $('wx'); if (!el) return;
+    const parts = [];
+    if (wxOn && wx) parts.push(wx.t + '°');
+    if (cur && mode !== 'off') parts.push(SCENES[cur].n.replace(' gecesi', ''));
+    el.innerHTML = '<small>Stuttgart</small>' + esc(parts.join(' · ') || 'sevdası');
+  }
+  function info() {
+    const s = sun(new Date()), f = ms => new Date(ms).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    return { rise: f(s.rise), set: f(s.set), moon: Math.round(moonIllum(new Date()) * 100), scene: cur ? SCENES[cur].n : '-', wx: wx && wxOn ? `${wx.t}°C, ${WX(wx.code)[1]}` : null };
+  }
+  return {
+    SCENES, info,
+    start() { apply(); fetchWx(); setInterval(() => { apply(); fetchWx(); }, 60000); document.addEventListener('visibilitychange', () => { if (!document.hidden) { apply(); fetchWx(); } }); window.addEventListener('resize', () => { cv.width = 0; }); },
+    get mode() { return mode; }, get wxOn() { return wxOn; },
+    setMode(m) { mode = m; LS.set('gp-scene', m); cur = null; apply(); },
+    setWx(v) { wxOn = v; LS.set('gp-wx-on', v); if (v) { wx = null; fetchWx(); } apply(); },
+    describe() { const i = info(); return `Stuttgart'ta şu an: ${i.scene}${i.wx ? ', hava ' + i.wx : ''}. Bugün gün doğumu ${i.rise}, batımı ${i.set}.`; }
+  };
+})();
+
 /* ================= Uygulama durumu ================= */
 const App = {
   songs: [], lists: [], queue: [], curId: null, loadingId: null,
@@ -1057,6 +1195,10 @@ const UI = {
         <div class="btns"><button class="btn primary" id="aiSave">Kaydet ve dene</button>${AI.key ? '<button class="btn danger" id="aiDel">Anahtarı sil</button>' : ''}</div>
         <div class="toggle"><div class="tl"><span>Şarkı başlayınca yorum yapsın</span><span class="sub">Her şarkıya bir kez, kısa bir laf</span></div><button class="sw" id="aiAuto" role="switch" aria-checked="${AI.auto}" aria-label="Otomatik yorum"></button></div>
         <button class="btn" id="aiClear">Sohbet geçmişini temizle</button></div>
+      <div class="group"><h3>Stuttgart manzarası</h3>
+        <p class="msg">${(() => { const i = Scene.info(); return `Bugün Stuttgart'ta gün doğumu <strong>${i.rise}</strong>, batımı <strong>${i.set}</strong>. Ay %${i.moon} dolu.${i.wx ? ' Hava: ' + esc(i.wx) + '.' : ''}`; })()}</p>
+        <div class="chips" id="sceneChips">${[['auto', 'Gerçek saate göre'], ...Object.entries(Scene.SCENES).map(([k, v]) => [k, v.n[0].toLocaleUpperCase('tr-TR') + v.n.slice(1)]), ['off', 'Kapalı']].map(([k, n]) => `<button class="chip${Scene.mode === k ? ' on' : ''}" data-scene="${k}">${n}</button>`).join('')}</div>
+        <div class="toggle"><div class="tl"><span>Canlı Stuttgart havası</span><span class="sub">Yağmur yağıyorsa manzarada da yağar · Hava verisi: Open-Meteo</span></div><button class="sw" id="wxOn" role="switch" aria-checked="${Scene.wxOn}" aria-label="Canlı hava"></button></div></div>
       <div class="group"><h3>Ses motoru</h3>
         <div class="seg" id="engSeg"><button data-m="live" aria-pressed="${d.mode === 'live'}">Canlı</button><button data-m="render" aria-pressed="${d.mode === 'render'}">Hazırlamalı</button></div>
         <p class="msg">${d.mode === 'live' ? 'Canlı: ayarlar anında duyulur. Telefon desteklemezse uygulama kendiliğinden hazırlamalıya geçer.' : 'Hazırlamalı: ses arka planda işlenip çalınır. Her iPhone\'da çalışır, kilit ekranında da devam eder. Ayar değişince yaklaşık bir saniyede güncellenir.'}</p>
@@ -1120,6 +1262,9 @@ const PRESETS = [
   { id: 'dolmus', n: 'Dolmuş Teybi', d: 'Küçük hoparlör, eski bant', p: { radioOn: true, tapeOn: true, tapeWow: 0.3, tapeHiss: 0.25 } },
   { id: 'damar', n: 'Ağır Damar', d: 'Biraz ağır, biraz pes', p: { rate: 0.92, semi: -1, rvbOn: true, rvbType: 'konser', rvbMix: 0.22 } },
   { id: 'd8', n: '8D Gönül', d: 'Ses başının etrafında döner', p: { d8On: true, d8Speed: 0.12, rvbOn: true, rvbType: 'oda', rvbMix: 0.15 } },
+  { id: 'fernsehturm', n: 'Fernsehturm Tepesi', d: 'Şehrin üstünde, geniş ve derin', p: { rvbOn: true, rvbType: 'konser', rvbMix: 0.32, d8On: true, d8Speed: 0.06 } },
+  { id: 'ubahn', n: 'U-Bahn Gecesi', d: 'Yeraltında yankılanan uzak ses', p: { rvbOn: true, rvbType: 'hamam', rvbMix: 0.36, echoOn: true, echoTime: 0.18, echoFb: 0.25, echoMix: 0.12, eqOn: true, eq: [-3, -2, 0, 1, 2, 1, 0, -2, -4, -6], eqPreset: 'custom' } },
+  { id: 'neckar', n: 'Neckar Kenarı', d: 'Sakin, sudan gelen bir hüzün', p: { rate: 0.96, semi: -0.5, rvbOn: true, rvbType: 'oda', rvbMix: 0.2, tapeOn: true, tapeWow: 0.25, tapeHiss: 0.1, eqOn: true, eq: [2, 2, 1, 0, 0, -1, -2, -2, -3, -4], eqPreset: 'gece' } },
   { id: 'nightcore', n: 'Nightcore', d: 'Hızlı ve tiz', p: { rate: 1.25, semi: 3 } }
 ];
 function renderModes() {
@@ -1218,7 +1363,7 @@ const AI = (() => {
     const now = new Date();
     return `Şu an çalan: ${s ? `"${s.title}"${s.artist ? ' – ' + s.artist : ''}${s.album ? ', albüm: ' + s.album : ''}${s.year ? ', ' + s.year : ''}` : 'hiçbir şey çalmıyor'}.
 Çalma durumu: ${Engine.playing ? 'çalıyor' : 'durdu'}. Mod: ${mode ? mode.n : 'özel ayar'}. Efektler: ${effects.join(', ') || 'yok'}.
-Saat: ${now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}.
+Saat: ${now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}. ${Scene.describe()}
 Kullanıcının arşivindeki şarkılar (öneri yaparken önce buradan seç): ${arc || 'arşiv boş'}.
 Uygulanabilir modlar (id: ad): ${PRESETS.map(p => p.id + ': ' + p.n).join(', ')}.`;
   }
@@ -1230,6 +1375,7 @@ Kurallar:
 - Şarkı önerirken önce kullanıcının arşivindeki şarkılardan seç; arşiv dışından önerirsen bunu belirt.
 - Kullanıcının ruh haline uyan bir mod önermek istersen cevabının en sonuna sadece bir kez [MOD:id] yaz (id listeden). Kullanıcı istemedikçe her cevapta mod önerme.
 - Kullanıcı gerçekten kötü hissettiğini, kendine zarar vermeyi düşündüğünü söylerse dertleşmeyi sürdür ama nazikçe güvendiği biriyle ya da bir uzmanla konuşmasını öner; Almanya'da 0800 111 0 111 (Telefonseelsorge, ücretsiz, 7/24) numarasını verebilirsin.
+- Kullanıcı Stuttgart'ta yaşıyor ve Stuttgart'a sevdalı. Yeri geldikçe saate ve havaya göre Stuttgart'a (Fernsehturm, Schlossplatz, Königstraße, Neckar, Bad Cannstatt, Karlshöhe gibi) değinebilirsin ama her cevapta değil, zorlama.
 - Markdown başlık ya da liste kullanma, düz yazı yaz.
 ${context()}`;
 
@@ -1674,6 +1820,8 @@ $('vAcct').addEventListener('click', async e => {
     try { const t = await AI.test(); m.textContent = 'Çalışıyor: ' + t; } catch (er) { m.className = 'msg err'; m.textContent = er.message; }
     e.target.disabled = false;
   }
+  else if (e.target.closest('[data-scene]')) { Scene.setMode(e.target.closest('[data-scene]').dataset.scene); UI.account(); }
+  else if (id === 'wxOn') { Scene.setWx(!Scene.wxOn); e.target.setAttribute('aria-checked', Scene.wxOn); }
   else if (id === 'aiDel') { AI.setKey(''); UI.account(); }
   else if (id === 'aiAuto') { AI.setAuto(!AI.auto); e.target.setAttribute('aria-checked', AI.auto); }
   else if (id === 'aiClear') { AI.clear(); toast('Sohbet temizlendi'); }
@@ -1747,7 +1895,7 @@ $('search').addEventListener('input', raf(() => { App.query = $('search').value;
   const [songs, lists] = await Promise.all([DB.all('songs'), DB.all('lists')]);
   App.songs = songs; App.lists = lists; App.sortSongs();
   App.queue = App.filtered().map(s => s.id);
-  renderFx(); UI.lib(); AI.render(); $('chatAv').innerHTML = TEA;
+  renderFx(); UI.lib(); AI.render(); $('chatAv').innerHTML = TEA; Scene.start();
   setView(App.songs.length ? 'now' : 'lib');
   document.documentElement.classList.remove('booting');
   const back = await Spotify.handleRedirect();
