@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 8;
+const VERSION = 9;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -759,13 +759,18 @@ const Spotify = (() => {
 /* ================= Stuttgart manzarası: gerçek saat, gün batımı, ay, hava, kuleler ================= */
 const Scene = (() => {
   const LAT = 48.7758, LNG = 9.1829, IW = 1672, IH = 941;
-  const META = {"t":{"gunduz":[1173,449,465,491,965,463,481,512],"altin":[1181,454,470,496,973,468,486,517],"gunbatimi":[1172,449,465,491,964,463,481,512],"alacakaranlik":[1171,450,466,492,963,464,482,513],"gece":[1170,450,466,492,962,465,483,514],"dolunay":[1171,450,466,492,963,465,483,514],"bulutlu":[1173,449,465,491,965,463,481,512],"bulutlu-aksam":[1171,450,466,492,963,464,482,513],"bulutlu-gece":[1170,450,466,492,962,465,483,514]},"l":{"gece":[960,654,1214,560,1475,659,780,662,922,594,962,480,816,586,960,486,952,684,1036,551,1138,586,1536,650,1504,566,1672,564,1166,522,1341,567,1510,586,1108,613,1278,610,1010,648,1644,570,1214,596,1022,610,1648,646,1200,598,576,576,904,662,1486,542,1098,574,1660,588,1627,592,1618,682,1264,554,950,590,1092,526,1654,698,1532,556,712,578,946,677,1381,648,1420,647,1426,647,1450,590,1546,570,1416,566,1374,590,1350,600,1650,644,1334,588,1364,558,1006,654,1494,576,858,642,1008,596,1475,588,1618,638,844,572,1636,636,1663,636,992,616,1604,604,702,581,1390,656,1130,564,1312,590,1261,657,657,609,1504,560,748,592,1500,574,1492,568,902,648,836,569,1246,578,1328,592,1473,657,1638,694,1164,540,804,614,1520,650,1308,564,1296,606,890,576,1484,588,1348,594,1062,557,1438,610,1249,558,972,584,1053,556,1342,592,1436,652,1412,653,1630,586,624,590,1554,586,1522,569,736,658,1445,594,1610,630,1578,622,1246,656,808,608,966,574,1275,610,1428,656,1572,624,1006,594,1587,632,1352,556,854,572,1553,592,1553,620,1512,604,1500,561,1650,636,899,637,1270,572,1144,570,933,572,1340,589,1438,598,763,630,545,590,1184,617,1460,665,972,646,1196,552,1508,652,1306,610,1234,620,738,574,770,600,1438,652,1098,510,952,678,1091,604,1298,571,763,574,1384,566,949,652,1342,548,1018,646,768,574,1340,592,978,674,1618,636,734,602,1184,558,1592,589,1614,684,1146,524,1628,562,687,606,810,594,1188,602,911,640,1242,620,1504,585,688,632,908,596,1021,582,1630,602,1514,586,1654,588,1184,603,1004,610,1632,636,1574,574,1048,640,1186,622,1052,639,1432,656,948,684,1654,636,996,646,672,590,1616,582,1115,560,1068,546,1150,586,1518,560,985,614,935,593,908,640,1524,560,1649,588,758,574,906,632,568,574,1282,573,1494,538,1449,584,1382,652,1152,550,920,568,1604,568,1196,540,662,609,1377,649,1248,564,1606,688,1024,650,586,574,1024,650,1430,582,604,582,864,592,1028,550,1166,622,730,578,772,626,1668,586,1570,600,1642,598,1630,618,954,646,1637,576,1058,619,1297,582,737,638,939,573,900,632,1590,560,893,638,864,638,1212,548,798,662,1124,614,1458,656,1370,660,968,647,544,582,1500,540,1616,568,1153,618,1134,564,1490,658,1202,620,1288,522,1067,608,1546,564,1052,634,684,583,1244,622,1116,612,780,606,1614,694,1148,590,1442,580,924,675,1621,591,1480,540,1346,588,889,629,1555,674,1089,612,1142,518,1560,674,1077,553],"dolunay":[1574,574,731,572,991,616,1552,574,1162,542,678,610,1321,567,736,584,1591,564,864,638,1418,561,1376,649,854,604,1292,558,1520,652,1270,574,1272,554,986,606,1454,592,608,580,1166,506,780,574,1191,548,598,590,1170,540,1102,553,753,581,1382,649,687,583,1316,554,798,601,1434,614,1608,564,978,600,1498,540,1228,558,890,566,594,556,1244,543,1432,700,1472,605,952,676,1589,561,1394,592,1233,586,1124,508,722,590,1380,656,1148,620,688,588,802,587,1428,652,960,688,918,596,1332,586,1390,590,964,480,1570,622,1655,697,1546,569,1528,650,1565,674,1386,589,1598,681,672,609,1625,591,700,636,1548,574,1528,578,1208,559,934,571,1618,678,1150,532,1280,609,1636,578,1069,548,923,569,1038,562,1636,636,814,616,1120,508,1536,584,1556,674,1435,652,1364,652,1484,630,1106,556,1542,574,1242,577,1028,550,1665,590,1098,510,1153,551,1399,569,530,580,1262,565,1300,608,909,606,1475,568,1158,501,1625,562,864,576,882,602,1059,588,1505,584,1556,676,700,628,979,614,876,566,970,574,700,632,812,586,818,570,908,640,1463,590,1037,572,1132,552,1516,604,1457,584,1504,543,1364,562,1444,594,688,633,1323,591,1022,545,1077,551,1486,588,888,602,1403,649,735,634,1430,658,1378,554,1265,610,536,602,1042,574,1079,548,960,486,1134,614,977,682,1644,588,874,604,780,558,1124,526,1508,662,1248,565,919,568,768,592,1655,639,1458,669,1491,540,1158,522,1188,600,1124,575,1464,523,768,608,1146,522,1026,574,829,588,916,574,1248,536,1125,614,602,566,1138,516,1532,556,1370,652,952,684,940,572,954,646,1240,667,1429,560,1184,536,1222,604,902,575,1510,636,586,574,1445,576,850,590,948,650,1464,598,1356,555,1252,564,902,646,1136,538,1292,534,1018,550,1114,559,1106,524,973,574,1266,598,856,592,1650,610,936,592,1096,556,1629,602,1563,618,1629,617,742,574,762,610,930,577,1654,564,1482,577,1538,621,1396,622,1088,526,1437,612,1440,653,1012,584,1122,547,1380,560,912,605,1586,579,967,656,998,586,1242,665,1278,561,1456,656,1654,580,636,594,1510,604,753,574,1540,560,1604,636,1235,658,948,678,1634,638,1142,530,1376,544,720,588,1636,642,1241,566,1214,550,630,574,1420,566,836,569,954,591,976,576,1209,592,1566,574,1184,615,1198,542,939,696,1564,580,1114,530,864,592,910,562,1648,602,1020,610,1558,560,704,626,676,590,1200,598,1439,555,1457,608,1432,564,1667,637,1114,572,1186,604,1450,584,1088,605,1632,638]}};
+  const META = {"t":{"sabah":[1195,359,400,452,958,414,446,470],"gunduz":[1197,381,428,495,962,444,484,505],"gunbatimi":[1194,358,404,465,957,414,450,475],"aksam":[1194,357,403,460,957,410,450,474],"gece":[1195,354,406,463,956,413,452,478],"kapali-sabah":[1193,350,404,461,957,413,452,475],"kapali-gunduz":[1193,350,403,465,956,413,455,476],"kapali-aksam":[1192,350,406,461,957,410,452,477],"kapali-gece":[1195,350,406,463,956,413,452,477]},"l":{"aksam":[163,559,685,551,1489,574,1587,568,407,461,1267,768,1529,638,866,577,919,589,342,672,755,772,1598,584,1300,522,1375,849,1103,806,145,714,636,592,134,709,1329,600,1271,534,674,529,1504,760,1252,532,1436,643,534,808,751,546,1101,556,879,578,1099,564,1280,622,1274,616,1332,847,1536,683,730,520,1270,636,709,560,1242,524,1269,650,1056,574,921,572,909,659,385,699,1509,643,701,590,869,671,753,872,635,614,762,519,239,736,978,813,1001,617,1003,594,1548,683,145,555,1538,543,778,567,1376,554,833,535,713,592,141,553,1465,561,1587,613,1190,504,1434,638,1001,594,745,865,1096,519,266,744,904,565,1498,583,1258,532,1473,832,424,673,711,525,166,556,927,572,1563,547,718,580,1070,769,771,775,386,567,950,753,1208,801,325,669,1508,620,754,745,773,748,507,530,1535,532,390,768,1392,587,1187,640,259,446,544,729,141,708,1349,573,1331,570,1412,568,913,608,1623,581,1492,671,427,472,227,730,397,770,530,532,758,523,419,624,1374,595,1437,521,890,600,571,704,786,552,844,551,720,739,415,705,1086,521,803,536,1249,532,1507,668,733,555,880,676,233,735,951,780,404,452,882,768,1345,814,244,615,1336,609,1077,463,573,523,1206,658,998,609,555,710,1186,821,1339,535,428,494,1049,832,1404,569,1175,804,732,553,566,733,944,806,1224,520,815,602,1432,918,707,736,647,530,562,813,1151,518,533,554,897,564,1108,516,1453,868,208,543,191,575,1206,656,1005,592,1575,539,544,810,191,565,1617,464,1379,520,364,768,469,543,1401,683,663,657,452,626,1372,562,1403,559,1460,870,1632,627,754,523,178,658,507,570,1302,876,1636,558,349,673,1224,561,825,581,1458,830,1132,529,1056,512,1504,666,1628,463,1110,542,1571,657,1594,463,1154,458,392,769,1221,827,800,559,1544,806,707,541,1231,572,1645,669,1058,604,580,526,221,607,638,531,1035,552,731,869,1122,810,1417,627,913,550,1510,536,243,443,654,543,871,548,1609,547,780,540,1573,589,1423,572,1328,606,696,592,1043,826,528,804,1066,800,1455,527,1551,530,869,676,542,809,133,621,1252,540,875,749,1379,557,139,706,885,546,1370,606,839,535,900,540,1201,824,444,711,706,552,799,523,546,809,265,454,1495,635,1568,568,770,551,211,606,1326,523,737,577,202,579,1249,536,736,554,1035,794,1298,528,999,579,1477,528,176,626,858,542,1395,515,1638,713,354,674,505,576,1626,547,1429,609,1472,623,1488,830,194,578,1185,860,1363,578,1262,834,1403,599,1549,618,735,741,1580,605,1585,608,1522,535,863,577,1193,550,1528,563,1371,568,521,725,1037,581,391,472,1489,527,842,760,1016,762,1340,883],"gece":[1379,565,1339,537,1597,568,1244,532,1136,543,1200,553,1511,600,585,540,1671,548,1151,532,1590,549,1648,559,1255,532,843,566,1330,572,830,575,1487,531,874,676,772,523,1532,541,1406,581,1586,549,1630,548,1237,526,1623,546,1341,566,1293,615,1222,521,1113,524,903,565,928,573,845,554,1001,556,1507,535,798,560,1244,536,801,538,711,527,1326,523,1056,573,1223,517,1462,526,710,563,1598,548,929,547,724,557,1554,545,1460,540,930,642,983,585,195,577,856,555,698,620,1202,579,933,645,1346,559,1426,518,1268,526,1032,559,1134,518,1154,532,1110,543,1024,557,1386,590,1332,564,1588,589,1523,531,1508,536,756,523,1285,569,816,531,616,526,193,578,1607,559,1485,631,938,539,1509,539,840,574,1608,618,626,533,1374,521,1222,563,1619,547,820,539,1393,568,1400,516,1611,559,539,546,1055,550,1579,568,1228,568,705,554,1023,550,1303,569,1610,612,820,632,745,525,1623,549,1119,561,531,533,744,523,196,578,1603,559,1499,586,637,532,1324,526,1363,604,898,546,659,528,1578,547,722,577,1407,519,723,527,933,537,712,594,1159,541,1609,549,863,572,663,531,1270,567,925,621,1404,516,794,517,1414,653,1638,545,1331,598,753,524,204,567,1305,560,1626,568,1388,563,1285,565,1485,534,1498,601,838,578,1014,609,1268,533,684,551,1627,548,1293,559,1479,530,1241,526,656,545,1378,522,1426,561,1064,551,1040,602,721,556,1661,548,1301,573,1191,562,1100,558,878,646,1614,571,828,575,1384,635,783,538,628,534,766,523,1319,577,1476,529,1544,560,1431,520,573,525,892,674,1266,559,1204,582,972,579,876,674,1167,576,1640,559,668,531,1310,533,1239,526,1396,562,1590,544,1535,532,1591,587,1218,553,1534,545,1127,529,1166,519,864,579,925,535,1401,561,894,658,1158,532,1587,607,915,548,1046,558,1349,523,1556,572,736,525,901,648,1388,520,1027,555,1593,570,1096,567,739,523,1501,533,1367,603,1036,558,1587,568,1439,522,876,531,899,549,881,611,1120,525,1079,561,1113,541,1233,526,1420,571,865,583,1282,529,696,558,870,544,1495,540,1133,520,1597,571,1150,520,1042,548,995,553,1185,520,919,574,823,577,927,653,788,518,1119,543,1594,548,743,555,1336,536,708,542,1094,507,891,666,639,556,877,567,769,523,1054,534,1148,532,935,642,1000,580,1616,549,650,557,1062,555,879,578,1543,533,742,525,1374,595,1591,589,773,587,719,553,1602,548,1112,577,1515,542,1431,624,1568,589,636,546,1633,657,1223,552,1242,633,1295,527,588,527,991,555,812,526,1037,582,1582,548,1406,560,1016,578,1613,550,1647,546,878,678,858,544,874,534,1134,533,663,574,830,536,848,632,934,650,1009,558,1201,577],"kapali-aksam":[1633,657,1433,651,1233,457,1653,442,1448,465,1378,461,1426,651,1248,457,1349,524,1326,462,926,766,1556,572,711,465,1515,540,173,659,415,461,1024,455,1373,556,872,476,1582,456,554,499,600,481,1519,460,967,604,217,576,1421,573,1596,442,1047,466,1540,619,736,526,1022,467,1457,462,1355,593,1137,455,1385,529,725,460,572,484,876,674,1340,566,559,484,899,802,1500,460,1197,551,455,496,1139,456,619,496,789,518,695,558,898,747,705,554,1297,530,173,666,1032,560,1409,468,667,532,1313,524,921,766,1251,458,1553,544,1220,560,699,732,1056,550,212,581,704,553,1549,454,1254,459,1008,557,1284,569,182,660,1093,458,1226,456,225,472,1396,602,1587,445,926,763,1316,462,1399,570,712,489,217,604,1427,647,1224,457,1424,462,1399,562,795,523,1344,522,920,735,694,493,212,577,427,473,1434,468,529,480,787,471,1478,624,860,564,928,643,711,722,700,714,1201,548,956,577,734,555,1288,605,1391,466,651,445,774,489,423,486,998,611,1242,622,1539,618,1126,459,652,493,1328,599,1333,462,1052,465,929,834,913,772,1048,465,705,462,192,610,518,482,898,471,1358,594,1364,466,1584,449,781,463,405,462,201,472,778,470,1593,569,921,917,1050,466,1326,600,181,479,1415,463,779,484,435,458,1194,585,895,471,1021,455,1575,445,212,620,198,664,189,686,1555,545,945,452,404,453,824,482,1587,608,460,481,1528,462,1526,462,1563,458,504,453,695,615,1511,810,1132,456,951,605,704,555,772,470,187,714,1127,457,1384,571,182,723,1240,620,1600,449,908,763,1576,570,1539,613,189,721,1593,442,816,529,1508,845,725,462,1230,526,1279,449,1504,533,1465,462,1287,568,192,601,712,491,578,482,432,459,1236,458,1024,557,1554,447,964,608,742,458,745,458,1543,448,1010,559,715,492,236,477,1117,456,1196,550,1461,466,1596,452,1313,461,1023,471,1035,452,187,461,465,456,1230,457,653,489,1176,456,485,456,1645,545,732,441,905,733,1231,456,933,642,1246,624,812,529,1027,471,664,462,198,605,1588,587,1050,464,570,487,898,772,689,735,925,817,1529,568,1597,453,672,571,1381,460,1512,455,1603,612,1237,639,1407,520,200,473,1471,465,999,581,493,473,1222,563,1212,456,459,485,1552,569,597,483,729,565,1533,533,912,726,1612,453,1511,844,1534,568,1208,522,190,663,1386,464,929,547,1207,524,1119,560,1594,589,927,777,1246,622,911,831,1532,612,920,918,1562,456,1499,586,472,459,912,734,1591,606,736,464,921,919,1485,627,1180,456,963,612,197,638,1496,457,217,573,193,605,1346,560,1551,448,1535,451,1200,551,1628,450,1588,454,797,631,1522,862,1612,549,662,464,152,557],"kapali-gece":[1308,567,201,639,709,715,199,830,651,558,1592,606,1132,520,1660,547,1598,548,1079,514,705,854,722,527,1587,607,1040,603,1191,586,890,663,1406,519,698,620,935,925,703,799,879,578,210,604,489,699,928,752,628,535,1294,528,816,532,187,746,709,763,670,568,213,577,189,734,1326,608,1441,565,934,623,504,726,1028,583,176,557,819,582,1394,569,199,592,184,811,1349,572,184,765,1339,802,203,586,195,727,887,571,183,705,1286,608,1615,549,902,671,520,670,1573,543,1643,558,179,644,1219,562,899,803,911,830,1532,861,705,738,1633,544,815,604,857,543,159,623,204,676,198,815,709,542,1590,549,852,542,1576,546,1475,625,527,706,927,729,1333,839,195,713,1400,516,505,745,1622,547,1317,824,1606,559,664,569,1269,534,1338,795,1246,623,527,727,720,827,1089,514,1533,532,942,575,173,666,931,642,1274,872,919,842,191,575,1245,625,896,676,1479,530,1270,567,212,587,1327,904,1333,565,192,720,1198,638,915,547,1119,525,182,696,1233,523,1275,526,1186,521,175,692,886,644,1327,794,928,777,1264,533,1594,589,197,712,797,619,1333,904,1284,565,1608,612,509,704,1310,844,915,834,1559,610,1561,540,708,733,184,751,1316,909,1335,819,710,564,1287,617,1037,583,698,615,217,587,1014,608,963,612,204,597,830,574,1594,548,877,567,909,821,896,719,1637,544,735,526,1318,577,191,823,1356,525,1151,519,209,576,1583,546,193,718,729,525,1383,572,1577,569,217,576,999,581,1000,617,158,556,1056,550,1610,560,1327,601,911,727,175,700,929,737,1494,535,769,524,1539,532,1329,572,926,621,1148,532,187,780,939,641,709,563,1151,533,830,536,794,517,742,555,1097,510,723,704,1541,865,684,551,183,732,701,558,1324,604,192,611,1331,598,725,527,1542,560,889,664,1626,545,1248,532,518,698,1399,570,922,925,171,707,778,524,1613,571,717,722,1264,561,1630,547,816,529,1323,536,191,752,1505,608,1405,559,1609,548,763,523,1320,800,1311,877,917,671,840,535,1323,906,1421,573,189,757,1335,537,1481,530,840,574,1250,589,182,723,930,655,1379,566,1577,564,210,578,1363,604,786,554,1407,516,845,554,1119,561,1483,535,154,557,874,534,837,535,816,526,189,868,1302,529,813,532,511,771,588,529,1207,553,1557,542,697,737,1313,524,186,616,1457,564,925,536,637,532,727,860,867,570,1064,551,1333,808,908,721,570,524,1533,571,179,708,874,571,1325,603,589,525,185,747,1373,595,1537,853,1552,883,1360,569,209,591,200,745,215,581,1099,513,1220,560,1630,545,869,673,915,830,502,702,1476,538,1587,546,1283,619,827,538,823,556,520,705,895,657,158,625]}};
   const SCENES = {
-    gunduz: { n: 'gündüz', day: true }, altin: { n: 'altın saat' }, gunbatimi: { n: 'gün batımı' },
-    alacakaranlik: { n: 'alacakaranlık', dusk: true }, gece: { n: 'gece', night: true }, dolunay: { n: 'dolunay', night: true },
-    bulutlu: { n: 'kapalı gündüz', day: true, oc: true }, 'bulutlu-aksam': { n: 'kapalı akşam', dusk: true, oc: true }, 'bulutlu-gece': { n: 'kapalı gece', night: true, oc: true }
+    sabah: { n: 'sabah' }, gunduz: { n: 'gündüz', day: true }, gunbatimi: { n: 'gün batımı' }, aksam: { n: 'akşam', dusk: true }, gece: { n: 'gece', night: true },
+    'kapali-sabah': { n: 'kapalı sabah', oc: true }, 'kapali-gunduz': { n: 'kapalı gündüz', day: true, oc: true }, 'kapali-aksam': { n: 'kapalı akşam', dusk: true, oc: true }, 'kapali-gece': { n: 'kapalı gece', night: true, oc: true }
   };
-  const PICK = { gunduz: 'Gündüz', altin: 'Altın saat', gunbatimi: 'Gün batımı', alacakaranlik: 'Alacakaranlık', gece: 'Gece', dolunay: 'Dolunay', bulutlu: 'Kapalı hava' };
+  const PICK = { sabah: 'Sabah', gunduz: 'Gündüz', gunbatimi: 'Gün batımı', aksam: 'Akşam', gece: 'Gece', dolunay: 'Dolunay', kapali: 'Kapalı hava' };
+  const SEASONS = { sonbahar: true };   // yeni mevsim resimleri geldikçe buraya eklenecek
+  function season(d = new Date()) {
+    const m = d.getMonth(), s = m <= 1 || m === 11 ? 'kis' : m <= 4 ? 'ilkbahar' : m <= 7 ? 'yaz' : 'sonbahar';
+    return SEASONS[s] ? s : 'sonbahar';
+  }
+  const SEASON_N = { kis: 'kış', ilkbahar: 'ilkbahar', yaz: 'yaz', sonbahar: 'sonbahar' };
   /* Güneş hesabı (SunCalc yöntemi) */
   const rad = Math.PI / 180, J2000 = 2451545, J0 = 0.0009;
   const toDays = ms => ms / 864e5 - 0.5 + 2440588 - J2000, fromJ = j => (j + 0.5 - 2440588) * 864e5;
@@ -782,20 +787,19 @@ const Scene = (() => {
   function moonIllum(date) { const jd = date.getTime() / 864e5 + 2440587.5; let p = ((jd - 2451550.1) / 29.530588853) % 1; if (p < 0) p++; return (1 - Math.cos(2 * Math.PI * p)) / 2; }
   function phase(now = new Date()) {
     const t = now.getTime(), s = sun(now), m = 60000;
-    if (t < s.dawn || t > s.dusk + 25 * m) return moonIllum(now) > 0.6 ? 'dolunay' : 'gece';
-    if (t < s.rise) return 'alacakaranlik';
-    if (t < s.rise + 60 * m) return 'altin';
+    if (t < s.dawn || t > s.dusk + 25 * m) return 'gece';
+    if (t < s.rise) return 'aksam';               // şafak: mor-pembe gökyüzü
+    if (t < s.rise + 75 * m) return 'sabah';
     if (t < s.set - 100 * m) return 'gunduz';
-    if (t < s.set - 30 * m) return 'altin';
-    if (t < s.set + 8 * m) return 'gunbatimi';
-    return 'alacakaranlik';
+    if (t < s.set + 10 * m) return 'gunbatimi';
+    return 'aksam';
   }
-  const overcastOf = p => (p === 'gece' || p === 'dolunay') ? 'bulutlu-gece' : (p === 'gunbatimi' || p === 'alacakaranlik') ? 'bulutlu-aksam' : 'bulutlu';
+  const overcastOf = p => p === 'gece' ? 'kapali-gece' : p === 'sabah' ? 'kapali-sabah' : p === 'gunduz' ? 'kapali-gunduz' : (p === 'aksam' && new Date().getHours() < 12) ? 'kapali-sabah' : 'kapali-aksam';
 
   /* Hava (Open-Meteo) */
   const WX = c => c === 0 ? ['clear', 'açık'] : c === 1 ? ['clear', 'az bulutlu'] : c === 2 ? ['clear', 'parçalı bulutlu'] : c === 3 ? ['cloud', 'kapalı']
     : c <= 48 ? ['fog', 'sisli'] : c <= 57 ? ['rain', 'çiseliyor'] : c <= 67 ? ['rain', 'yağmurlu'] : c <= 77 ? ['snow', 'karlı'] : c <= 82 ? ['rain', 'sağanak'] : c <= 86 ? ['snow', 'kar yağışlı'] : ['storm', 'fırtınalı'];
-  let wx = LS.get('gp-wx', null), mode = LS.get('gp-scene', 'auto'), wxOn = LS.get('gp-wx-on', true), cur = null, front = 'B', kind = null, imgTok = 0;
+  let wx = LS.get('gp-wx', null), mode = LS.get('gp-scene', 'auto'), wxOn = LS.get('gp-wx-on', true), cur = null, curFile = null, front = 'B', kind = null, imgTok = 0;
   async function fetchWx(force) {
     if (!wxOn) return;
     if (!force && wx && Date.now() - wx.at < 15 * 60000) return;
@@ -811,6 +815,8 @@ const Scene = (() => {
   const cv = $('sky'), g = cv.getContext('2d');
   cv.width = IW; cv.height = IH;
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let wide = matchMedia('(min-width:920px)').matches, sceneH = 400;
+  matchMedia('(min-width:920px)').addEventListener('change', e => wide = e.matches);
   let running = false, last = 0, drops = [], splashes = [], flash = 0, nextBolt = 0, fogT = 0, lights = [], stars = [];
   const rnd = (a, b) => a + Math.random() * (b - a);
   function seedFx() {
@@ -818,9 +824,9 @@ const Scene = (() => {
     drops = [];
     if (k === 'rain' || k === 'storm') for (let i = 0; i < (k === 'storm' ? 320 : 230); i++) drops.push({ x: rnd(-200, IW), y: rnd(-IH, IH), z: Math.random() < 0.35 ? 1 : 0, l: rnd(12, 26) });
     if (k === 'snow') for (let i = 0; i < 200; i++) drops.push({ x: rnd(0, IW), y: rnd(0, IH), z: Math.random(), p: rnd(0, 6.28) });
-    const L = META.l[cur === 'bulutlu-gece' ? 'gece' : cur] || [];
+    const L = META.l[cur] || [];
     lights = []; for (let i = 0; i < L.length; i += 2) lights.push({ x: L[i], y: L[i + 1], p: rnd(0, 6.28), s: rnd(0.4, 1.6), off: 0 });
-    stars = []; if (cur === 'gece' || cur === 'dolunay') for (let i = 0; i < 70; i++) stars.push({ x: rnd(0, IW), y: rnd(0, IH * 0.42), p: rnd(0, 6.28), b: Math.random() < 0.2 });
+    stars = []; if (cur === 'gece') for (let i = 0; i < 70; i++) stars.push({ x: rnd(0, IW), y: rnd(0, IH * 0.42), p: rnd(0, 6.28), b: Math.random() < 0.2 });
   }
   function glow(x, y, r, c, a) {
     const gr = g.createRadialGradient(x, y, 0, x, y, r);
@@ -866,14 +872,33 @@ const Scene = (() => {
     if (((t + 1100) % 1500) < 750) { g.fillStyle = 'rgba(255,70,70,.9)'; g.fillRect(fx - 5, fplat - 1, 1, 1); g.fillRect(fx + 5, fplat - 1, 1, 1); glow(fx, fplat, 7, '255,50,50', 0.35); }
     g.globalCompositeOperation = 'source-over';
   }
+  let moonOn = false, moonCv = null;
+  function drawMoon(t) {
+    if (!moonCv) {
+      moonCv = document.createElement('canvas'); moonCv.width = moonCv.height = 64; const m = moonCv.getContext('2d');
+      const R = 15, c = 32;
+      for (let y = -R; y <= R; y++) for (let x = -R; x <= R; x++) {
+        const d = Math.hypot(x, y); if (d > R) continue;
+        const n = (Math.sin(x * 1.7 + y * 0.9) + Math.sin(x * 0.6 - y * 1.3)) * 6;
+        const shade = 236 - (d / R) * 30 + n - ((x + 4) * (x + 4) + (y - 3) * (y - 3) < 18 ? 22 : 0) - ((x - 6) * (x - 6) + (y + 5) * (y + 5) < 10 ? 18 : 0);
+        m.fillStyle = `rgb(${shade | 0},${(shade - 4) | 0},${(shade - 22) | 0})`; m.fillRect(c + x, c + y, 1, 1);
+      }
+    }
+    const x = wide ? 1300 : 1128, y = wide ? 200 : 296;
+    g.globalCompositeOperation = 'lighter'; glow(x, y, 56, '200,210,255', 0.18); glow(x, y, 24, '255,250,230', 0.25); g.globalCompositeOperation = 'source-over';
+    g.imageSmoothingEnabled = false; g.drawImage(moonCv, x - 48, y - 48, 96, 96); g.imageSmoothingEnabled = true;
+  }
   function frame(t) {
     if (!running) return;
     requestAnimationFrame(frame);
     if (document.hidden || $('scene').hidden) return;
-    if (t - last < 33) return; // ~30 fps yeter
+    if (t - last < 40) return; // ~25 fps yeter, pil dostu
+    if (!wide && window.scrollY > sceneH) { last = t; return; }
     const dt = last ? Math.min(80, t - last) : 33; last = t;
     g.clearRect(0, 0, IW, IH);
     const sc = SCENES[cur], T = META.t[cur];
+    // ay (sadece açık gecede ve ay yeterince doluyken)
+    if (cur === 'gece' && moonOn) drawMoon(t);
     // yıldızlar
     if (stars.length && !kind) for (const s of stars) { const a = 0.15 + 0.6 * Math.max(0, Math.sin(t / 700 + s.p)); g.fillStyle = `rgba(255,250,235,${a.toFixed(2)})`; g.fillRect(s.x, s.y, s.b ? 2 : 1, s.b ? 2 : 1); }
     // şehir ışıkları
@@ -943,19 +968,25 @@ const Scene = (() => {
     if (mode === 'off') { box.hidden = true; running = false; label(); return; }
     box.hidden = false;
     kind = wxKind();
+    const ss = season();
     let name;
     if (mode === 'auto') { const p = phase(); name = kind && kind !== 'clear' ? overcastOf(p) : p; }
-    else if (mode === 'bulutlu') name = overcastOf(phase());
+    else if (mode === 'kapali') name = overcastOf(phase());
+    else if (mode === 'dolunay') name = 'gece';
     else name = SCENES[mode] ? mode : phase();
+    moonOn = name === 'gece' && (mode === 'dolunay' || moonIllum(new Date()) > 0.6);
     if (kind === 'clear') kind = null;
-    if (name !== cur) {
+    const file = `stg-${ss}-${name}.webp`;
+    if (file !== curFile) {
       const a = $('sceneA'), b = $('sceneB'), shown = front === 'A' ? a : b, next = shown === a ? b : a, tok = ++imgTok;
       next.onload = () => { if (tok !== imgTok) return; next.style.opacity = 1; shown.style.opacity = 0; front = next === a ? 'A' : 'B'; };
-      next.src = `stg-${name}.webp`; cur = name;
+      next.src = file; cur = name; curFile = file;
     }
+    sceneH = box.offsetHeight || 400;
     const sc = SCENES[cur];
     box.className = 'scene' + (sc.day ? ' day' : '') + (sc.night ? ' night' : '') + (kind === 'rain' || kind === 'storm' ? ' wet' : '') + (kind === 'snow' ? ' snowy' : '');
     seedFx(); setRun(); label();
+    if (typeof Media !== 'undefined') Media.meta();
   }
   function label() {
     const el = $('wx'); if (!el) return;
@@ -963,20 +994,21 @@ const Scene = (() => {
     if (wxOn && wx) parts.push(wx.t + '°');
     const k = wxKind();
     if (k && k !== 'clear') parts.push(WX(wx.code)[1] + (cur && SCENES[cur].night ? ' gece' : ''));
-    else if (cur && mode !== 'off') parts.push(SCENES[cur].n);
+    else if (cur && mode !== 'off') parts.push(moonOn ? 'dolunay' : SCENES[cur].n);
     el.innerHTML = '<small>Stuttgart</small>' + esc(parts.join(' · ') || 'sevdası');
   }
   function info() {
     const s = sun(new Date()), f = ms => new Date(ms).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-    return { rise: f(s.rise), set: f(s.set), moon: Math.round(moonIllum(new Date()) * 100), scene: cur ? SCENES[cur].n : '-', wx: wx && wxOn ? `${wx.t}°C, ${WX(wx.code)[1]}` : null };
+    return { rise: f(s.rise), set: f(s.set), moon: Math.round(moonIllum(new Date()) * 100), season: SEASON_N[season()], scene: cur ? (moonOn ? 'dolunay gecesi' : SCENES[cur].n) : '-', wx: wx && wxOn ? `${wx.t}°C, ${WX(wx.code)[1]}` : null };
   }
   return {
-    PICK, info,
+    PICK, info, get meta() { return META; }, get cur() { return cur; },
     start() { apply(); fetchWx(); setInterval(() => { apply(); fetchWx(); }, 60000); document.addEventListener('visibilitychange', () => { if (!document.hidden) { apply(); fetchWx(); } }); },
     get mode() { return mode; }, get wxOn() { return wxOn; },
-    setMode(m) { mode = m; LS.set('gp-scene', m); cur = null; apply(); },
+    setMode(m) { mode = m; LS.set('gp-scene', m); curFile = null; apply(); },
     setWx(v) { wxOn = v; LS.set('gp-wx-on', v); if (v) fetchWx(true); apply(); },
-    describe() { const i = info(); return `Stuttgart'ta şu an: ${i.scene}${i.wx ? ', hava ' + i.wx : ''}. Bugün gün doğumu ${i.rise}, batımı ${i.set}. Ay %${i.moon} dolu.`; }
+    get artUrl() { return curFile; },
+    describe() { const i = info(); return `Stuttgart'ta şu an ${i.season}, ${i.scene}${i.wx ? ', hava ' + i.wx : ''}. Bugün gün doğumu ${i.rise}, batımı ${i.set}. Ay %${i.moon} dolu.`; }
   };
 })();
 
@@ -1017,7 +1049,7 @@ async function playSong(id, queue) {
   if (!App.queue.includes(id)) App.queue = App.filtered().map(x => x.id);
   const tok = ++loadToken;
   App.curId = id; App.loadingId = id;
-  UI.now(); UI.lib(); UI.lists(); UI.busy('Kaset takılıyor');
+  UI.now(); UI.markOn(); UI.lists(); UI.busy('Kaset takılıyor');
   try {
     let blob = s.blob;
     if (!blob) {
@@ -1039,32 +1071,44 @@ async function playSong(id, queue) {
     toast(e.message === 'nofile' ? 'Bu şarkının dosyası bu cihazda yok' : 'Şarkı açılamadı. Dosya bozuk ya da desteklenmiyor.');
   }
   if (tok !== loadToken) return;
-  App.loadingId = null; UI.now(); UI.lib(); UI.lists(); Media.meta();
+  App.loadingId = null; UI.now(); UI.markOn(); if (App.view === 'lists') UI.lists(); Media.meta();
 }
 function toggle() {
   Engine.unlock();
   if (App.loadingId) return;
   if (!App.curId || Engine.loadedId !== App.curId) {
     const list = App.filtered();
-    const first = App.curId || (App.prefs.shuffle ? list[Math.floor(Math.random() * list.length)] : list[0] || {}).id;
+    const first = App.curId || (App.prefs.shuffle ? list[Math.floor(Math.random() * list.length)] || {} : list[0] || {}).id;
     if (first) playSong(first); return;
   }
   Engine.playing ? Engine.pause() : Engine.play();
   UI.now();
 }
+// Karışık mod: bir kez karıştırılmış sabit sıra; geri tuşu gerçekten önceki şarkıya döner
+let shuf = { base: '', order: [] };
+function shuffleOrder(q) {
+  const key = q.join(',');
+  if (shuf.base !== key || !shuf.order.includes(App.curId)) {
+    const rest = q.filter(id => id !== App.curId);
+    for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
+    shuf = { base: key, order: App.curId && q.includes(App.curId) ? [App.curId, ...rest] : rest };
+  }
+  return shuf.order;
+}
 function nextId(dir) {
-  const q = App.queue.filter(id => App.byId(id));
-  if (!q.length) return null;
+  const q0 = App.queue.filter(id => App.byId(id));
+  if (!q0.length) return null;
+  const q = App.prefs.shuffle && q0.length > 1 ? shuffleOrder(q0) : q0;
   const i = q.indexOf(App.curId);
-  if (App.prefs.shuffle && q.length > 1 && dir > 0) { let n; do n = Math.floor(Math.random() * q.length); while (n === i); return q[n]; }
   let n = i + dir; if (n >= q.length) n = 0; if (n < 0) n = q.length - 1;
   return q[n];
 }
 function step(dir, auto) {
   if (auto && App.prefs.repeat === 'one') { Engine.seek(0); Engine.play(); UI.now(); return; }
-  if (dir < 0 && Engine.pos > 3) { Engine.seek(0); return; }
-  const q = App.queue.filter(id => App.byId(id));
-  if (auto && App.prefs.repeat === 'off' && !App.prefs.shuffle && q.indexOf(App.curId) === q.length - 1) { UI.now(); return; }
+  if (dir < 0 && Engine.pos > 3 && Engine.loadedId === App.curId) { Engine.seek(0); Media.pos(); return; }
+  const q0 = App.queue.filter(id => App.byId(id));
+  const q = App.prefs.shuffle && q0.length > 1 ? shuffleOrder(q0) : q0;
+  if (auto && App.prefs.repeat === 'off' && q.indexOf(App.curId) === q.length - 1) { UI.now(); return; }
   const id = nextId(dir); if (id) playSong(id);
 }
 Engine.on('end', () => step(1, true));
@@ -1072,30 +1116,59 @@ Engine.on('state', () => UI.now());
 Engine.on('busy', t => UI.busy(t));
 Engine.on('mode', () => { toast('iPhone için hazırlamalı motora geçildi. Ton, yankı ve EQ çalışır; ayar değişince ses bir saniyede güncellenir.'); UI.now(); renderFx(); UI.account(); });
 
-/* Kilit ekranı */
-const Media = {
-  meta() {
-    if (!('mediaSession' in navigator)) return;
-    const s = App.byId(App.curId); if (!s) return;
+/* Kilit ekranı ve Kontrol Merkezi */
+const Media = (() => {
+  const ok = 'mediaSession' in navigator;
+  let artFor = null, artUrl = null;
+  // Kapak yoksa: o anki Stuttgart manzarası + kaset etiketi
+  async function makeArt(s) {
     try {
-      const art = Img.url(s);
-      navigator.mediaSession.metadata = new MediaMetadata({ title: s.title, artist: s.artist || '', album: s.album || 'Gönül Plak',
-        artwork: art ? [{ src: art, sizes: '600x600', type: 'image/jpeg' }] : [{ src: 'icon-512.png', sizes: '512x512', type: 'image/png' }] });
-    } catch (e) {}
-  },
-  pos: raf(() => {
-    if (!('mediaSession' in navigator) || !Engine.duration) return;
-    try { navigator.mediaSession.setPositionState({ duration: Engine.duration, playbackRate: fx.rate, position: Math.min(Engine.pos, Engine.duration) }); } catch (e) {}
-  })
-};
-if ('mediaSession' in navigator) {
-  const h = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch (e) {} };
-  h('play', () => { Engine.play(); UI.now(); });
-  h('pause', () => { Engine.pause(); UI.now(); });
-  h('previoustrack', () => step(-1));
-  h('nexttrack', () => step(1));
-  h('seekto', d => { if (d && isFinite(d.seekTime)) Engine.seek(d.seekTime); });
-}
+      const c = document.createElement('canvas'); c.width = c.height = 600; const g = c.getContext('2d');
+      const cover = Img.url(s);
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = cover || Scene.artUrl || 'icon-512.png'; });
+      if (cover) { g.drawImage(img, 0, 0, 600, 600); }
+      else {
+        const sw = img.naturalHeight, sx = Math.max(0, Math.min(img.naturalWidth - sw, 1080 - sw / 2));
+        g.drawImage(img, sx, 0, sw, sw, 0, 0, 600, 600);
+        const gr = g.createLinearGradient(0, 300, 0, 600); gr.addColorStop(0, 'rgba(19,11,15,0)'); gr.addColorStop(1, 'rgba(19,11,15,.9)'); g.fillStyle = gr; g.fillRect(0, 0, 600, 600);
+        g.fillStyle = '#efe1c4'; g.beginPath(); g.roundRect ? g.roundRect(40, 420, 520, 130, 12) : g.rect(40, 420, 520, 130); g.fill();
+        g.fillStyle = '#ff3f6d'; g.fillRect(40, 520, 520, 10); g.fillStyle = '#f4b13e'; g.fillRect(40, 530, 520, 7);
+        g.fillStyle = '#2b1b14'; g.font = '700 46px "GP Hand", cursive'; g.textBaseline = 'alphabetic';
+        let t = s.title; while (g.measureText(t).width > 470 && t.length > 3) t = t.slice(0, -2) + '…'; g.fillText(t, 64, 480);
+        g.fillStyle = '#6b4a3a'; g.font = '600 32px "GP Hand", cursive'; let a = s.artist || 'Gönül Plak'; while (g.measureText(a).width > 470 && a.length > 3) a = a.slice(0, -2) + '…'; g.fillText(a, 64, 512);
+      }
+      return c.toDataURL('image/jpeg', 0.85);
+    } catch (e) { return null; }
+  }
+  async function meta() {
+    if (!ok) return;
+    const s = App.byId(App.curId); if (!s) return;
+    const key = s.id + '|' + s.title + '|' + s.artist + '|' + (s.cover ? 1 : 0) + '|' + (Img.url(s) ? '' : Scene.artUrl);
+    const set = url => { try { navigator.mediaSession.metadata = new MediaMetadata({ title: s.title, artist: s.artist || 'Bilinmeyen sanatçı', album: s.album || 'Gönül Plak', artwork: [{ src: url || 'icon-512.png', sizes: '600x600', type: url && url.startsWith('data:') ? 'image/jpeg' : 'image/png' }] }); } catch (e) {} };
+    if (artFor === key && artUrl) return set(artUrl);
+    set(artUrl && artFor && artFor.startsWith(s.id + '|') ? artUrl : null);
+    const u = await makeArt(s); if (App.curId !== s.id) return;
+    artFor = key; artUrl = u; set(u);
+  }
+  const pos = raf(() => {
+    if (!ok) return;
+    try { navigator.mediaSession.playbackState = Engine.loadedId && Engine.playing ? 'playing' : 'paused'; } catch (e) {}
+    if (!Engine.duration || Engine.loadedId !== App.curId) return;
+    const r = fx.rate || 1;
+    try { navigator.mediaSession.setPositionState({ duration: Engine.duration / r, playbackRate: 1, position: Math.min(Engine.pos, Engine.duration) / r }); } catch (e) {}
+  });
+  if (ok) {
+    const h = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch (e) {} };
+    h('play', () => { Engine.unlock(); if (Engine.loadedId === App.curId) Engine.play(); else toggle(); UI.now(); });
+    h('pause', () => { Engine.pause(); UI.now(); });
+    h('previoustrack', () => step(-1));
+    h('nexttrack', () => step(1));
+    h('seekbackward', null); h('seekforward', null);   // iOS ±10 sn yerine önceki/sonraki şarkı göstersin
+    h('seekto', d => { if (d && isFinite(d.seekTime)) { Engine.seek(d.seekTime * (fx.rate || 1)); pos(); } });
+    h('stop', () => { Engine.pause(); UI.now(); });
+  }
+  return { meta, pos };
+})();
 
 /* ================= Simgeler ================= */
 const ICON = {
@@ -1202,6 +1275,10 @@ const UI = {
     $('upnext').innerHTML = nx;
     $('engineTag').textContent = Engine.mode === 'live' ? 'canlı motor' : 'hazırlamalı motor';
     Tape.sync(); Media.pos();
+  },
+  markOn() {
+    document.querySelectorAll('#list .row.on, #vLists .row.on').forEach(r => r.classList.remove('on'));
+    document.querySelectorAll(`[data-id="${CSS.escape(App.curId || '')}"]`).forEach(r => r.classList.add('on'));
   },
   busy(t) { $('busy').hidden = !t; if (t) $('busy').textContent = t.replace(/…$/, ''); },
   modes() {
@@ -1397,36 +1474,49 @@ function dialUI(d) {
   $('dv-' + d.id).classList.toggle('off', Math.abs(v - d.def) < 0.001);
 }
 (() => {
-  let act = null;
-  const clampSnap = (d, v) => { v = Math.max(d.min, Math.min(d.max, v)); const r = Math.round(v); if (d.snap && Math.abs(v - r) < (d.semi ? d.snap : d.snap)) v = r; return v; };
-  const at = (d, e, el) => { const r = el.getBoundingClientRect(); return d.min + Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (d.max - d.min); };
-  $('knobs').addEventListener('pointerdown', e => {
-    const el = e.target.closest('[data-dial]'); if (!el) return;
-    const d = DIALS.find(x => x.id === el.dataset.dial);
-    act = { d, el, x: e.clientX, y: e.clientY, v: d.get(), moved: false, id: e.pointerId };
-  });
-  $('knobs').addEventListener('pointermove', e => {
-    if (!act || e.pointerId !== act.id) return;
-    const dx = e.clientX - act.x, dy = e.clientY - act.y;
-    if (!act.moved) { if (Math.abs(dx) < 6) return; if (Math.abs(dy) > Math.abs(dx)) { act = null; return; } act.moved = true; try { act.el.setPointerCapture(e.pointerId); } catch (er) {} }
+  const clampSnap = (d, v) => { v = Math.max(d.min, Math.min(d.max, v)); const r = Math.round(v); if (d.snap && Math.abs(v - r) < d.snap) v = r; return v; };
+  const at = (d, x, el) => { const r = el.getBoundingClientRect(); return d.min + Math.max(0, Math.min(1, (x - r.left) / r.width)) * (d.max - d.min); };
+  let act = null, pend = null;
+  // sürükleme sırasında sadece o kadranı çiz, motoru kare başına bir kez güncelle
+  const flush = raf(() => { if (!pend) return; const { d, v } = pend; pend = null; Engine.setFx(Object.assign(d.set(v), { preset: 'custom' })); dialUI(d); });
+  const live = (d, v) => { pend = { d, v }; dialUI(Object.assign({}, d, { get: () => v })); flush(); };
+  const finish = () => { renderFx(); };
+  const start = (el, x, y) => { const d = DIALS.find(k => k.id === el.dataset.dial); act = { d, el, x, y, v: d.get(), moved: false, dir: null }; };
+  const move = (x, y) => {
+    if (!act) return false;
+    const dx = x - act.x, dy = y - act.y;
+    if (!act.dir) { if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return true; act.dir = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v'; }
+    if (act.dir === 'v') { act = null; return false; }
+    act.moved = true;
     const r = act.el.getBoundingClientRect(), d = act.d;
-    custom(d.set(clampSnap(d, act.v + dx / r.width * (d.max - d.min)))); renderFx();
-  });
-  const end = e => {
-    if (!act || e.pointerId !== act.id) return;
-    if (!act.moved && e.type === 'pointerup') { const d = act.d; custom(d.set(clampSnap(d, at(d, e, act.el)))); renderFx(); }
-    act = null;
+    live(d, clampSnap(d, act.v + dx / r.width * (d.max - d.min)));
+    return true;
   };
-  $('knobs').addEventListener('pointerup', end); $('knobs').addEventListener('pointercancel', end);
-  $('knobs').addEventListener('click', e => {
+  const end = x => {
+    if (!act) return;
+    if (!act.moved && act.dir !== 'v' && x != null) { const d = act.d; live(d, clampSnap(d, at(d, x, act.el))); }
+    act = null; setTimeout(finish, 0);
+  };
+  const K = $('knobs');
+  if ('ontouchstart' in window) {
+    K.addEventListener('touchstart', e => { const el = e.target.closest('[data-dial]'); if (!el || e.touches.length > 1) return; const t = e.touches[0]; start(el, t.clientX, t.clientY); }, { passive: true });
+    K.addEventListener('touchmove', e => { if (!act) return; const t = e.touches[0]; if (move(t.clientX, t.clientY) && act && act.dir === 'h') e.preventDefault(); }, { passive: false });
+    K.addEventListener('touchend', e => { const t = e.changedTouches[0]; end(t ? t.clientX : null); });
+    K.addEventListener('touchcancel', () => { act = null; finish(); });
+  } else {
+    K.addEventListener('pointerdown', e => { const el = e.target.closest('[data-dial]'); if (!el) return; start(el, e.clientX, e.clientY); try { el.setPointerCapture(e.pointerId); } catch (er) {} });
+    K.addEventListener('pointermove', e => move(e.clientX, e.clientY));
+    K.addEventListener('pointerup', e => end(e.clientX)); K.addEventListener('pointercancel', () => { act = null; finish(); });
+  }
+  K.addEventListener('click', e => {
     const r = e.target.closest('[data-dreset]'); if (r) { const d = DIALS.find(x => x.id === r.dataset.dreset); custom(d.set(d.def)); renderFx(); return; }
     const b = e.target.closest('[data-dstep]'); if (!b) return;
-    const d = DIALS.find(x => x.id === b.dataset.dstep), s = +b.dataset.d;
+    const d = DIALS.find(x => x.id === b.dataset.dstep), sg = +b.dataset.d;
     let v = d.get();
-    v = d.semi ? (s > 0 ? Math.floor(v + 1e-6) + 1 : Math.ceil(v - 1e-6) - 1) : Math.round((v + s * d.step) / d.step) * d.step;
+    v = d.semi ? (sg > 0 ? Math.floor(v + 1e-6) + 1 : Math.ceil(v - 1e-6) - 1) : Math.round((v + sg * d.step) / d.step) * d.step;
     custom(d.set(Math.max(d.min, Math.min(d.max, v)))); renderFx();
   });
-  $('knobs').addEventListener('keydown', e => {
+  K.addEventListener('keydown', e => {
     const el = e.target.closest('[data-dial]'); if (!el) return;
     const d = DIALS.find(x => x.id === el.dataset.dial), st = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
     if (!st) return; e.preventDefault();
@@ -1789,7 +1879,7 @@ function renderFx() {
 $('play').onclick = toggle;
 $('next').onclick = () => { Engine.unlock(); step(1); };
 $('prev').onclick = () => { Engine.unlock(); step(-1); };
-$('shuffle').onclick = () => { App.prefs.shuffle = !App.prefs.shuffle; App.savePrefs(); UI.modes(); UI.now(); };
+$('shuffle').onclick = () => { App.prefs.shuffle = !App.prefs.shuffle; shuf = { base: '', order: [] }; App.savePrefs(); UI.modes(); UI.now(); };
 $('repeat').onclick = () => { App.prefs.repeat = { off: 'all', all: 'one', one: 'off' }[App.prefs.repeat]; App.savePrefs(); UI.modes(); UI.now(); };
 const seekEl = $('seek');
 seekEl.addEventListener('input', () => { dragging = true; rangeFill(seekEl); if (Engine.duration) $('cur').textContent = fmt(seekEl.value / 1000 * Engine.duration / fx.rate); });

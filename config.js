@@ -9,5 +9,5 @@ window.GP_CONFIG = {
   SUPABASE_ANON_KEY: "",
 
   // developer.spotify.com > Dashboard > uygulaman > Client ID
-  SPOTIFY_CLIENT_ID: ""
+  SPOTIFY_CLIENT_ID: "9fa803480e4c43aaa562b48aa39c681a"
 };
