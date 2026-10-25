@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 12;
+const VERSION = 13;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -1442,11 +1442,179 @@ const UI = {
 };
 
 /* ================= Sekmeler ================= */
+/* ================= S-Bahn Stuttgart (canlı) =================
+   Kaynak 1: VVS'nin açık EFA servisi (gerçek zamanlı). Tarayıcı izin vermezse
+   Kaynak 2: v6.db.transport.rest (Deutsche Bahn verisi, CORS açık). Sunucu yok, anahtar yok. */
+const SB = (() => {
+  const COL = { S1: '#5fae3b', S2: '#e2231a', S3: '#f39a1e', S4: '#0b66b2', S5: '#1ba6df', S6: '#8a5a36', S60: '#8d9c2c', S62: '#c7742c' };
+  const LINES = Object.keys(COL);
+  const FAV = ['Hauptbahnhof (tief)', 'Stadtmitte', 'Feuersee', 'Schwabstraße', 'Bad Cannstatt', 'Vaihingen', 'Flughafen/Messe', 'Universität', 'Feuerbach', 'Ludwigsburg', 'Esslingen', 'Böblingen'];
+  const VVS = 'https://www3.vvs.de/mngvvs/';
+  const DBR = 'https://v6.db.transport.rest';
+  let src = LS.get('gp-sb-src', 'vvs'), st = LS.get('gp-sb-stop', null), ids = LS.get('gp-sb-ids', {});
+  let deps = [], hub = [], infos = [], err = '', busy = false, at = 0, timer = null, tick = null, filter = null;
+  const j = async (u, ms = 9000) => { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); try { const r = await fetch(u, { signal: c.signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); } finally { clearTimeout(t); } };
+  const lineOf = n => { const m = String(n || '').replace(/\s+/g, '').match(/^S(\d+)$/i); return m ? 'S' + m[1] : null; };
+
+  // ---- VVS EFA
+  async function vvsFind(q) {
+    const r = await j(VVS + 'XML_STOPFINDER_REQUEST?outputFormat=rapidJSON&type_sf=any&anyObjFilter_sf=2&name_sf=' + encodeURIComponent('Stuttgart ' + q));
+    return (r.locations || []).filter(l => l.type === 'stop').sort((a, b) => (b.matchQuality || 0) - (a.matchQuality || 0)).map(l => ({ id: l.id, name: l.disassembledName || l.name, place: (l.parent && l.parent.name) || '' }));
+  }
+  async function vvsDeps(id) {
+    const r = await j(VVS + 'XML_DM_REQUEST?outputFormat=rapidJSON&mode=direct&type_dm=any&useRealtime=1&depType=stopEvents&limit=60&name_dm=' + encodeURIComponent(id));
+    const out = [];
+    for (const e of r.stopEvents || []) {
+      const tr = e.transportation || {}, ln = lineOf(tr.disassembledName || tr.number);
+      if (!ln) continue;
+      const pl = new Date(e.departureTimePlanned), es = e.departureTimeEstimated ? new Date(e.departureTimeEstimated) : null;
+      const inf = [].concat(e.infos || []).map(i => i.subtitle || i.title || '').filter(Boolean);
+      out.push({ line: ln, dest: (tr.destination && tr.destination.name || '').replace(/^Stuttgart\s+/, ''), planned: pl, est: es,
+        rt: !!es || (e.realtimeStatus || []).includes('MONITORED'), cancelled: (e.realtimeStatus || []).includes('TRIP_CANCELLED') || e.isCancelled === true,
+        platform: (e.location && e.location.properties && (e.location.properties.platformName || e.location.properties.platform)) || '', info: inf });
+    }
+    return out;
+  }
+  // ---- DB (transport.rest)
+  async function dbFind(q) {
+    const r = await j(DBR + '/locations?results=8&addresses=false&poi=false&query=' + encodeURIComponent('Stuttgart ' + q));
+    return (r || []).filter(l => l.type === 'stop' || l.type === 'station').map(l => ({ id: l.id, name: l.name.replace(/^Stuttgart[- ]?/, '') || l.name, place: '' }));
+  }
+  async function dbDeps(id) {
+    const q = 'duration=70&results=60&suburban=true&nationalExpress=false&national=false&regionalExpress=false&regional=false&bus=false&ferry=false&subway=false&tram=false&taxi=false';
+    const r = await j(`${DBR}/stops/${encodeURIComponent(id)}/departures?${q}`, 12000);
+    return (r.departures || r || []).map(d => { const ln = lineOf(d.line && d.line.name); if (!ln) return null;
+      return { line: ln, dest: (d.direction || '').replace(/^Stuttgart\s+/, ''), planned: new Date(d.plannedWhen || d.when), est: d.when ? new Date(d.when) : null, rt: d.delay !== null && d.delay !== undefined,
+        cancelled: !!d.cancelled, platform: d.platform || d.plannedPlatform || '', info: (d.remarks || []).filter(x => x.type === 'warning').map(x => x.summary || x.text).filter(Boolean) }; }).filter(Boolean);
+  }
+  const API = { vvs: { find: vvsFind, deps: vvsDeps }, db: { find: dbFind, deps: dbDeps } };
+  async function withSrc(fn) {
+    try { return await fn(API[src], src); }
+    catch (e) { const other = src === 'vvs' ? 'db' : 'vvs'; const r = await fn(API[other], other); src = other; LS.set('gp-sb-src', src); return r; }
+  }
+  async function resolve(name, sv) {
+    const key = sv + ':' + name; if (ids[key]) return ids[key];
+    const list = await API[sv].find(name); if (!list.length) throw new Error('Durak bulunamadı');
+    const want = name.toLowerCase().replace(/\s*\(tief\)/, '');
+    const best = list.find(l => l.name.toLowerCase().includes(want) && (!/hauptbahnhof/i.test(name) || /tief/i.test(l.name))) || list.find(l => l.name.toLowerCase().includes(want)) || list[0];
+    ids[key] = best.id; LS.set('gp-sb-ids', ids); return best.id;
+  }
+  const delay = d => d.est ? Math.round((d.est - d.planned) / 60000) : 0;
+  const when = d => (d.est || d.planned).getTime();
+
+  async function refresh(force) {
+    if (busy) return; if (!force && Date.now() - at < 25000) return render();
+    busy = true; err = ''; render();
+    const stop = st || FAV[0];
+    try {
+      const got = await withSrc(async (A, sv) => {
+        const sid = await resolve(stop, sv);
+        const hid = stop === FAV[0] ? sid : await resolve(FAV[0], sv);
+        const [a, h] = await Promise.all([A.deps(sid), sid === hid ? null : A.deps(hid).catch(() => [])]);
+        return [a, h || a];
+      });
+      const now = Date.now() - 60000;
+      deps = got[0].filter(d => when(d) > now).sort((a, b) => when(a) - when(b));
+      hub = got[1].filter(d => when(d) > now);
+      const seen = new Set(); infos = [];
+      for (const d of deps.concat(hub)) for (const t of d.info) { const k = t.slice(0, 80); if (!seen.has(k)) { seen.add(k); infos.push({ line: d.line, t }); } }
+      at = Date.now();
+    } catch (e) { err = e.name === 'AbortError' ? 'Bağlantı zaman aşımına uğradı' : 'Canlı veriye ulaşılamadı. İnternetini kontrol et, biraz sonra tekrar dene.'; }
+    busy = false; render();
+  }
+  function status() {
+    return LINES.map(l => {
+      const xs = hub.filter(d => d.line === l && when(d) < Date.now() + 45 * 60000);
+      if (!xs.length) return { l, k: 'none', t: l === 'S62' ? 'Hbf dışı' : 'sefer yok' };
+      const can = xs.filter(d => d.cancelled).length, dl = Math.max(0, ...xs.filter(d => !d.cancelled).map(delay)), avg = xs.reduce((a, d) => a + Math.max(0, delay(d)), 0) / xs.length;
+      if (can) return { l, k: 'bad', t: can + ' iptal' };
+      if (dl >= 10 || avg >= 6) return { l, k: 'bad', t: '+' + dl + ' dk' };
+      if (dl >= 3) return { l, k: 'mid', t: '+' + dl + ' dk' };
+      return { l, k: 'ok', t: 'dakik' };
+    });
+  }
+  const mins = d => Math.round((when(d) - Date.now()) / 60000);
+  const hm = t => t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  function mood(ss) {
+    const bad = ss.filter(x => x.k === 'bad').length, mid = ss.filter(x => x.k === 'mid').length;
+    if (!hub.length) return '';
+    if (bad >= 3) return 'Stammstrecke yine dertli. Trenler de gönül gibi, gelmiyor 🥀';
+    if (bad) return 'Bir hat aksıyor. Bekleyene "Bekle Beni" çalsın.';
+    if (mid) return 'Hafif rötar var, bir şarkı boyu gecikme.';
+    return 'Bugün trenler dakik. Kader bu sefer yüzüne güldü.';
+  }
+  function flow() {
+    // önümüzdeki 20 dakikada gelecek trenler: sağdan sola akar, istasyon solda
+    const W = 340, X0 = 26, X1 = 330, span = 20;
+    const xs = deps.filter(d => !d.cancelled && (!filter || d.line === filter)).map(d => ({ d, m: (when(d) - Date.now()) / 60000 })).filter(o => o.m > -0.5 && o.m <= span);
+    const lanes = []; // üst üste binmesin
+    const dots = xs.map(o => { const x = X0 + Math.max(0, o.m) / span * (X1 - X0); let lane = 0; while (lanes[lane] !== undefined && x - lanes[lane] < 46) lane++; lanes[lane] = x; return { ...o, x, lane: Math.min(lane, 2) }; });
+    const ticks = [0, 5, 10, 15, 20].map(m => `<g><line x1="${X0 + m / span * (X1 - X0)}" x2="${X0 + m / span * (X1 - X0)}" y1="86" y2="92" stroke="#ffffff40"/><text x="${X0 + m / span * (X1 - X0)}" y="106" text-anchor="middle">${m ? m + ' dk' : 'şimdi'}</text></g>`).join('');
+    return `<svg class="sbflow" viewBox="0 0 ${W} 112" role="img" aria-label="Önümüzdeki 20 dakikada gelecek trenler">
+      <rect x="${X0}" y="76" width="${X1 - X0}" height="4" rx="2" fill="#ffffff1a"/><rect x="${X0}" y="76" width="${X1 - X0}" height="4" rx="2" fill="url(#sbrail)" opacity=".5"/>
+      <defs><linearGradient id="sbrail"><stop offset="0" stop-color="var(--neon)"/><stop offset="1" stop-color="transparent"/></linearGradient></defs>
+      <circle cx="${X0}" cy="78" r="7" fill="var(--bg)" stroke="var(--cream)" stroke-width="2.5"/>
+      ${ticks}
+      ${dots.map(o => `<g class="sbtrain" transform="translate(${o.x.toFixed(1)},${(58 - o.lane * 22)})"><line y1="10" y2="${18 + o.lane * 22}" stroke="${COL[o.d.line]}" stroke-opacity=".5" stroke-dasharray="2 2"/><rect x="-20" y="-9" width="40" height="19" rx="9.5" fill="${COL[o.d.line]}"/><text y="4.5" text-anchor="middle" class="ln">${o.d.line}</text>${delay(o.d) >= 3 ? `<circle cx="18" cy="-8" r="4.5" fill="var(--amber)" stroke="var(--bg)" stroke-width="1.5"/>` : ''}</g>`).join('')}
+      ${dots.length ? '' : `<text x="${W / 2}" y="50" text-anchor="middle" class="empty">20 dakika içinde tren yok</text>`}
+    </svg>`;
+  }
+  function render() {
+    const v = $('vSb'); if (!v || v.hidden) return;
+    const stop = st || FAV[0], ss = status();
+    const list = deps.filter(d => !filter || d.line === filter).slice(0, 18);
+    v.innerHTML = `<div class="toprow"><div><span class="kicker">canlı</span><h1>S-Bahn</h1></div>
+        <div class="acts"><button class="iconbtn" id="sbRefresh" aria-label="Yenile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="${busy ? 'spin' : ''}"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div></div>
+      <div class="sbstops" id="sbStops">${FAV.map(f => `<button class="chip${f === stop ? ' on' : ''}" data-stop="${esc(f)}">${esc(f.replace(' (tief)', ''))}</button>`).join('')}<button class="chip" id="sbSearch">+ başka durak</button></div>
+      ${!FAV.includes(stop) ? `<p class="msg" style="margin:8px 0 0">Seçili durak: <b>${esc(stop)}</b></p>` : ''}
+      <div class="sbcard">
+        <div class="sbhead"><b>Hat durumu</b><span class="sub">Hauptbahnhof (tief) üzerinden, önümüzdeki 45 dk</span></div>
+        <div class="sblines">${ss.map(x => `<button class="sbl ${x.k}${filter === x.l ? ' sel' : ''}" data-line="${x.l}" style="--c:${COL[x.l]}"><span class="sbb">${x.l}</span><span class="s">${x.t}</span></button>`).join('')}</div>
+        ${mood(ss) ? `<p class="sbmood">${mood(ss)}</p>` : ''}
+      </div>
+      <div class="sbcard">
+        <div class="sbhead"><b>${esc(stop.replace(' (tief)', ''))} · gelen trenler</b><span class="sub">${filter ? filter + ' süzülüyor · ' : ''}${at ? 'güncellendi ' + hm(new Date(at)) : ''}</span></div>
+        ${flow()}
+      </div>
+      ${err ? `<p class="msg err">${err}</p>` : ''}
+      ${infos.length ? `<div class="sbinfo">${infos.slice(0, 4).map(i => `<p><span class="sbb" style="--c:${COL[i.line]}">${i.line}</span>${esc(i.t)}</p>`).join('')}</div>` : ''}
+      <ul class="sbdeps">${list.map(d => { const m = mins(d), dl = delay(d);
+        return `<li class="${d.cancelled ? 'can' : ''}"><span class="sbb" style="--c:${COL[d.line]}">${d.line}</span>
+          <span class="m"><span class="t">${esc(d.dest)}</span><span class="a">${hm(d.planned)}${d.platform ? ' · Gleis ' + esc(String(d.platform).replace(/^Gleis\s*/i, '')) : ''}${d.rt ? '' : ' · plan'}</span></span>
+          <span class="w">${d.cancelled ? '<em>iptal</em>' : `<b>${m <= 0 ? 'şimdi' : m + ' dk'}</b>${dl >= 1 ? `<span class="late${dl >= 5 ? ' hi' : ''}">+${dl}</span>` : (d.rt ? '<span class="ontime">✓</span>' : '')}`}</span></li>`; }).join('') || (busy ? '<li class="ph">Yükleniyor…</li>' : '<li class="ph">Şu an gösterilecek sefer yok</li>')}</ul>
+      <p class="msg sbsrc">Veri: ${src === 'vvs' ? 'VVS (EFA, gerçek zamanlı)' : 'Deutsche Bahn (transport.rest)'}. Her 30 saniyede yenilenir. ✓ = zamanında, sarı = rötar.</p>`;
+  }
+  function start() {
+    render(); refresh();
+    clearInterval(timer); clearInterval(tick);
+    timer = setInterval(() => { if (!document.hidden) refresh(true); }, 30000);
+    tick = setInterval(() => { if (!document.hidden) render(); }, 15000);
+  }
+  function stop() { clearInterval(timer); clearInterval(tick); timer = tick = null; }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && timer) refresh(true); });
+  function bind() {
+    $('vSb').addEventListener('click', async e => {
+      const t = e.target;
+      if (t.closest('#sbRefresh')) return refresh(true);
+      const sp = t.closest('[data-stop]'); if (sp) { st = sp.dataset.stop; LS.set('gp-sb-stop', st); deps = []; at = 0; return refresh(true); }
+      const ln = t.closest('[data-line]'); if (ln) { filter = filter === ln.dataset.line ? null : ln.dataset.line; return render(); }
+      if (t.closest('#sbSearch')) {
+        const q = prompt('Durak adı (ör. Zuffenhausen, Rohr, Herrenberg)'); if (!q || !q.trim()) return;
+        try { let sv0; const list = await withSrc((A, sv) => { sv0 = sv; return A.find(q.trim()); }); if (!list.length) return toast('Durak bulunamadı');
+          const b = list[0]; ids[sv0 + ':' + b.name] = b.id; LS.set('gp-sb-ids', ids); st = b.name; LS.set('gp-sb-stop', st); deps = []; at = 0; refresh(true);
+        } catch (er) { toast('Durak aranamadı, bağlantını kontrol et'); }
+      }
+    });
+  }
+  return { start, stop, bind, render };
+})();
+
 function setView(v) {
   if (v === 'now' && isWide()) v = 'lib';
   App.view = v;
-  $('vNow').hidden = v !== 'now'; $('vLib').hidden = v !== 'lib'; $('vLists').hidden = v !== 'lists'; $('vAcct').hidden = v !== 'acct';
-  ['tNow', 'tLib', 'tLists', 'tAcct'].forEach(t => $(t).setAttribute('aria-selected', 'v' + t.slice(1) === 'v' + { now: 'Now', lib: 'Lib', lists: 'Lists', acct: 'Acct' }[v]));
+  $('vNow').hidden = v !== 'now'; $('vLib').hidden = v !== 'lib'; $('vLists').hidden = v !== 'lists'; $('vAcct').hidden = v !== 'acct'; $('vSb').hidden = v !== 'sb';
+  ['tNow', 'tLib', 'tLists', 'tSb', 'tAcct'].forEach(t => $(t).setAttribute('aria-selected', 'v' + t.slice(1) === 'v' + { now: 'Now', lib: 'Lib', lists: 'Lists', sb: 'Sb', acct: 'Acct' }[v]));
+  if (v === 'sb') SB.start(); else SB.stop();
   if (v === 'acct') UI.account();
   if (v === 'lists') UI.lists();
   UI.now(); window.scrollTo(0, 0);
@@ -1455,6 +1623,8 @@ $('tNow').onclick = () => setView('now');
 $('tLib').onclick = () => setView('lib');
 $('tLists').onclick = () => { App.openList = null; setView('lists'); };
 $('tAcct').onclick = () => setView('acct');
+$('tSb').onclick = () => setView('sb');
+SB.bind();
 $('miniOpen').onclick = () => setView('now');
 $('miniTh').onclick = () => setView('now');
 $('miniPlay').onclick = toggle;
