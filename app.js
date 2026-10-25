@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 13;
+const VERSION = 14;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -1443,48 +1443,116 @@ const UI = {
 
 /* ================= Sekmeler ================= */
 /* ================= S-Bahn Stuttgart (canlı) =================
-   Kaynak 1: VVS'nin açık EFA servisi (gerçek zamanlı). Tarayıcı izin vermezse
-   Kaynak 2: v6.db.transport.rest (Deutsche Bahn verisi, CORS açık). Sunucu yok, anahtar yok. */
+   Kaynak 1: VVS'nin açık EFA servisi (gerçek zamanlı, durak sıraları ve koordinatlarıyla).
+   Haritadaki konumlar tahmini: her trenin canlı kalkış/varış saatlerinden iki durak arasında nerede olduğu hesaplanır.
+   Kaynak 2 (VVS'ye ulaşılamazsa): v6.db.transport.rest, sadece kalkış tablosu. Sunucu yok, anahtar yok. */
 const SB = (() => {
-  const COL = { S1: '#5fae3b', S2: '#e2231a', S3: '#f39a1e', S4: '#0b66b2', S5: '#1ba6df', S6: '#8a5a36', S60: '#8d9c2c', S62: '#c7742c' };
+  const COL = { S1: '#5fae3b', S2: '#e2231a', S3: '#f39a1e', S4: '#0b66b2', S5: '#1ba6df', S6: '#8a5a36', S60: '#8d9c2c', S62: '#c7742c', RB47: '#8e63c9' };
   const LINES = Object.keys(COL);
-  const FAV = ['Hauptbahnhof (tief)', 'Stadtmitte', 'Feuersee', 'Schwabstraße', 'Bad Cannstatt', 'Vaihingen', 'Flughafen/Messe', 'Universität', 'Feuerbach', 'Ludwigsburg', 'Esslingen', 'Böblingen'];
   const VVS = 'https://www3.vvs.de/mngvvs/';
   const DBR = 'https://v6.db.transport.rest';
-  let src = LS.get('gp-sb-src', 'vvs'), st = LS.get('gp-sb-stop', null), ids = LS.get('gp-sb-ids', {});
-  let deps = [], hub = [], infos = [], err = '', busy = false, at = 0, timer = null, tick = null, filter = null;
-  const j = async (u, ms = 9000) => { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); try { const r = await fetch(u, { signal: c.signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); } finally { clearTimeout(t); } };
-  const lineOf = n => { const m = String(n || '').replace(/\s+/g, '').match(/^S(\d+)$/i); return m ? 'S' + m[1] : null; };
+  // Eren'in isimleri
+  const REN = { 'Korntal-Münchingen': 'S-Korntal-Münchingen', 'Schwieberdingen': 'S-Schwieberdingen', 'Heimerdingen': 'S-Heimerdingen', 'Hemmingen': 'S-Hemmingen',
+    'Ditzingen': 'S-Ditzingen', 'Münchingen': 'S-Münchingen', 'Korntal': 'S-Korntal', 'Gerlingen': 'S-Gerlingen', 'Leonberg': 'S-Leonberg', 'Fellbach': 'S-Fellbach', 'Ludwigsburg': 'L*b*' };
+  const renRe = new RegExp('(^|[^\\wÄÖÜäöüß-])(' + Object.keys(REN).sort((a, b) => b.length - a.length).join('|') + ')(?![\\wÄÖÜäöüß])', 'g');
+  const nm = s => String(s || '').replace(/^Stuttgart[, ]+/, '').replace(renRe, (m, pre, w) => pre + REN[w]);
+  const HUBS = [{ q: 'Stuttgart Hauptbahnhof (tief)', want: /hauptbahnhof.*tief|tief.*hauptbahnhof/i, n: 200 }, { q: 'Renningen', want: /renningen/i, n: 90 }, { q: 'Korntal', want: /korntal/i, n: 70 }];
+  const DEF = [{ id: null, name: 'Hauptbahnhof (tief)' }, { id: null, name: 'Stadtmitte' }, { id: null, name: 'Schwabstraße' }];
+
+  let src = LS.get('gp-sb-src', 'vvs'), ids = LS.get('gp-sb-ids2', {});
+  let recent = LS.get('gp-sb-recent', DEF), cur = recent[0] || DEF[0];
+  let deps = [], err = '', busy = false, at = 0, timers = [], filter = null, built = false;
+  const net = { trips: [], stops: new Map(), at: 0, busy: false, err: '' };
+
+  const j = async (u, ms = 12000) => { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); try { const r = await fetch(u, { signal: c.signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); } finally { clearTimeout(t); } };
+  const lineOf = (...xs) => { for (const x of xs) { const n = String(x || '').replace(/\s+/g, '').toUpperCase(); let m = n.match(/^S(\d{1,2})$/); if (m) return 'S' + m[1]; if (/^R?B?47$/.test(n) && n !== '47' || n === 'RB47') return 'RB47'; } return null; };
+  const isLine = (tr) => { const l = lineOf(tr.disassembledName, tr.number, tr.name && tr.name.replace(/^(S-Bahn|R-Bahn|Regionalbahn)\s*/i, '')); if (l) return l;
+    if (/47/.test(String(tr.number || tr.name || '')) && /strohg|R-?Bahn|RB|Regional/i.test(String((tr.product && tr.product.name) || '') + (tr.name || '') + (tr.operator && tr.operator.name || ''))) return 'RB47'; return null; };
+  const T = x => x ? new Date(x).getTime() : NaN;
+  const stamp = d => { const p = n => String(n).padStart(2, '0'); return { date: `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`, time: `${p(d.getHours())}${p(d.getMinutes())}` }; };
+
+  // EFA konumunu sade durak bilgisine çevir (peron -> durak)
+  function stopInfo(l) {
+    if (!l) return null;
+    const s0 = (l.type === 'platform' || /^(Gleis|Bstg|Steig)/i.test(l.disassembledName || '')) && l.parent ? l.parent : l;
+    const id = String(s0.id || l.id || '').split(':').slice(0, 3).join(':');
+    const full = s0.name || l.name || '';
+    let town = s0.parent && s0.parent.type === 'locality' ? s0.parent.name : (full.includes(', ') ? full.split(', ')[0] : '');
+    let d = s0.disassembledName || (full.includes(', ') ? full.split(', ').slice(1).join(', ') : full);
+    d = d.replace(/^Bf\.?\s+|\s+Bf\.?$/i, '').trim();
+    if (/^(Bahnhof|Bf\.?|Hbf\.?|ZOB)$/i.test(d) || !d) d = town || d;
+    let c = s0.coord || l.coord;
+    if (Array.isArray(c) && c.length >= 2 && Math.abs(c[0]) <= 90 && Math.abs(c[1]) <= 180) { c = c[0] < c[1] ? [c[1], c[0]] : [c[0], c[1]]; } else c = null;
+    return { id, name: d, town: town === 'Stuttgart' ? '' : town, coord: c };
+  }
+  const label = s => nm(s.name);
 
   // ---- VVS EFA
-  async function vvsFind(q) {
-    const r = await j(VVS + 'XML_STOPFINDER_REQUEST?outputFormat=rapidJSON&type_sf=any&anyObjFilter_sf=2&name_sf=' + encodeURIComponent('Stuttgart ' + q));
-    return (r.locations || []).filter(l => l.type === 'stop').sort((a, b) => (b.matchQuality || 0) - (a.matchQuality || 0)).map(l => ({ id: l.id, name: l.disassembledName || l.name, place: (l.parent && l.parent.name) || '' }));
+  async function vvsFind(q, want) {
+    const r = await j(VVS + 'XML_STOPFINDER_REQUEST?outputFormat=rapidJSON&coordOutputFormat=WGS84[dd.ddddd]&type_sf=any&anyObjFilter_sf=2&name_sf=' + encodeURIComponent(q));
+    const xs = (r.locations || []).filter(l => l.type === 'stop');
+    const rail = xs.filter(l => !l.productClasses || l.productClasses.some(c => c <= 1));
+    const pool = rail.length ? rail : xs;
+    pool.sort((a, b) => ((want && want.test(b.name) ? 1e4 : 0) + (b.isBest ? 500 : 0) + (b.matchQuality || 0)) - ((want && want.test(a.name) ? 1e4 : 0) + (a.isBest ? 500 : 0) + (a.matchQuality || 0)));
+    return pool.map(l => Object.assign(stopInfo(l), { id: l.id }));
+  }
+  function evDep(e) {
+    const tr = e.transportation || {}, ln = isLine(tr); if (!ln) return null;
+    const pl = T(e.departureTimePlanned), es = T(e.departureTimeEstimated);
+    const rs = e.realtimeStatus || [];
+    return { line: ln, dest: nm(tr.destination && tr.destination.name), planned: pl, est: isNaN(es) ? null : es, rt: !isNaN(es) || rs.includes('MONITORED'),
+      cancelled: rs.includes('TRIP_CANCELLED') || e.isCancelled === true,
+      platform: (e.location && e.location.properties && (e.location.properties.platformName || e.location.properties.platform)) || (e.location && /^Gleis/i.test(e.location.disassembledName || '') ? e.location.disassembledName : '') || '',
+      info: [].concat(e.infos || []).map(i => i.subtitle || i.title || i.content || '').filter(Boolean).map(x => x.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()) };
   }
   async function vvsDeps(id) {
-    const r = await j(VVS + 'XML_DM_REQUEST?outputFormat=rapidJSON&mode=direct&type_dm=any&useRealtime=1&depType=stopEvents&limit=60&name_dm=' + encodeURIComponent(id));
-    const out = [];
-    for (const e of r.stopEvents || []) {
-      const tr = e.transportation || {}, ln = lineOf(tr.disassembledName || tr.number);
-      if (!ln) continue;
-      const pl = new Date(e.departureTimePlanned), es = e.departureTimeEstimated ? new Date(e.departureTimeEstimated) : null;
-      const inf = [].concat(e.infos || []).map(i => i.subtitle || i.title || '').filter(Boolean);
-      out.push({ line: ln, dest: (tr.destination && tr.destination.name || '').replace(/^Stuttgart\s+/, ''), planned: pl, est: es,
-        rt: !!es || (e.realtimeStatus || []).includes('MONITORED'), cancelled: (e.realtimeStatus || []).includes('TRIP_CANCELLED') || e.isCancelled === true,
-        platform: (e.location && e.location.properties && (e.location.properties.platformName || e.location.properties.platform)) || '', info: inf });
+    const r = await j(VVS + 'XML_DM_REQUEST?outputFormat=rapidJSON&mode=direct&type_dm=any&useRealtime=1&depType=stopEvents&limit=80&name_dm=' + encodeURIComponent(id));
+    return (r.stopEvents || []).map(evDep).filter(Boolean);
+  }
+  // Ağ: merkez duraklardan geçen bütün seferleri durak sıralarıyla çek
+  async function vvsNet() {
+    const from = stamp(new Date(Date.now() - 65 * 60000));
+    const trips = new Map(), stops = new Map();
+    const results = await Promise.all(HUBS.map(async h => {
+      const key = 'vvs:hub:' + h.q;
+      let id = ids[key];
+      if (!id) { const f = await vvsFind(h.q, h.want); if (!f.length) return []; id = ids[key] = f[0].id; LS.set('gp-sb-ids2', ids); }
+      const r = await j(`${VVS}XML_DM_REQUEST?outputFormat=rapidJSON&coordOutputFormat=WGS84[dd.ddddd]&mode=direct&type_dm=any&useRealtime=1&depType=stopEvents&includeCompleteStopSeq=1&limit=${h.n}&itdDate=${from.date}&itdTime=${from.time}&name_dm=${encodeURIComponent(id)}`, 20000);
+      return r.stopEvents || [];
+    }).map(p => p.catch(() => [])));
+    for (const evs of results) for (const e of evs) {
+      const d = evDep(e); if (!d) continue;
+      const here = Object.assign({}, e.location || {}, { arrivalTimePlanned: e.arrivalTimePlanned || e.departureTimePlanned, arrivalTimeEstimated: e.arrivalTimeEstimated || e.departureTimeEstimated, departureTimePlanned: e.departureTimePlanned, departureTimeEstimated: e.departureTimeEstimated });
+      const seq = [].concat(e.previousLocations || [], [here], e.onwardLocations || []);
+      let off = null; const st = [];
+      for (const l of seq) {
+        const s = stopInfo(l); if (!s || !s.id) continue;
+        const pa = T(l.arrivalTimePlanned || l.departureTimePlanned), pd = T(l.departureTimePlanned || l.arrivalTimePlanned);
+        const ea = T(l.arrivalTimeEstimated), ed = T(l.departureTimeEstimated);
+        if (!isNaN(ed)) off = ed - pd; else if (!isNaN(ea)) off = ea - pa;
+        const o = off || 0;
+        const arr = !isNaN(ea) ? ea : pa + o, dep = !isNaN(ed) ? ed : pd + o;
+        if (isNaN(arr) && isNaN(dep)) continue;
+        st.push({ id: s.id, name: s.name, coord: s.coord, arr: isNaN(arr) ? dep : arr, dep: isNaN(dep) ? arr : dep, pa: isNaN(pa) ? pd : pa });
+        if (s.coord) { const k = stops.get(s.id) || Object.assign({ lines: new Set() }, s); k.lines.add(d.line); if (!k.coord) k.coord = s.coord; stops.set(s.id, k); }
+      }
+      if (st.length < 2) continue;
+      const key = d.line + '|' + st[0].id + '|' + st[0].pa + '|' + st[st.length - 1].id;
+      const old = trips.get(key);
+      if (!old || st.length > old.st.length) trips.set(key, { key, line: d.line, dest: d.dest, cancelled: d.cancelled, st, info: d.info });
     }
-    return out;
+    return { trips: [...trips.values()], stops };
   }
   // ---- DB (transport.rest)
   async function dbFind(q) {
-    const r = await j(DBR + '/locations?results=8&addresses=false&poi=false&query=' + encodeURIComponent('Stuttgart ' + q));
-    return (r || []).filter(l => l.type === 'stop' || l.type === 'station').map(l => ({ id: l.id, name: l.name.replace(/^Stuttgart[- ]?/, '') || l.name, place: '' }));
+    const r = await j(DBR + '/locations?results=10&addresses=false&poi=false&query=' + encodeURIComponent(q));
+    return (r || []).filter(l => l.type === 'stop' || l.type === 'station').map(l => ({ id: l.id, name: l.name.replace(/^Stuttgart[- ]?/, '') || l.name, town: '', coord: l.location ? [l.location.latitude, l.location.longitude] : null }));
   }
   async function dbDeps(id) {
-    const q = 'duration=70&results=60&suburban=true&nationalExpress=false&national=false&regionalExpress=false&regional=false&bus=false&ferry=false&subway=false&tram=false&taxi=false';
-    const r = await j(`${DBR}/stops/${encodeURIComponent(id)}/departures?${q}`, 12000);
+    const q = 'duration=70&results=60&suburban=true&nationalExpress=false&national=false&regionalExpress=false&regional=true&bus=false&ferry=false&subway=false&tram=false&taxi=false';
+    const r = await j(`${DBR}/stops/${encodeURIComponent(id)}/departures?${q}`, 14000);
     return (r.departures || r || []).map(d => { const ln = lineOf(d.line && d.line.name); if (!ln) return null;
-      return { line: ln, dest: (d.direction || '').replace(/^Stuttgart\s+/, ''), planned: new Date(d.plannedWhen || d.when), est: d.when ? new Date(d.when) : null, rt: d.delay !== null && d.delay !== undefined,
+      return { line: ln, dest: nm(d.direction), planned: T(d.plannedWhen || d.when), est: d.when ? T(d.when) : null, rt: d.delay !== null && d.delay !== undefined,
         cancelled: !!d.cancelled, platform: d.platform || d.plannedPlatform || '', info: (d.remarks || []).filter(x => x.type === 'warning').map(x => x.summary || x.text).filter(Boolean) }; }).filter(Boolean);
   }
   const API = { vvs: { find: vvsFind, deps: vvsDeps }, db: { find: dbFind, deps: dbDeps } };
@@ -1492,120 +1560,258 @@ const SB = (() => {
     try { return await fn(API[src], src); }
     catch (e) { const other = src === 'vvs' ? 'db' : 'vvs'; const r = await fn(API[other], other); src = other; LS.set('gp-sb-src', src); return r; }
   }
-  async function resolve(name, sv) {
-    const key = sv + ':' + name; if (ids[key]) return ids[key];
-    const list = await API[sv].find(name); if (!list.length) throw new Error('Durak bulunamadı');
-    const want = name.toLowerCase().replace(/\s*\(tief\)/, '');
-    const best = list.find(l => l.name.toLowerCase().includes(want) && (!/hauptbahnhof/i.test(name) || /tief/i.test(l.name))) || list.find(l => l.name.toLowerCase().includes(want)) || list[0];
-    ids[key] = best.id; LS.set('gp-sb-ids', ids); return best.id;
+  // Seçili durağın kimliği: önce ağdaki duraklardan (kesin doğru), yoksa aramadan (sadece tren durakları)
+  async function stopId(s, sv) {
+    if (sv === 'vvs' && s.id && /^de:/.test(s.id)) return s.id;
+    if (sv === 'db' && s.dbId) return s.dbId;
+    const want = s.name.toLowerCase().replace(/\s*\(tief\)/, '');
+    if (sv === 'vvs') for (const x of net.stops.values()) if (x.name.toLowerCase() === s.name.toLowerCase() || (x.town && (x.town + ' ' + x.name).toLowerCase() === s.name.toLowerCase())) return x.id;
+    const key = sv + ':' + s.name; if (ids[key]) return ids[key];
+    const list = await API[sv].find((sv === 'db' ? '' : '') + (/^(Hauptbahnhof|Stadtmitte|Feuersee|Schwabstraße|Universität|Österfeld|Vaihingen|Rohr|Bad Cannstatt|Feuerbach|Zuffenhausen|Nordbahnhof)/.test(s.name) ? 'Stuttgart ' : '') + s.name);
+    if (!list.length) throw new Error('Durak bulunamadı');
+    const best = list.find(l => l.name.toLowerCase().includes(want) && (!/hauptbahnhof/i.test(s.name) || /tief/i.test(l.name) || sv === 'db')) || list.find(l => l.name.toLowerCase().includes(want)) || list[0];
+    ids[key] = best.id; LS.set('gp-sb-ids2', ids); return best.id;
   }
-  const delay = d => d.est ? Math.round((d.est - d.planned) / 60000) : 0;
-  const when = d => (d.est || d.planned).getTime();
 
-  async function refresh(force) {
-    if (busy) return; if (!force && Date.now() - at < 25000) return render();
-    busy = true; err = ''; render();
-    const stop = st || FAV[0];
-    try {
-      const got = await withSrc(async (A, sv) => {
-        const sid = await resolve(stop, sv);
-        const hid = stop === FAV[0] ? sid : await resolve(FAV[0], sv);
-        const [a, h] = await Promise.all([A.deps(sid), sid === hid ? null : A.deps(hid).catch(() => [])]);
-        return [a, h || a];
-      });
-      const now = Date.now() - 60000;
-      deps = got[0].filter(d => when(d) > now).sort((a, b) => when(a) - when(b));
-      hub = got[1].filter(d => when(d) > now);
-      const seen = new Set(); infos = [];
-      for (const d of deps.concat(hub)) for (const t of d.info) { const k = t.slice(0, 80); if (!seen.has(k)) { seen.add(k); infos.push({ line: d.line, t }); } }
-      at = Date.now();
-    } catch (e) { err = e.name === 'AbortError' ? 'Bağlantı zaman aşımına uğradı' : 'Canlı veriye ulaşılamadı. İnternetini kontrol et, biraz sonra tekrar dene.'; }
-    busy = false; render();
+  const delay = d => d.est ? Math.round((d.est - d.planned) / 60000) : 0;
+  const when = d => d.est || d.planned;
+  const mins = d => Math.round((when(d) - Date.now()) / 60000);
+  const hm = t => new Date(t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+  // ---- Tren konumu (iki durak arasında doğrusal)
+  function where(tr, t) {
+    const s = tr.st; if (tr.cancelled || t < s[0].dep - 30000 || t > s[s.length - 1].arr + 30000) return null;
+    for (let i = 0; i < s.length; i++) {
+      if (t <= s[i].dep && t >= s[i].arr - 1) return s[i].coord ? { c: s[i].coord, at: s[i], next: s[i + 1] || null, prev: s[i], i } : null;
+      const n = s[i + 1];
+      if (n && t > s[i].dep && t < n.arr) {
+        if (!s[i].coord || !n.coord) return null;
+        const f = (t - s[i].dep) / Math.max(1, n.arr - s[i].dep);
+        return { c: [s[i].coord[0] + (n.coord[0] - s[i].coord[0]) * f, s[i].coord[1] + (n.coord[1] - s[i].coord[1]) * f], at: null, next: n, prev: s[i], i };
+      }
+    }
+    if (t < s[0].dep && s[0].coord) return { c: s[0].coord, at: s[0], next: s[1], prev: s[0], i: 0 };
+    return null;
   }
+  const tripDelay = (tr, p) => { const x = p && (p.next || p.at); return x ? Math.round((x.arr - x.pa) / 60000) : 0; };
+
   function status() {
+    const t = Date.now();
     return LINES.map(l => {
-      const xs = hub.filter(d => d.line === l && when(d) < Date.now() + 45 * 60000);
-      if (!xs.length) return { l, k: 'none', t: l === 'S62' ? 'Hbf dışı' : 'sefer yok' };
-      const can = xs.filter(d => d.cancelled).length, dl = Math.max(0, ...xs.filter(d => !d.cancelled).map(delay)), avg = xs.reduce((a, d) => a + Math.max(0, delay(d)), 0) / xs.length;
+      if (src !== 'vvs' || !net.trips.length) {
+        const xs = deps.filter(d => d.line === l);
+        if (!xs.length) return { l, k: 'none', t: '—' };
+        const dl = Math.max(0, ...xs.map(delay)); return { l, k: xs.some(d => d.cancelled) ? 'bad' : dl >= 10 ? 'bad' : dl >= 3 ? 'mid' : 'ok', t: xs.some(d => d.cancelled) ? 'iptal var' : dl >= 3 ? '+' + dl + ' dk' : 'dakik' };
+      }
+      const ts = net.trips.filter(x => x.line === l);
+      const run = ts.map(x => ({ x, p: where(x, t) })).filter(o => o.p);
+      const can = ts.filter(x => x.cancelled && x.st.some(s => Math.abs(s.dep - t) < 45 * 60000)).length;
+      if (!run.length && !can) return { l, k: 'none', t: 'sefer yok' };
+      const ds = run.map(o => Math.max(0, tripDelay(o.x, o.p)));
+      const mx = ds.length ? Math.max(...ds) : 0, avg = ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : 0;
       if (can) return { l, k: 'bad', t: can + ' iptal' };
-      if (dl >= 10 || avg >= 6) return { l, k: 'bad', t: '+' + dl + ' dk' };
-      if (dl >= 3) return { l, k: 'mid', t: '+' + dl + ' dk' };
-      return { l, k: 'ok', t: 'dakik' };
+      if (mx >= 10 || avg >= 6) return { l, k: 'bad', t: '+' + mx + ' dk' };
+      if (mx >= 3) return { l, k: 'mid', t: '+' + mx + ' dk' };
+      return { l, k: 'ok', t: run.length + ' tren · dakik' };
     });
   }
-  const mins = d => Math.round((when(d) - Date.now()) / 60000);
-  const hm = t => t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
   function mood(ss) {
     const bad = ss.filter(x => x.k === 'bad').length, mid = ss.filter(x => x.k === 'mid').length;
-    if (!hub.length) return '';
+    if (!ss.some(x => x.k !== 'none')) return '';
     if (bad >= 3) return 'Stammstrecke yine dertli. Trenler de gönül gibi, gelmiyor 🥀';
     if (bad) return 'Bir hat aksıyor. Bekleyene "Bekle Beni" çalsın.';
     if (mid) return 'Hafif rötar var, bir şarkı boyu gecikme.';
     return 'Bugün trenler dakik. Kader bu sefer yüzüne güldü.';
   }
+
+  // ---- Harita (Leaflet + CARTO koyu harita)
+  let L_ = null, map = null, lineLayer = null, stopLayer = null, trainLayer = null, marks = new Map(), drawnNet = 0, moveT = null;
+  function loadLeaflet() {
+    if (window.L) return Promise.resolve(window.L);
+    if (loadLeaflet.p) return loadLeaflet.p;
+    return loadLeaflet.p = new Promise((res, rej) => {
+      const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'; document.head.appendChild(css);
+      const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'; sc.onload = () => res(window.L); sc.onerror = () => { loadLeaflet.p = null; rej(new Error('Harita yüklenemedi')); }; document.head.appendChild(sc);
+    });
+  }
+  async function ensureMap() {
+    const el = $('sbMap'); if (!el) return;
+    if (map) { map.invalidateSize(); return; }
+    try { L_ = await loadLeaflet(); } catch (e) { el.innerHTML = '<p class="msg" style="padding:16px">Harita yüklenemedi. İnterneti kontrol et.</p>'; return; }
+    if (map || !$('sbMap')) return;
+    map = L_.map(el, { zoomControl: false, attributionControl: true, preferCanvas: true, tap: true }).setView([48.79, 9.18], 10);
+    L_.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 18, attribution: '© OpenStreetMap · © CARTO' }).addTo(map);
+    L_.control.zoom({ position: 'bottomright' }).addTo(map);
+    lineLayer = L_.layerGroup().addTo(map); stopLayer = L_.layerGroup().addTo(map); trainLayer = L_.layerGroup().addTo(map);
+    drawNet(); moveTrains();
+  }
+  function drawNet() {
+    if (!map || !net.at || drawnNet === net.at) return;
+    drawnNet = net.at; lineLayer.clearLayers(); stopLayer.clearLayers();
+    const seen = new Set(), bounds = [];
+    for (const tr of net.trips) {
+      const pts = tr.st.filter(s => s.coord).map(s => s.coord); if (pts.length < 2) continue;
+      const sig = tr.line + ':' + [...tr.st.map(s => s.id)].sort().join(',');
+      if (seen.has(sig)) continue; seen.add(sig);
+      L_.polyline(pts, { color: COL[tr.line], weight: 3, opacity: filter && filter !== tr.line ? .12 : .6, interactive: false }).addTo(lineLayer);
+      bounds.push(...pts);
+    }
+    for (const s of net.stops.values()) {
+      if (!s.coord) continue;
+      const isCur = cur && (cur.id === s.id || label(s) === label(cur));
+      L_.circleMarker(s.coord, { radius: isCur ? 6 : 3.2, color: isCur ? '#ff3f6d' : '#f5e7d0', weight: isCur ? 3 : 1.4, fillColor: '#130b0f', fillOpacity: 1 })
+        .bindTooltip(label(s), { direction: 'top', offset: [0, -4] })
+        .on('click', () => pick({ id: s.id, name: s.name }))
+        .addTo(stopLayer);
+    }
+    if (bounds.length && !drawNet.fitted) { drawNet.fitted = true; map.fitBounds(L_.latLngBounds(bounds).pad(0.04)); }
+  }
+  function moveTrains() {
+    clearTimeout(moveT);
+    if (!map || !$('sbMap')) return;
+    const t = Date.now(), live = new Set();
+    for (const tr of net.trips) {
+      if (filter && tr.line !== filter) continue;
+      const p = where(tr, t); if (!p) continue;
+      live.add(tr.key);
+      const dl = tripDelay(tr, p);
+      let m = marks.get(tr.key);
+      const html = `<span class="sbtm${dl >= 5 ? ' late' : ''}" style="--c:${COL[tr.line]}">${tr.line === 'RB47' ? '47' : tr.line}</span>`;
+      if (!m) { m = L_.marker(p.c, { icon: L_.divIcon({ className: 'sbtw', html, iconSize: [34, 20], iconAnchor: [17, 10] }), keyboard: false, riseOnHover: true }).addTo(trainLayer); m._h = html; marks.set(tr.key, m); m.on('click', () => m.openPopup()); }
+      else { m.setLatLng(p.c); if (m._h !== html) { m.setIcon(L_.divIcon({ className: 'sbtw', html, iconSize: [34, 20], iconAnchor: [17, 10] })); m._h = html; } }
+      const nx = p.at ? `${label(p.at)} durağında` : p.next ? `sıradaki: ${label(p.next)} ${hm(p.next.arr)}` : '';
+      m.bindPopup(`<b>${tr.line}</b> → ${esc(tr.dest)}<br>${esc(nx)}<br>${dl >= 1 ? `<span style="color:#f4b13e">+${dl} dk rötar</span>` : 'dakik'}`, { closeButton: false });
+    }
+    for (const [k, m] of marks) if (!live.has(k)) { trainLayer.removeLayer(m); marks.delete(k); }
+    const c = $('sbCount'); if (c) c.textContent = src === 'vvs' && net.trips.length ? `${live.size} tren yolda · tahmini konum` : '';
+    if (!document.hidden) moveT = setTimeout(moveTrains, 1000);
+  }
+
+  // ---- Akış (seçili durağa gelen trenler, 20 dk)
   function flow() {
-    // önümüzdeki 20 dakikada gelecek trenler: sağdan sola akar, istasyon solda
     const W = 340, X0 = 26, X1 = 330, span = 20;
     const xs = deps.filter(d => !d.cancelled && (!filter || d.line === filter)).map(d => ({ d, m: (when(d) - Date.now()) / 60000 })).filter(o => o.m > -0.5 && o.m <= span);
-    const lanes = []; // üst üste binmesin
+    const lanes = [];
     const dots = xs.map(o => { const x = X0 + Math.max(0, o.m) / span * (X1 - X0); let lane = 0; while (lanes[lane] !== undefined && x - lanes[lane] < 46) lane++; lanes[lane] = x; return { ...o, x, lane: Math.min(lane, 2) }; });
     const ticks = [0, 5, 10, 15, 20].map(m => `<g><line x1="${X0 + m / span * (X1 - X0)}" x2="${X0 + m / span * (X1 - X0)}" y1="86" y2="92" stroke="#ffffff40"/><text x="${X0 + m / span * (X1 - X0)}" y="106" text-anchor="middle">${m ? m + ' dk' : 'şimdi'}</text></g>`).join('');
     return `<svg class="sbflow" viewBox="0 0 ${W} 112" role="img" aria-label="Önümüzdeki 20 dakikada gelecek trenler">
-      <rect x="${X0}" y="76" width="${X1 - X0}" height="4" rx="2" fill="#ffffff1a"/><rect x="${X0}" y="76" width="${X1 - X0}" height="4" rx="2" fill="url(#sbrail)" opacity=".5"/>
-      <defs><linearGradient id="sbrail"><stop offset="0" stop-color="var(--neon)"/><stop offset="1" stop-color="transparent"/></linearGradient></defs>
-      <circle cx="${X0}" cy="78" r="7" fill="var(--bg)" stroke="var(--cream)" stroke-width="2.5"/>
-      ${ticks}
-      ${dots.map(o => `<g class="sbtrain" transform="translate(${o.x.toFixed(1)},${(58 - o.lane * 22)})"><line y1="10" y2="${18 + o.lane * 22}" stroke="${COL[o.d.line]}" stroke-opacity=".5" stroke-dasharray="2 2"/><rect x="-20" y="-9" width="40" height="19" rx="9.5" fill="${COL[o.d.line]}"/><text y="4.5" text-anchor="middle" class="ln">${o.d.line}</text>${delay(o.d) >= 3 ? `<circle cx="18" cy="-8" r="4.5" fill="var(--amber)" stroke="var(--bg)" stroke-width="1.5"/>` : ''}</g>`).join('')}
-      ${dots.length ? '' : `<text x="${W / 2}" y="50" text-anchor="middle" class="empty">20 dakika içinde tren yok</text>`}
+      <rect x="${X0}" y="76" width="${X1 - X0}" height="4" rx="2" fill="#ffffff1a"/>
+      <circle cx="${X0}" cy="78" r="7" fill="var(--bg)" stroke="var(--cream)" stroke-width="2.5"/>${ticks}
+      ${dots.map(o => `<g transform="translate(${o.x.toFixed(1)},${(58 - o.lane * 22)})"><line y1="10" y2="${18 + o.lane * 22}" stroke="${COL[o.d.line]}" stroke-opacity=".5" stroke-dasharray="2 2"/><rect x="-20" y="-9" width="40" height="19" rx="9.5" fill="${COL[o.d.line]}"/><text y="4.5" text-anchor="middle" class="ln">${o.d.line === 'RB47' ? 'RB47' : o.d.line}</text>${delay(o.d) >= 3 ? `<circle cx="18" cy="-8" r="4.5" fill="var(--amber)" stroke="var(--bg)" stroke-width="1.5"/>` : ''}</g>`).join('')}
+      ${dots.length ? '' : `<text x="${W / 2}" y="50" text-anchor="middle" class="empty">${busy ? 'yükleniyor…' : '20 dakika içinde tren yok'}</text>`}
     </svg>`;
+  }
+
+  // ---- Görünüm: iskelet bir kez kurulur (harita korunur), parçalar güncellenir
+  function build() {
+    const v = $('vSb');
+    v.innerHTML = `<div class="toprow"><div><span class="kicker">canlı</span><h1>S-Bahn</h1></div>
+        <div class="acts"><button class="iconbtn" id="sbRefresh" aria-label="Yenile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div></div>
+      <div class="sbstops" id="sbChips"></div>
+      <div class="sbcard sbmapcard"><div class="sbhead"><b>Canlı harita</b><span class="sub" id="sbCount"></span></div><div id="sbMap"></div></div>
+      <div class="sbcard"><div class="sbhead"><b>Hat durumu</b><span class="sub">yoldaki trenlere göre, şu an</span></div><div class="sblines" id="sbLines"></div><p class="sbmood" id="sbMood" hidden></p></div>
+      <div class="sbcard"><div class="sbhead"><b id="sbFlowT"></b><span class="sub" id="sbFlowS"></span></div><div id="sbFlow"></div></div>
+      <p class="msg err" id="sbErr" hidden></p>
+      <div class="sbinfo" id="sbInfo"></div>
+      <ul class="sbdeps" id="sbDeps"></ul>
+      <p class="msg sbsrc" id="sbSrc"></p>`;
+    built = true; map = null; marks.clear(); drawnNet = 0;
   }
   function render() {
     const v = $('vSb'); if (!v || v.hidden) return;
-    const stop = st || FAV[0], ss = status();
-    const list = deps.filter(d => !filter || d.line === filter).slice(0, 18);
-    v.innerHTML = `<div class="toprow"><div><span class="kicker">canlı</span><h1>S-Bahn</h1></div>
-        <div class="acts"><button class="iconbtn" id="sbRefresh" aria-label="Yenile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="${busy ? 'spin' : ''}"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div></div>
-      <div class="sbstops" id="sbStops">${FAV.map(f => `<button class="chip${f === stop ? ' on' : ''}" data-stop="${esc(f)}">${esc(f.replace(' (tief)', ''))}</button>`).join('')}<button class="chip" id="sbSearch">+ başka durak</button></div>
-      ${!FAV.includes(stop) ? `<p class="msg" style="margin:8px 0 0">Seçili durak: <b>${esc(stop)}</b></p>` : ''}
-      <div class="sbcard">
-        <div class="sbhead"><b>Hat durumu</b><span class="sub">Hauptbahnhof (tief) üzerinden, önümüzdeki 45 dk</span></div>
-        <div class="sblines">${ss.map(x => `<button class="sbl ${x.k}${filter === x.l ? ' sel' : ''}" data-line="${x.l}" style="--c:${COL[x.l]}"><span class="sbb">${x.l}</span><span class="s">${x.t}</span></button>`).join('')}</div>
-        ${mood(ss) ? `<p class="sbmood">${mood(ss)}</p>` : ''}
-      </div>
-      <div class="sbcard">
-        <div class="sbhead"><b>${esc(stop.replace(' (tief)', ''))} · gelen trenler</b><span class="sub">${filter ? filter + ' süzülüyor · ' : ''}${at ? 'güncellendi ' + hm(new Date(at)) : ''}</span></div>
-        ${flow()}
-      </div>
-      ${err ? `<p class="msg err">${err}</p>` : ''}
-      ${infos.length ? `<div class="sbinfo">${infos.slice(0, 4).map(i => `<p><span class="sbb" style="--c:${COL[i.line]}">${i.line}</span>${esc(i.t)}</p>`).join('')}</div>` : ''}
-      <ul class="sbdeps">${list.map(d => { const m = mins(d), dl = delay(d);
-        return `<li class="${d.cancelled ? 'can' : ''}"><span class="sbb" style="--c:${COL[d.line]}">${d.line}</span>
-          <span class="m"><span class="t">${esc(d.dest)}</span><span class="a">${hm(d.planned)}${d.platform ? ' · Gleis ' + esc(String(d.platform).replace(/^Gleis\s*/i, '')) : ''}${d.rt ? '' : ' · plan'}</span></span>
-          <span class="w">${d.cancelled ? '<em>iptal</em>' : `<b>${m <= 0 ? 'şimdi' : m + ' dk'}</b>${dl >= 1 ? `<span class="late${dl >= 5 ? ' hi' : ''}">+${dl}</span>` : (d.rt ? '<span class="ontime">✓</span>' : '')}`}</span></li>`; }).join('') || (busy ? '<li class="ph">Yükleniyor…</li>' : '<li class="ph">Şu an gösterilecek sefer yok</li>')}</ul>
-      <p class="msg sbsrc">Veri: ${src === 'vvs' ? 'VVS (EFA, gerçek zamanlı)' : 'Deutsche Bahn (transport.rest)'}. Her 30 saniyede yenilenir. ✓ = zamanında, sarı = rötar.</p>`;
+    if (!built || !$('sbMap')) build();
+    const ss = status();
+    $('sbChips').innerHTML = recent.slice(0, 3).map((r, i) => `<button class="chip${label(r) === label(cur) ? ' on' : ''}" data-rec="${i}">${esc(label(r).replace(' (tief)', '').replace(/^Hauptbahnhof$/, 'Hbf'))}</button>`).join('')
+      + `<button class="chip plus" id="sbAll" aria-label="Bütün istasyonlar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>`;
+    $('sbRefresh').firstElementChild.classList.toggle('spin', busy || net.busy);
+    $('sbLines').innerHTML = ss.map(x => `<button class="sbl ${x.k}${filter === x.l ? ' sel' : ''}" data-line="${x.l}" style="--c:${COL[x.l]}"><span class="sbb">${x.l}</span><span class="s">${x.t}</span></button>`).join('');
+    const md = mood(ss); $('sbMood').hidden = !md; $('sbMood').textContent = md;
+    $('sbFlowT').textContent = label(cur).replace(' (tief)', '') + ' · gelen trenler';
+    $('sbFlowS').textContent = (filter ? filter + ' süzülüyor · ' : '') + (at ? 'güncellendi ' + hm(at) : '');
+    $('sbFlow').innerHTML = flow();
+    const e = err || (src === 'vvs' ? net.err : ''); $('sbErr').hidden = !e; $('sbErr').textContent = e;
+    const seen = new Set(), infos = [];
+    for (const d of deps) for (const t of d.info) { const k = t.slice(0, 80); if (!seen.has(k)) { seen.add(k); infos.push({ line: d.line, t }); } }
+    $('sbInfo').innerHTML = infos.slice(0, 4).map(i => `<p><span class="sbb" style="--c:${COL[i.line]}">${i.line}</span><span>${esc(nm(i.t))}</span></p>`).join('');
+    const list = deps.filter(d => !filter || d.line === filter).slice(0, 20);
+    $('sbDeps').innerHTML = list.map(d => { const m = mins(d), dl = delay(d);
+      return `<li class="${d.cancelled ? 'can' : ''}"><span class="sbb" style="--c:${COL[d.line]}">${d.line}</span>
+        <span class="m"><span class="t">${esc(d.dest)}</span><span class="a">${hm(d.planned)}${d.platform ? ' · Gleis ' + esc(String(d.platform).replace(/^Gleis\s*/i, '')) : ''}${d.rt ? '' : ' · plan'}</span></span>
+        <span class="w">${d.cancelled ? '<em>iptal</em>' : `<b>${m <= 0 ? 'şimdi' : m + ' dk'}</b>${dl >= 1 ? `<span class="late${dl >= 5 ? ' hi' : ''}">+${dl}</span>` : (d.rt ? '<span class="ontime">✓</span>' : '')}`}</span></li>`; }).join('')
+      || `<li class="ph">${busy ? 'Yükleniyor…' : (filter ? filter + ' bu duraktan geçmiyor ya da yakında sefer yok' : 'Şu an gösterilecek sefer yok')}</li>`;
+    $('sbSrc').textContent = `Veri: ${src === 'vvs' ? 'VVS (EFA, gerçek zamanlı)' : 'Deutsche Bahn (transport.rest); harita için VVS gerekli'}. Haritadaki konumlar canlı saatlerden hesaplanan tahmindir. ✓ dakik, sarı rötar.`;
+    ensureMap(); drawNet();
   }
-  function start() {
-    render(); refresh();
-    clearInterval(timer); clearInterval(tick);
-    timer = setInterval(() => { if (!document.hidden) refresh(true); }, 30000);
-    tick = setInterval(() => { if (!document.hidden) render(); }, 15000);
+
+  async function refresh(force) {
+    if (busy) return; if (!force && Date.now() - at < 25000) return render();
+    busy = true; err = ''; render();
+    try {
+      const out = await withSrc(async (A, sv) => A.deps(await stopId(cur, sv)));
+      const now = Date.now() - 60000;
+      deps = out.filter(d => when(d) > now).sort((a, b) => when(a) - when(b));
+      at = Date.now();
+    } catch (e) { err = e.message === 'Durak bulunamadı' ? 'Bu durak bulunamadı.' : 'Canlı veriye ulaşılamadı. İnternetini kontrol et, biraz sonra tekrar dene.'; }
+    busy = false; render();
   }
-  function stop() { clearInterval(timer); clearInterval(tick); timer = tick = null; }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && timer) refresh(true); });
+  async function refreshNet(force) {
+    if (net.busy || src !== 'vvs') return; if (!force && Date.now() - net.at < 55000) return;
+    net.busy = true;
+    try { const r = await vvsNet(); if (r.trips.length) { net.trips = r.trips; net.stops = r.stops; net.at = Date.now(); net.err = ''; } else if (!net.at) net.err = 'Harita için sefer bilgisi gelmedi.'; }
+    catch (e) { if (!net.at) net.err = 'Harita verisine ulaşılamadı.'; }
+    net.busy = false; render(); moveTrains();
+  }
+  function pick(s) {
+    const r = { id: s.id || null, dbId: s.dbId || null, name: s.name };
+    recent = [r].concat(recent.filter(x => label(x) !== label(r))).slice(0, 6); LS.set('gp-sb-recent', recent);
+    cur = r; deps = []; at = 0; filter = null; drawnNet = 0;
+    closeSheet('sbSheet'); refresh(true);
+  }
+  // ---- Bütün istasyonlar
+  let sheetQ = '', searchT = null, remote = [];
+  function allStops() {
+    const xs = [...net.stops.values()].filter(s => [...s.lines].some(l => COL[l]));
+    xs.sort((a, b) => label(a).localeCompare(label(b), 'de'));
+    return xs;
+  }
+  function renderSheet() {
+    const q = sheetQ.trim().toLocaleLowerCase('tr');
+    const xs = allStops().filter(s => !q || label(s).toLocaleLowerCase('tr').includes(q) || s.name.toLocaleLowerCase('tr').includes(q) || (s.town || '').toLocaleLowerCase('tr').includes(q));
+    const rows = xs.map(s => `<li class="row sbst" data-pick="${esc(s.id)}"><span class="m"><span class="t">${esc(label(s))}</span><span class="a">${s.town && !label(s).includes(nm(s.town)) ? esc(nm(s.town)) : ''}</span></span><span class="rt sblns">${[...s.lines].filter(l => COL[l]).sort((a, b) => LINES.indexOf(a) - LINES.indexOf(b)).map(l => `<span class="sbb sm" style="--c:${COL[l]}">${l}</span>`).join('')}</span></li>`);
+    const rem = remote.filter(r => !xs.some(s => s.id === r.id)).map(r => `<li class="row sbst" data-pickr="${esc(r.id)}"><span class="m"><span class="t">${esc(nm(r.name))}</span><span class="a">${esc(nm(r.town || ''))}</span></span></li>`);
+    $('sbList').innerHTML = (rows.join('') + rem.join('')) || `<li class="ph">${net.busy ? 'İstasyonlar yükleniyor…' : q ? 'Bulunamadı' : 'İstasyon listesi canlı veriden gelir; adını yazarak da arayabilirsin.'}</li>`;
+    $('sbCnt').textContent = xs.length ? `${xs.length} istasyon` : '';
+  }
+  function openAll() {
+    sheetQ = ''; remote = []; $('sbQ').value = ''; openSheet('sbSheet'); renderSheet();
+    if (!net.at) refreshNet(true).then(renderSheet);
+  }
   function bind() {
-    $('vSb').addEventListener('click', async e => {
+    $('vSb').addEventListener('click', e => {
       const t = e.target;
-      if (t.closest('#sbRefresh')) return refresh(true);
-      const sp = t.closest('[data-stop]'); if (sp) { st = sp.dataset.stop; LS.set('gp-sb-stop', st); deps = []; at = 0; return refresh(true); }
-      const ln = t.closest('[data-line]'); if (ln) { filter = filter === ln.dataset.line ? null : ln.dataset.line; return render(); }
-      if (t.closest('#sbSearch')) {
-        const q = prompt('Durak adı (ör. Zuffenhausen, Rohr, Herrenberg)'); if (!q || !q.trim()) return;
-        try { let sv0; const list = await withSrc((A, sv) => { sv0 = sv; return A.find(q.trim()); }); if (!list.length) return toast('Durak bulunamadı');
-          const b = list[0]; ids[sv0 + ':' + b.name] = b.id; LS.set('gp-sb-ids', ids); st = b.name; LS.set('gp-sb-stop', st); deps = []; at = 0; refresh(true);
-        } catch (er) { toast('Durak aranamadı, bağlantını kontrol et'); }
-      }
+      if (t.closest('#sbRefresh')) { refresh(true); refreshNet(true); return; }
+      if (t.closest('#sbAll')) return openAll();
+      const rc = t.closest('[data-rec]'); if (rc) return pick(recent[+rc.dataset.rec]);
+      const ln = t.closest('[data-line]'); if (ln) { filter = filter === ln.dataset.line ? null : ln.dataset.line; drawnNet = 0; render(); moveTrains(); return; }
+    });
+    $('sbQ').addEventListener('input', () => {
+      sheetQ = $('sbQ').value; renderSheet();
+      clearTimeout(searchT);
+      if (sheetQ.trim().length >= 3) searchT = setTimeout(async () => { try { remote = (await withSrc(A => A.find(sheetQ.trim()))).slice(0, 8); renderSheet(); } catch (e) {} }, 450);
+    });
+    $('sbList').addEventListener('click', e => {
+      const a = e.target.closest('[data-pick]'); if (a) { const s = net.stops.get(a.dataset.pick); if (s) pick({ id: s.id, name: s.name }); return; }
+      const b = e.target.closest('[data-pickr]'); if (b) { const r = remote.find(x => x.id === b.dataset.pickr); if (r) { if (src === 'db') pick({ id: null, dbId: r.id, name: r.name }); else pick({ id: r.id, name: r.name }); } }
     });
   }
+  function start() {
+    render(); refresh(); refreshNet();
+    timers.forEach(clearInterval);
+    timers = [setInterval(() => { if (!document.hidden) refresh(true); }, 30000), setInterval(() => { if (!document.hidden) refreshNet(true); }, 60000), setInterval(() => { if (!document.hidden) render(); }, 15000)];
+    setTimeout(() => map && map.invalidateSize(), 300);
+  }
+  function stop() { timers.forEach(clearInterval); timers = []; clearTimeout(moveT); }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && timers.length) { refresh(true); refreshNet(true); moveTrains(); } });
   return { start, stop, bind, render };
 })();
 

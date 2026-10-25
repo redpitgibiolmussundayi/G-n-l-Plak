@@ -363,6 +363,26 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .sbsrc{margin-top:14px;font-size:.76rem}
 .spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .nav button{font-size:.66rem}
+#sbChips{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) 40px;overflow:visible;margin:14px 0 0;padding:0}#sbChips .chip{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:8px 10px;text-align:center}
+.sbstops .chip.plus{display:grid;place-items:center;width:40px;padding:0;background:var(--neon);color:#fff;box-shadow:0 0 12px rgba(255,63,109,.35)}.sbstops .chip.plus svg{width:18px;height:18px}
+#sbMap{height:min(380px,62vh);border-radius:12px;overflow:hidden;position:relative;z-index:0;isolation:isolate;background:#0d0d10}
+.sbmapcard{padding-bottom:12px}
+.leaflet-container{font-family:var(--body);background:#0d0d10}
+.leaflet-control-attribution{font-size:9px!important;background:#0009!important;color:#bbb!important}.leaflet-control-attribution a{color:#ddd!important}
+.leaflet-bar a{background:#1e1217!important;color:var(--cream)!important;border-color:var(--line)!important}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#2a1920;color:var(--cream);border:1px solid var(--line)}.leaflet-popup-content{margin:10px 12px;font-size:.85rem;line-height:1.4}
+.leaflet-tooltip{background:#2a1920;color:var(--cream);border:1px solid var(--line);box-shadow:none;font-size:.8rem}.leaflet-tooltip-top::before{border-top-color:#2a1920}
+.sbtw{background:none;border:0}
+.sbtm{display:grid;place-items:center;width:34px;height:20px;border-radius:10px;background:var(--c);color:#fff;font:800 11px/1 var(--body);border:2px solid #130b0f;box-shadow:0 0 0 1px #ffffff40,0 2px 8px #000a;transition:transform .2s}
+.sbtm.late{box-shadow:0 0 0 2px var(--amber),0 2px 8px #000a}
+.sbtw .sbtm{transition:none}
+.leaflet-marker-icon.sbtw{transition:transform 1s linear}.leaflet-zoom-anim .leaflet-marker-icon.sbtw,.sbnoanim .leaflet-marker-icon.sbtw{transition:none}
+.sbsh{display:flex;align-items:baseline;justify-content:space-between}
+.sbst{grid-template-columns:minmax(0,1fr) auto!important}.sbst .m{display:flex;flex-direction:column;min-width:0}.sbst .t{font-weight:600}.sbst .a{font-size:.8rem;color:var(--muted)}
+.sblns{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;max-width:55%}
+.sbb.sm{min-width:30px;height:18px;font-size:.68rem;padding:0 5px}
+#sbList li.ph{list-style:none;color:var(--muted);text-align:center;padding:20px}
+.sblines{grid-template-columns:repeat(3,minmax(0,1fr))!important}
 
 
 /* Geniş ekran: kaset solda sabit, sağda arşiv */
@@ -561,6 +581,12 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   <div class="progress" id="spProg" hidden><i></i></div>
   <p class="msg" id="spMsg" hidden></p>
   <ul class="rows" id="spLists"></ul>
+</div></div></div>
+
+<div class="sheet" id="sbSheet" hidden><div class="sheet-card"><div class="sheet-inner">
+  <div class="sbsh"><h3>Bütün istasyonlar</h3><span class="msg" id="sbCnt"></span></div>
+  <label class="search" style="margin:0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input id="sbQ" type="search" placeholder="İstasyon ara (ör. Zuffenhausen)" autocomplete="off" enterkeyhint="search"></label>
+  <ul class="rows" id="sbList"></ul>
 </div></div></div>
 
 <script src="config.js"></script>
