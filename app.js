@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 10;
+const VERSION = 11;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -34,9 +34,10 @@ const DB = (() => {
   let db = null;
   const open = () => new Promise(res => {
     try {
-      const r = indexedDB.open('gonulplak', 2);
+      const r = indexedDB.open('gonulplak', 3);
       r.onupgradeneeded = () => {
         const d = r.result;
+        if (!d.objectStoreNames.contains('files')) d.createObjectStore('files', { keyPath: 'k' });
         if (!d.objectStoreNames.contains('songs')) d.createObjectStore('songs', { keyPath: 'id' });
         if (!d.objectStoreNames.contains('lists')) d.createObjectStore('lists', { keyPath: 'id' });
       };
@@ -51,8 +52,43 @@ const DB = (() => {
       t.oncomplete = () => res(r ? r.result : true); t.onerror = t.onabort = () => res(null);
     } catch (e) { res(null); }
   });
+  /* Ses ve kapak dosyaları ayrı depoda. iOS Safari, IndexedDB'den okunmuş bir dosyayı aynı kayda geri yazınca
+     eski kaydı silerken dosyayı da silebiliyor; etiket düzenleyince şarkının açılmaması bundan oluyordu.
+     Artık etiket kaydı sadece yazıları yazar, ses dosyasına hiç dokunmaz. */
+  const saved = new WeakMap(); // şarkı -> { a: kaydedilen ses, c: kaydedilen kapak }
+  const meta = s => { const m = {}; for (const k in s) if (k !== 'blob' && k !== 'cover' && k[0] !== '_') m[k] = s[k]; return m; };
+  async function song(s) {
+    const sv = saved.get(s) || {};
+    if (s.blob && sv.a !== s.blob) { if (await run('files', 'readwrite', o => o.put({ k: s.id + ':a', b: s.blob })) === null) return null; sv.a = s.blob; }
+    if (sv.c !== (s.cover || null)) { await run('files', 'readwrite', o => s.cover ? o.put({ k: s.id + ':c', b: s.cover }) : o.delete(s.id + ':c')); sv.c = s.cover || null; }
+    saved.set(s, sv);
+    return run('songs', 'readwrite', o => o.put(meta(s)));
+  }
+  const fresh = async b => new Blob([await b.arrayBuffer()], { type: b.type || '' });
+  async function loadSongs() {
+    const [rows, files] = await Promise.all([run('songs', 'readonly', o => o.getAll()), run('files', 'readonly', o => o.getAll())]);
+    const fm = new Map((files || []).map(f => [f.k, f.b]));
+    const out = [], legacy = [];
+    for (const r of rows || []) {
+      if (r.blob || r.cover) { legacy.push(r); out.push(r); continue; }
+      r.blob = fm.get(r.id + ':a') || null; r.cover = fm.get(r.id + ':c') || null;
+      saved.set(r, { a: r.blob, c: r.cover }); out.push(r);
+    }
+    return { songs: out, legacy };
+  }
+  // Eski sürümden kalan kayıtlar: dosyayı baytlarıyla kopyalayıp yeni depoya taşı
+  async function migrate(list, onBroken) {
+    for (const s of list) {
+      const sv = { a: null, c: null };
+      try { if (s.blob) { s.blob = await fresh(s.blob); } } catch (e) { s.blob = null; onBroken && onBroken(s); }
+      try { if (s.cover) s.cover = await fresh(s.cover); } catch (e) { s.cover = null; }
+      saved.set(s, sv);
+      await song(s);
+    }
+  }
   return {
-    open,
+    open, song, loadSongs, migrate,
+    delSong: id => Promise.all([run('songs', 'readwrite', o => o.delete(id)), run('files', 'readwrite', o => { o.delete(id + ':a'); return o.delete(id + ':c'); })]),
     all: s => run(s, 'readonly', o => o.getAll()).then(r => r || []),
     put: (s, v) => run(s, 'readwrite', o => o.put(v)),
     del: (s, id) => run(s, 'readwrite', o => o.delete(id))
@@ -604,7 +640,7 @@ const Cloud = (() => {
     s.audioPath = path;
     if (s.cover instanceof Blob) await uploadCover(s);
     const r = await sb.from('songs').upsert(row(s)); if (r.error) throw r.error;
-    s.cloud = true; await DB.put('songs', s);
+    s.cloud = true; await DB.song(s);
   }
   async function uploadCover(s) {
     const path = `${user.id}/${s.id}-cover.jpg`;
@@ -618,7 +654,7 @@ const Cloud = (() => {
         if (s.cover instanceof Blob) await uploadCover(s);
         else if (s.coverPath) { await sb.storage.from('music').remove([s.coverPath]); s.coverPath = null; }
       }
-      await sb.from('songs').upsert(row(s)); await DB.put('songs', s);
+      await sb.from('songs').upsert(row(s)); await DB.song(s);
     } catch (e) { setState('Değişiklik buluta yazılamadı'); }
   }
   async function remove(s) {
@@ -646,16 +682,16 @@ const Cloud = (() => {
         if (!s) {
           s = { id: r.id, title: r.title, artist: r.artist, album: r.album, year: r.year, spId: r.sp_id, coverUrl: r.cover_url,
             audioPath: r.audio_path, coverPath: r.cover_path, duration: r.duration, added: r.added, updated: r.updated, blob: null, cover: null, cloud: true };
-          App.songs.push(s); await DB.put('songs', s);
-          if (r.cover_path) download(r.cover_path).then(b => { s.cover = b; DB.put('songs', s); UI.lib(); UI.now(); }).catch(() => {});
+          App.songs.push(s); await DB.song(s);
+          if (r.cover_path) download(r.cover_path).then(b => { s.cover = b; DB.song(s); UI.lib(); UI.now(); }).catch(() => {});
         } else if ((r.updated || 0) > (s.updated || 0)) {
           Object.assign(s, { title: r.title, artist: r.artist, album: r.album, year: r.year, spId: r.sp_id, coverUrl: r.cover_url, updated: r.updated, cloud: true });
-          if (r.cover_path && r.cover_path !== s.coverPath) { s.coverPath = r.cover_path; download(r.cover_path).then(b => { s.cover = b; DB.put('songs', s); UI.lib(); }).catch(() => {}); }
-          await DB.put('songs', s);
+          if (r.cover_path && r.cover_path !== s.coverPath) { s.coverPath = r.cover_path; download(r.cover_path).then(b => { s.cover = b; DB.song(s); UI.lib(); }).catch(() => {}); }
+          await DB.song(s);
         }
       }
       // başka cihazdan silinenler
-      for (const s of App.songs.slice()) if (s.cloud && !remote.has(s.id)) { App.songs.splice(App.songs.indexOf(s), 1); Img.drop(s.id); await DB.del('songs', s.id); }
+      for (const s of App.songs.slice()) if (s.cloud && !remote.has(s.id)) { App.songs.splice(App.songs.indexOf(s), 1); Img.drop(s.id); await DB.delSong(s.id); }
       App.sortSongs(); UI.lib(); UI.lists();
       // sadece bu cihazda olanları yükle
       const todo = App.songs.filter(s => !s.cloud && s.blob);
@@ -1081,11 +1117,11 @@ async function playSong(id, queue) {
       UI.busy('Buluttan indiriliyor');
       blob = await Cloud.download(s.audioPath);
       if (tok !== loadToken) return;
-      s.blob = blob; DB.put('songs', s);
+      s.blob = blob; DB.song(s);
     }
     const ok = await Engine.load(id, blob, () => tok !== loadToken);
     if (!ok || tok !== loadToken) return;
-    if (!s.duration) { s.duration = Engine.duration; DB.put('songs', s); }
+    if (!s.duration) { s.duration = Engine.duration; DB.song(s); }
     UI.busy(null);
     Engine.play();
     AI.onSong(s);
@@ -1926,7 +1962,7 @@ function songMenu(id) {
 async function deleteSong(id) {
   const s = App.byId(id); if (!s) return;
   App.songs.splice(App.songs.indexOf(s), 1); Img.drop(s.id);
-  await DB.del('songs', s.id); Cloud.remove(s);
+  await DB.delSong(s.id); Cloud.remove(s);
   if (App.curId === s.id) { Engine.pause(); App.curId = null; }
   UI.lib(); UI.lists(); UI.now(); toast('Silindi');
 }
@@ -1947,7 +1983,7 @@ async function addFiles(files, preset) {
       if (preset.cover) s.cover = preset.cover;
     }
     App.songs.push(s); added.push(s);
-    await DB.put('songs', s);
+    await DB.song(s);
   }
   UI.lib(); UI.lists(); UI.now();
   if (Cloud.user) Cloud.sync();
@@ -2066,7 +2102,7 @@ $('edSave').onclick = async () => {
   if (edit.coverUrl !== undefined) s.coverUrl = edit.coverUrl;
   if (edit.cover === null) s.coverUrl = null;
   s.updated = Date.now();
-  await DB.put('songs', s);
+  await DB.song(s);
   Cloud.pushMeta(s, coverChanged);
   closeSheet('editSheet'); UI.lib(); UI.lists(); UI.now(); if (s.id === App.curId) Media.meta();
   toast('Etiket kaydedildi');
@@ -2114,7 +2150,7 @@ $('exGo').onclick = async () => {
   const dsp = DSP();
   try {
     let blob = s.blob;
-    if (!blob) { if (!Cloud.user || !s.audioPath) throw new Error('Bu şarkının dosyası bu cihazda yok'); prog('Buluttan indiriliyor', 0.02); blob = await Cloud.download(s.audioPath); s.blob = blob; DB.put('songs', s); }
+    if (!blob) { if (!Cloud.user || !s.audioPath) throw new Error('Bu şarkının dosyası bu cihazda yok'); prog('Buluttan indiriliyor', 0.02); blob = await Cloud.download(s.audioPath); s.blob = blob; DB.song(s); }
     prog('Ses çözülüyor', 0.04);
     const src = await decodeAt(await blob.arrayBuffer());
     const L0 = src.getChannelData(0).slice(), R0 = (src.numberOfChannels > 1 ? src.getChannelData(1) : src.getChannelData(0)).slice();
@@ -2286,9 +2322,10 @@ $('search').addEventListener('input', raf(() => { App.query = $('search').value;
 (async () => {
   buildKnobs(); buildFx(); buildEq(); renderModes(); UI.modes();
   await DB.open();
-  const [songs, lists] = await Promise.all([DB.all('songs'), DB.all('lists')]);
+  const [{ songs, legacy }, lists] = await Promise.all([DB.loadSongs(), DB.all('lists')]);
   App.songs = songs; App.lists = lists; App.sortSongs();
-  for (const x of App.songs) { let ch = false; for (const k of ['title', 'artist', 'album']) { if (x[k] && x[k] !== x[k].normalize('NFC')) { x[k] = x[k].normalize('NFC'); ch = true; } } if (ch) DB.put('songs', x); }
+  for (const x of App.songs) { let ch = false; for (const k of ['title', 'artist', 'album']) { if (x[k] && x[k] !== x[k].normalize('NFC')) { x[k] = x[k].normalize('NFC'); ch = true; } } if (ch) DB.song(x); }
+  if (legacy.length) { toast('Arşiv yeni sürüme taşınıyor…'); const broken = []; await DB.migrate(legacy, s => broken.push(s)); if (broken.length) { UI.lib(); toast(broken.length + ' şarkının dosyası bozulmuş, tekrar eklemen gerekiyor'); } }
   App.queue = App.filtered().map(s => s.id);
   renderFx(); UI.lib(); AI.render(); $('chatAv').innerHTML = TEA; Scene.start();
   setView(App.songs.length ? 'now' : 'lib');
