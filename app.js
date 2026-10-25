@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 11;
+const VERSION = 12;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -1462,8 +1462,29 @@ $('miniNext').onclick = () => { Engine.unlock(); step(1); };
 matchMedia('(min-width:920px)').addEventListener('change', () => setView(App.view));
 
 /* ================= Sheet ================= */
+/* iOS: klavye kapanınca sayfa kayık kalıyor, alt sekmeler ve bildirimler ekranın ortasına kayıyordu.
+   Klavye açılmadan önceki kaydırmayı saklayıp klavye kapanınca geri yüklüyoruz. */
+(() => {
+  const isField = el => el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !/^(range|checkbox|radio|file|button)$/.test(el.type)));
+  let y0 = null;
+  const restore = () => {
+    if (isField(document.activeElement)) return;
+    const vv = window.visualViewport;
+    if (y0 !== null) { window.scrollTo(0, y0); }
+    else if (vv && vv.offsetTop) window.scrollTo(0, window.scrollY);
+    if (vv && vv.offsetTop > 0) window.scrollTo(0, window.scrollY - vv.offsetTop);
+  };
+  document.addEventListener('focusin', e => { if (isField(e.target) && y0 === null) y0 = window.scrollY; });
+  document.addEventListener('focusout', e => {
+    if (!isField(e.target)) return;
+    [30, 180, 420].forEach(ms => setTimeout(() => { if (!isField(document.activeElement)) { restore(); if (ms === 420) y0 = null; } }, ms));
+  });
+  if (window.visualViewport) visualViewport.addEventListener('resize', () => {
+    if (!isField(document.activeElement) && visualViewport.height >= window.innerHeight - 2) restore();
+  });
+})();
 function openSheet(id) { $(id).hidden = false; document.body.style.overflow = 'hidden'; }
-function closeSheet(id) { $(id).hidden = true; if (![...document.querySelectorAll('.sheet')].some(s => !s.hidden)) document.body.style.overflow = ''; }
+function closeSheet(id) { $(id).hidden = true; if (![...document.querySelectorAll('.sheet')].some(s => !s.hidden)) { document.body.style.overflow = ''; const vv = window.visualViewport; if (vv && vv.offsetTop > 0) setTimeout(() => window.scrollTo(0, window.scrollY - vv.offsetTop), 60); } }
 document.querySelectorAll('.sheet').forEach(sh => sh.addEventListener('click', e => { if (e.target === sh && sh.id !== 'cropSheet') closeSheet(sh.id); }));
 function menu(items) {
   $('menuBody').innerHTML = `<div class="menu">${items.map((it, i) => `<button data-i="${i}" class="${it.cls || ''}">${it.icon || ''}<span>${esc(it.label)}</span></button>`).join('')}</div><button class="btn" id="menuClose">Vazgeç</button>`;
