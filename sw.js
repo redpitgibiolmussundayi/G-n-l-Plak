@@ -1,10 +1,12 @@
-/* Gönül Plak — offline önbellek. Sürümü değiştirince eski önbellek silinir. */
-const CACHE = 'gonulplak-v9';
-const CORE = ['./', 'index.html', 'app.js', 'config.js', 'stretch.js', 'dsp-worker.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'stg-gunduz.webp', 'stg-altin.webp', 'stg-gunbatimi.webp', 'stg-alacakaranlik.webp', 'stg-gece.webp', 'stg-dolunay.webp', 'stg-bulutlu.webp', 'stg-bulutlu-aksam.webp', 'stg-bulutlu-gece.webp'];
+/* Gönül Plak — offline önbellek.
+   Kod dosyaları önce internetten (güncel sürüm hemen gelsin), internet yoksa önbellekten.
+   Resimler ve kütüphaneler önce önbellekten. */
+const CACHE = 'gonulplak-v10';
+const CORE = ['./', 'index.html', 'app.js', 'config.js', 'stretch.js', 'dsp-worker.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png'];
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
@@ -14,25 +16,22 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   const same = url.origin === self.location.origin;
-  if (!same && !CDN.includes(url.hostname)) return; // Spotify, Supabase vb. hep canlı
-
-  if (same) {
-    // Önce önbellekten anında aç, arkadan güncelle (bir sonraki açılışta yeni sürüm)
+  if (!same && !CDN.includes(url.hostname)) return;
+  if (same && url.pathname.endsWith('version.json')) return; // hep canlı
+  const isCode = same && (req.mode === 'navigate' || /\.(js|html|webmanifest)$/.test(url.pathname) || url.pathname.endsWith('/'));
+  if (isCode) {
     const key = req.mode === 'navigate' ? 'index.html' : req;
-    e.respondWith(caches.open(CACHE).then(async c => {
-      const hit = await c.match(key, { ignoreSearch: req.mode === 'navigate' });
-      const net = fetch(req).then(r => { if (r.ok) c.put(key, r.clone()); return r; }).catch(() => hit);
-      if (hit) { e.waitUntil(net.catch(() => {})); return hit; }
-      return net;
-    }));
+    e.respondWith(
+      fetch(req, { cache: 'no-cache' }).then(r => { if (r.ok) { const cp = r.clone(); e.waitUntil(caches.open(CACHE).then(c => c.put(key, cp))); } return r; })
+        .catch(() => caches.match(key, { ignoreSearch: true }).then(h => h || caches.match('index.html')))
+    );
     return;
   }
-  // CDN: sürümlü dosyalar, önbellek öncelikli
   e.respondWith(caches.open(CACHE).then(async c => {
     const hit = await c.match(req);
     if (hit) return hit;
     const r = await fetch(req);
-    if (r.ok || r.type === 'opaque') c.put(req, r.clone());
+    if (r.ok || r.type === 'opaque') { const cp = r.clone(); c.put(req, cp); }
     return r;
   }));
 });
