@@ -755,43 +755,31 @@ const Spotify = (() => {
     logout() { tok = null; me = null; LS.del('gp-sp-token'); LS.del('gp-sp-me'); } };
 })();
 
-/* ================= Stuttgart manzarası: gerçek saat, gün batımı, ay ve hava ================= */
+/* ================= Stuttgart manzarası: gerçek saat, gün batımı, ay, hava, kuleler ================= */
 const Scene = (() => {
-  const LAT = 48.7758, LNG = 9.1829;
+  const LAT = 48.7758, LNG = 9.1829, IW = 1672, IH = 941;
+  const META = {"t":{"gunduz":[1173,449,465,491,965,465,481,512],"altin":[1181,454,470,496,973,470,486,517],"gunbatimi":[1172,449,465,491,964,465,481,512],"alacakaranlik":[1171,450,466,492,963,466,482,513],"gece":[1170,450,466,492,962,467,483,514],"dolunay":[1171,450,466,492,963,467,483,514],"bulutlu":[1173,449,465,491,965,465,481,512],"bulutlu-aksam":[1171,450,466,492,963,466,482,513],"bulutlu-gece":[1170,450,466,492,962,467,483,514]},"l":{"gece":[896,577,1354,590,1092,556,1606,688,964,482,1512,568,962,488,1085,551,1637,576,754,571,1570,598,1380,592,972,646,1288,522,1006,594,687,606,1614,684,1456,608,1654,698,620,590,1346,588,1200,598,1668,586,939,573,1047,560,1261,657,1244,542,1010,648,935,593,1630,586,1134,564,672,590,1276,531,1504,585,1050,558,1004,610,1570,600,1490,658,946,677,1423,593,1474,560,1138,586,920,568,1351,590,1590,560,1014,574,1234,586,1234,620,1649,588,1610,630,1008,596,1275,610,1536,574,1240,656,1282,573,1484,564,1244,622,1121,616,1636,636,1390,656,685,590,1650,644,657,609,922,576,544,582,780,662,1670,566,1320,568,1438,598,960,654,970,574,1514,586,1196,540,1654,588,1584,592,1438,652,1654,636,1638,694,670,590,1372,649,1064,557,1604,568,1364,558,766,604,1096,556,1420,647,1648,646,906,636,1618,638,1623,583,730,578,899,637,904,662,1445,594,922,594,1650,636,1246,656,844,572,874,604,978,588,1572,624,1330,592,1472,606,1532,556,1308,574,1630,618,1553,620,806,612,1504,560,933,572,1412,653,1298,571,956,572,1438,610,1536,650,1428,656,772,626,1476,658,864,638,1150,586,1077,553,1618,682,1306,610,1248,564,1642,638,1554,586,1384,566,772,628,770,624,1214,596,770,628,1092,612,1138,517,1464,656,1022,610,1644,570,768,574,1410,566,949,652,1152,550,1018,646,916,574,948,684,978,674,1426,647,734,602,1207,558,1587,632,1632,636,1282,524,1038,564,950,590,1652,578,1188,602,1460,665,810,594,1382,652,1086,610,908,596,1340,592,1630,602,1640,585,1091,604,1184,603,1632,582,1242,620,1584,574,1048,640,968,647,1052,639,736,658,1621,591,1072,607,996,646,1160,616,1184,558,1048,546,1660,588,1524,560,1668,640,848,593,908,640,1380,560,1480,588,763,574,906,632,578,574,1302,573,1134,538,1506,584,1158,619,1362,550,1522,569,1616,568,1480,540,662,609,952,684,1308,564,773,622,1024,650,590,574,1024,650,1572,583,619,582,1230,620,1036,551,1475,659,1485,578,812,609,814,587,545,590,804,614,858,642,954,646,712,578,1058,619,1430,582,737,638,1348,594,893,638,958,562,896,632,763,630,1342,548,798,662,1124,614,1432,652,1585,630,894,602,604,582,1486,542,1546,570,1278,610,1230,564,1130,614,1202,620,1062,522,1067,608,1672,564,1052,634,694,582,734,600,688,632,1153,618,1417,653,1312,590,542,580,924,675,593,592,1500,540,1470,588,1432,656,1555,674,1381,648,1224,604,1037,572,1160,520,1560,674,1264,554,1212,548],"dolunay":[1594,574,912,572,1563,618,1556,574,1170,540,762,610,1339,568,1012,584,1630,562,900,637,1429,560,1382,649,874,604,1364,558,1262,654,1376,573,1415,554,996,606,1629,592,860,580,1108,506,916,574,1028,550,617,591,1195,541,1396,552,858,580,1403,649,692,582,1320,554,830,600,1579,614,1654,564,985,601,1162,542,1232,558,1235,565,1106,556,1378,542,1432,700,1604,604,952,676,1632,561,1422,592,1234,586,1128,508,858,590,905,716,1268,620,1056,588,1102,586,1440,653,1462,664,922,596,1638,586,1412,590,966,482,1570,624,1655,697,818,570,948,650,1565,674,1463,590,1598,681,810,610,556,592,862,634,864,576,895,578,1225,559,731,572,1551,673,1267,534,1300,608,1646,578,1122,547,1210,570,1364,562,1640,636,991,616,1124,508,1572,584,1556,674,1440,652,1382,653,1610,630,1203,556,1545,574,1244,576,1036,548,602,590,1176,513,1195,550,1532,569,608,580,1384,566,678,610,986,606,1605,568,1158,501,1671,562,898,576,888,602,1345,588,1536,584,1556,676,890,628,1125,614,881,566,973,574,1399,632,820,584,856,570,1361,640,1614,588,1114,572,1170,552,1521,604,1462,584,1376,544,1532,562,918,596,700,632,1390,590,1510,544,1153,551,684,590,1190,602,1519,650,860,634,946,684,1439,555,1280,609,866,602,1216,574,1191,548,962,488,1138,614,977,682,1656,589,1482,604,1064,559,1114,530,1508,662,1252,564,923,569,796,592,908,640,1458,669,1498,540,1464,523,1280,600,1132,575,1106,524,1300,608,1158,522,1036,574,964,590,1026,574,1260,536,1128,614,876,566,1140,518,1243,558,1402,650,952,684,956,572,960,647,1240,667,1520,561,1248,536,1510,604,970,574,1630,636,590,574,608,576,856,592,1373,650,1266,598,1378,554,1262,565,954,646,1226,538,1263,534,1214,550,1250,558,1146,524,1124,575,830,600,888,590,1437,612,940,592,1264,554,1644,602,1629,617,706,618,767,574,766,610,997,577,1669,565,1636,578,1392,622,1570,622,1092,526,1652,612,1520,652,1117,584,1320,546,1472,560,1010,604,1648,578,967,656,1233,586,960,688,1376,561,1456,656,522,581,660,594,854,604,780,574,1558,560,1636,636,1235,658,948,678,1636,639,1277,531,1022,545,829,588,1670,644,1248,565,1342,550,646,574,1613,566,1475,568,1298,592,1445,576,1392,592,1570,574,814,616,1244,543,939,696,1654,580,1142,530,936,592,960,563,877,602,1031,610,1116,560,700,628,679,590,1261,599,1487,554,652,610,1608,564,1638,638,486,572,1222,604,1457,584,1184,605,1634,638]}};
   const SCENES = {
-    gunduz: { f: 'stg-gunduz.webp', n: 'gündüz', night: false, day: true },
-    altin: { f: 'stg-altin.webp', n: 'altın saat', night: false },
-    gunbatimi: { f: 'stg-gunbatimi.webp', n: 'gün batımı', night: false },
-    alacakaranlik: { f: 'stg-alacakaranlik.webp', n: 'alacakaranlık', night: false, dusk: true },
-    gece: { f: 'stg-gece.webp', n: 'gece', night: true },
-    dolunay: { f: 'stg-dolunay.webp', n: 'dolunay gecesi', night: true }
+    gunduz: { n: 'gündüz', day: true }, altin: { n: 'altın saat' }, gunbatimi: { n: 'gün batımı' },
+    alacakaranlik: { n: 'alacakaranlık', dusk: true }, gece: { n: 'gece', night: true }, dolunay: { n: 'dolunay', night: true },
+    bulutlu: { n: 'kapalı gündüz', day: true, oc: true }, 'bulutlu-aksam': { n: 'kapalı akşam', dusk: true, oc: true }, 'bulutlu-gece': { n: 'kapalı gece', night: true, oc: true }
   };
+  const PICK = { gunduz: 'Gündüz', altin: 'Altın saat', gunbatimi: 'Gün batımı', alacakaranlik: 'Alacakaranlık', gece: 'Gece', dolunay: 'Dolunay', bulutlu: 'Kapalı hava' };
   /* Güneş hesabı (SunCalc yöntemi) */
   const rad = Math.PI / 180, J2000 = 2451545, J0 = 0.0009;
-  const toDays = ms => ms / 864e5 - 0.5 + 2440588 - J2000;
-  const fromJ = j => (j + 0.5 - 2440588) * 864e5;
+  const toDays = ms => ms / 864e5 - 0.5 + 2440588 - J2000, fromJ = j => (j + 0.5 - 2440588) * 864e5;
   function sun(date) {
     const lw = -LNG * rad, phi = LAT * rad, d = toDays(date.getTime());
     const n = Math.round(d - J0 - lw / (2 * Math.PI)), ds = J0 + lw / (2 * Math.PI) + n;
-    const M = rad * (357.5291 + 0.98560028 * ds);
-    const C = rad * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
-    const L = M + C + rad * 102.9372 + Math.PI;
-    const dec = Math.asin(Math.sin(L) * Math.sin(rad * 23.4397));
+    const M = rad * (357.5291 + 0.98560028 * ds), C = rad * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
+    const L = M + C + rad * 102.9372 + Math.PI, dec = Math.asin(Math.sin(L) * Math.sin(rad * 23.4397));
     const noon = J2000 + ds + 0.0053 * Math.sin(M) - 0.0069 * Math.sin(2 * L);
-    const at = h => {
-      const w = Math.acos((Math.sin(h * rad) - Math.sin(phi) * Math.sin(dec)) / (Math.cos(phi) * Math.cos(dec)));
-      const set = J2000 + J0 + (w + lw) / (2 * Math.PI) + n + 0.0053 * Math.sin(M) - 0.0069 * Math.sin(2 * L);
-      return [fromJ(noon - (set - noon)), fromJ(set)];
-    };
+    const at = h => { const w = Math.acos((Math.sin(h * rad) - Math.sin(phi) * Math.sin(dec)) / (Math.cos(phi) * Math.cos(dec))); const set = J2000 + J0 + (w + lw) / (2 * Math.PI) + n + 0.0053 * Math.sin(M) - 0.0069 * Math.sin(2 * L); return [fromJ(noon - (set - noon)), fromJ(set)]; };
     const [rise, set] = at(-0.833), [dawn, dusk] = at(-6);
     return { rise, set, dawn, dusk };
   }
-  function moonIllum(date) {
-    const jd = date.getTime() / 864e5 + 2440587.5;
-    const p = ((jd - 2451550.1) / 29.530588853) % 1;
-    return (1 - Math.cos(2 * Math.PI * (p < 0 ? p + 1 : p))) / 2;
-  }
-  function pickAuto(now = new Date()) {
+  function moonIllum(date) { const jd = date.getTime() / 864e5 + 2440587.5; let p = ((jd - 2451550.1) / 29.530588853) % 1; if (p < 0) p++; return (1 - Math.cos(2 * Math.PI * p)) / 2; }
+  function phase(now = new Date()) {
     const t = now.getTime(), s = sun(now), m = 60000;
     if (t < s.dawn || t > s.dusk + 25 * m) return moonIllum(now) > 0.6 ? 'dolunay' : 'gece';
     if (t < s.rise) return 'alacakaranlik';
@@ -801,57 +789,151 @@ const Scene = (() => {
     if (t < s.set + 8 * m) return 'gunbatimi';
     return 'alacakaranlik';
   }
+  const overcastOf = p => (p === 'gece' || p === 'dolunay') ? 'bulutlu-gece' : (p === 'gunbatimi' || p === 'alacakaranlik') ? 'bulutlu-aksam' : 'bulutlu';
 
-  /* Hava (Open-Meteo, anahtarsız) */
-  const WX = c => c === 0 ? ['clear', 'açık'] : c <= 2 ? ['cloud', 'parçalı bulutlu'] : c === 3 ? ['cloud', 'bulutlu'] : c <= 48 ? ['fog', 'sisli']
-    : c <= 57 ? ['rain', 'çiseliyor'] : c <= 67 ? ['rain', 'yağmurlu'] : c <= 77 ? ['snow', 'karlı'] : c <= 82 ? ['rain', 'sağanak'] : c <= 86 ? ['snow', 'kar sağanağı'] : ['storm', 'fırtınalı'];
-  let wx = LS.get('gp-wx', null), mode = LS.get('gp-scene', 'auto'), wxOn = LS.get('gp-wx-on', true), cur = null, front = 'A';
-  async function fetchWx() {
+  /* Hava (Open-Meteo) */
+  const WX = c => c === 0 ? ['clear', 'açık'] : c === 1 ? ['clear', 'az bulutlu'] : c === 2 ? ['clear', 'parçalı bulutlu'] : c === 3 ? ['cloud', 'kapalı']
+    : c <= 48 ? ['fog', 'sisli'] : c <= 57 ? ['rain', 'çiseliyor'] : c <= 67 ? ['rain', 'yağmurlu'] : c <= 77 ? ['snow', 'karlı'] : c <= 82 ? ['rain', 'sağanak'] : c <= 86 ? ['snow', 'kar yağışlı'] : ['storm', 'fırtınalı'];
+  let wx = LS.get('gp-wx', null), mode = LS.get('gp-scene', 'auto'), wxOn = LS.get('gp-wx-on', true), cur = null, front = 'B', kind = null, imgTok = 0;
+  async function fetchWx(force) {
     if (!wxOn) return;
-    if (wx && Date.now() - wx.at < 15 * 60000) return;
+    if (!force && wx && Date.now() - wx.at < 15 * 60000) return;
     try {
-      const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LNG}&current=temperature_2m,weather_code&timezone=Europe%2FBerlin`);
-      const j = await r.json(); const c = j.current;
-      wx = { t: Math.round(c.temperature_2m), code: c.weather_code, at: Date.now() }; LS.set('gp-wx', wx);
-      apply();
+      const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LNG}&current=temperature_2m,weather_code,is_day&timezone=Europe%2FBerlin`);
+      const c = (await r.json()).current;
+      wx = { t: Math.round(c.temperature_2m), code: c.weather_code, at: Date.now() }; LS.set('gp-wx', wx); apply();
     } catch (e) {}
   }
+  const wxKind = () => wxOn && wx && Date.now() - wx.at < 3 * 3600000 ? WX(wx.code)[0] : null;
 
-  /* Çizim: yıldız parıltısı, Fernsehturm ışığı, yağmur/kar */
+  /* ---------- Canlı katman (resim koordinatlarında çizilir) ---------- */
   const cv = $('sky'), g = cv.getContext('2d');
-  let stars = [], drops = [], kind = null, running = false, lastT = 0;
-  function sizeCanvas() {
-    const r = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
-    const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
-    if (w && (cv.width !== w || cv.height !== h)) {
-      cv.width = w; cv.height = h;
-      stars = Array.from({ length: 70 }, () => ({ x: Math.random() * w, y: Math.random() * h * 0.42, p: Math.random() * 6.28, s: Math.random() < 0.15 ? 2 : 1 }));
-      drops = Array.from({ length: kind === 'snow' ? 90 : 140 }, () => ({ x: Math.random() * w, y: Math.random() * h, v: 0.6 + Math.random() * 0.8 }));
+  cv.width = IW; cv.height = IH;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let running = false, last = 0, drops = [], splashes = [], flash = 0, nextBolt = 0, fogT = 0, lights = [], stars = [];
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  function seedFx() {
+    const k = kind;
+    drops = [];
+    if (k === 'rain' || k === 'storm') for (let i = 0; i < (k === 'storm' ? 320 : 230); i++) drops.push({ x: rnd(-200, IW), y: rnd(-IH, IH), z: Math.random() < 0.35 ? 1 : 0, l: rnd(12, 26) });
+    if (k === 'snow') for (let i = 0; i < 200; i++) drops.push({ x: rnd(0, IW), y: rnd(0, IH), z: Math.random(), p: rnd(0, 6.28) });
+    const L = META.l[cur === 'bulutlu-gece' ? 'gece' : cur] || [];
+    lights = []; for (let i = 0; i < L.length; i += 2) lights.push({ x: L[i], y: L[i + 1], p: rnd(0, 6.28), s: rnd(0.4, 1.6), off: 0 });
+    stars = []; if (cur === 'gece' || cur === 'dolunay') for (let i = 0; i < 70; i++) stars.push({ x: rnd(0, IW), y: rnd(0, IH * 0.42), p: rnd(0, 6.28), b: Math.random() < 0.2 });
+  }
+  function glow(x, y, r, c, a) {
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, `rgba(${c},${a})`); gr.addColorStop(1, `rgba(${c},0)`);
+    g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  /* Fernsehturm ışık oyunu: aşağıdan yukarı kayar, sepette döner, aşağı iner */
+  function towerShow(t, T) {
+    const [cx, top, head, base] = T, L = 15000, s = (t % L) / 1000;
+    const ease = u => u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+    const hy = head + 1;
+    g.globalCompositeOperation = 'lighter';
+    let y = null, rot = null;
+    if (s < 4) y = base - (base - hy) * ease(s / 4);
+    else if (s < 9.5) { y = hy; rot = (s - 4) / 1.3; }
+    else if (s < 13.5) y = hy + (base - hy) * ease((s - 9.5) / 4);
+    if (y != null) {
+      // iz
+      const trail = s < 4 ? 1 : s >= 9.5 ? -1 : 0;
+      for (let k = 1; k <= 6 && trail; k++) { g.fillStyle = `rgba(255,232,180,${0.16 - k * 0.022})`; g.fillRect(cx - 2, y + trail * k * 2, 5, 2); }
+      if (rot == null) {
+        g.fillStyle = 'rgba(255,244,214,.95)'; g.fillRect(cx - 2, y - 1, 5, 3);
+        glow(cx, y, 10, '255,226,160', 0.55);
+      } else {
+        // sepet aydınlık, ışık bandı kendi ekseninde döner
+        const ph = rot % 1, front = Math.sin(ph * Math.PI * 2);
+        const bx = cx + Math.cos(ph * Math.PI * 2) * 4.5;
+        g.fillStyle = 'rgba(255,230,170,.35)'; g.fillRect(cx - 4, head - 2, 9, 5);
+        if (front > -0.2) { g.fillStyle = `rgba(255,248,225,${(0.55 + 0.45 * front).toFixed(2)})`; g.fillRect(Math.round(bx) - 1, head - 3, 2, 7); }
+        glow(cx, head, 13 + 3 * Math.max(0, front), '255,220,150', 0.35 + 0.25 * Math.max(0, front));
+      }
     }
+    // tepedeki kırmızı ikaz ışığı
+    const on = (t % 1500) < 750;
+    if (on) { g.fillStyle = 'rgba(255,60,60,1)'; g.fillRect(cx - 1, top - 1, 2, 2); glow(cx, top, 4, '255,40,40', 0.6); }
+    g.globalCompositeOperation = 'source-over';
+  }
+  function fmtLights(t, T) {
+    const [, , , , fx, ftop, fplat] = T;
+    g.globalCompositeOperation = 'lighter';
+    const on = ((t + 600) % 1500) < 750;
+    if (on) { g.fillStyle = 'rgb(255,60,60)'; g.fillRect(fx - 1, ftop - 1, 2, 2); glow(fx, ftop, 4, '255,40,40', 0.6); }
+    if (((t + 1100) % 1500) < 750) { g.fillStyle = 'rgba(255,70,70,.9)'; g.fillRect(fx - 5, fplat - 1, 1, 1); g.fillRect(fx + 5, fplat - 1, 1, 1); glow(fx, fplat, 7, '255,50,50', 0.35); }
+    g.globalCompositeOperation = 'source-over';
   }
   function frame(t) {
     if (!running) return;
     requestAnimationFrame(frame);
-    if (document.hidden || window.scrollY > cv.getBoundingClientRect().height + 200) return;
-    const dt = lastT ? Math.min(50, t - lastT) : 16; lastT = t;
-    sizeCanvas();
-    const W = cv.width, H = cv.height, dpr = W / Math.max(1, cv.getBoundingClientRect().width);
-    g.clearRect(0, 0, W, H);
-    if (cur && SCENES[cur].night && kind !== 'rain' && kind !== 'storm') {
-      for (const s of stars) { const a = 0.25 + 0.75 * Math.max(0, Math.sin(t / 900 + s.p)); g.fillStyle = `rgba(255,248,230,${(a * 0.8).toFixed(2)})`; g.fillRect(Math.round(s.x), Math.round(s.y), s.s * dpr, s.s * dpr); }
+    if (document.hidden || $('scene').hidden) return;
+    if (t - last < 33) return; // ~30 fps yeter
+    const dt = last ? Math.min(80, t - last) : 33; last = t;
+    g.clearRect(0, 0, IW, IH);
+    const sc = SCENES[cur], T = META.t[cur];
+    // yıldızlar
+    if (stars.length && !kind) for (const s of stars) { const a = 0.15 + 0.6 * Math.max(0, Math.sin(t / 700 + s.p)); g.fillStyle = `rgba(255,250,235,${a.toFixed(2)})`; g.fillRect(s.x, s.y, s.b ? 2 : 1, s.b ? 2 : 1); }
+    // şehir ışıkları
+    if (lights.length) {
+      g.globalCompositeOperation = 'lighter';
+      for (const L of lights) {
+        if (L.off > 0) { L.off -= dt; continue; }
+        if (Math.random() < 0.0004 * dt / 33) { L.off = rnd(1500, 6000); continue; }
+        const a = 0.18 + 0.42 * (0.5 + 0.5 * Math.sin(t / 1000 * L.s + L.p));
+        g.fillStyle = `rgba(255,205,130,${a.toFixed(2)})`; g.fillRect(L.x - 1, L.y - 1, 3, 3);
+      }
+      g.globalCompositeOperation = 'source-over';
     }
+    // kuleler
+    if (T && (sc.night || sc.dusk)) { towerShow(t, T); fmtLights(t, T); }
+    // sis
+    if (kind === 'fog') {
+      fogT += dt / 1000;
+      for (let i = 0; i < 4; i++) {
+        const y = 400 + i * 70, x = ((fogT * (8 + i * 4)) % (IW * 2)) - IW;
+        const gr = g.createLinearGradient(0, y - 60, 0, y + 60); gr.addColorStop(0, 'rgba(220,224,230,0)'); gr.addColorStop(0.5, `rgba(220,224,230,${sc.night ? 0.10 : 0.22})`); gr.addColorStop(1, 'rgba(220,224,230,0)');
+        g.fillStyle = gr; g.fillRect(x, y - 60, IW * 2, 120);
+      }
+    }
+    // yağmur
     if (kind === 'rain' || kind === 'storm') {
-      g.fillStyle = 'rgba(190,210,255,0.45)';
-      for (const d of drops) { d.y += d.v * dt * 0.9 * dpr; d.x -= d.v * dt * 0.18 * dpr; if (d.y > H) { d.y = -20; d.x = Math.random() * W * 1.2; } g.fillRect(Math.round(d.x), Math.round(d.y), 2 * dpr, 10 * dpr * d.v); }
-    } else if (kind === 'snow') {
-      g.fillStyle = 'rgba(255,255,255,0.8)';
-      for (const d of drops) { d.y += d.v * dt * 0.06 * dpr; d.x += Math.sin((t / 1000) + d.v * 9) * 0.3 * dpr; if (d.y > H) { d.y = -5; d.x = Math.random() * W; } g.fillRect(Math.round(d.x), Math.round(d.y), 3 * dpr, 3 * dpr); }
+      const sp = kind === 'storm' ? 1.5 : 1;
+      g.lineWidth = 1; g.lineCap = 'round';
+      for (const d of drops) {
+        const v = (d.z ? 1.25 : 0.8) * sp * dt;
+        d.y += v; d.x += v * 0.16;
+        if (d.y > IH) { if (d.z && Math.random() < 0.5) splashes.push({ x: d.x, y: rnd(700, IH - 10), a: 1 }); d.y = rnd(-80, -10); d.x = rnd(-200, IW); }
+        g.strokeStyle = d.z ? 'rgba(210,222,242,.6)' : 'rgba(190,205,230,.32)'; g.lineWidth = d.z ? 1.6 : 1;
+        g.beginPath(); g.moveTo(d.x, d.y); g.lineTo(d.x - d.l * 0.16, d.y - d.l * (d.z ? 1.3 : 0.8)); g.stroke();
+      }
+      g.fillStyle = 'rgba(215,228,245,.55)';
+      splashes = splashes.filter(s => (s.a -= dt / 260) > 0);
+      for (const s of splashes) { g.globalAlpha = s.a; g.fillRect(s.x - 3, s.y, 2, 1); g.fillRect(s.x + 1, s.y - 1, 2, 1); g.fillRect(s.x - 1, s.y - 2, 1, 1); }
+      g.globalAlpha = 1;
+    }
+    // kar
+    if (kind === 'snow') {
+      for (const d of drops) {
+        d.y += (0.03 + d.z * 0.05) * dt; d.x += Math.sin(t / 1400 + d.p) * 0.25;
+        if (d.y > IH) { d.y = -4; d.x = rnd(0, IW); }
+        g.fillStyle = `rgba(255,255,255,${(0.5 + d.z * 0.45).toFixed(2)})`; const s = d.z > 0.6 ? 5 : 3; g.fillRect(d.x, d.y, s, s);
+      }
+    }
+    // şimşek
+    if (kind === 'storm') {
+      if (!nextBolt) nextBolt = t + rnd(4000, 11000);
+      if (t > nextBolt) { flash = 1; nextBolt = t + rnd(5000, 14000); setTimeout(() => flash = 0.8, 160); }
+      if (flash > 0) { g.fillStyle = `rgba(235,240,255,${(flash * 0.45).toFixed(2)})`; g.fillRect(0, 0, IW, IH); flash -= dt / 180; }
     }
   }
   function setRun() {
-    const need = !matchMedia('(prefers-reduced-motion: reduce)').matches && cur && (SCENES[cur].night || kind === 'rain' || kind === 'snow' || kind === 'storm');
-    if (need && !running) { running = true; lastT = 0; requestAnimationFrame(frame); }
-    else if (!need && running) { running = false; g.clearRect(0, 0, cv.width, cv.height); }
+    const sc = cur && SCENES[cur];
+    const need = !reduce && sc && (sc.night || sc.dusk || kind === 'rain' || kind === 'storm' || kind === 'snow' || kind === 'fog');
+    if (need && !running) { running = true; last = 0; requestAnimationFrame(frame); }
+    else if (!need && running) { running = false; g.clearRect(0, 0, IW, IH); }
+    if (reduce) { g.clearRect(0, 0, IW, IH); const T = cur && META.t[cur]; if (T && sc && (sc.night || sc.dusk)) { g.fillStyle = 'rgb(255,60,60)'; g.fillRect(T[0] - 1, T[1] - 1, 2, 2); g.fillRect(T[4] - 1, T[5] - 1, 2, 2); } }
   }
 
   function apply() {
@@ -859,24 +941,28 @@ const Scene = (() => {
     document.documentElement.classList.toggle('has-scene', mode !== 'off');
     if (mode === 'off') { box.hidden = true; running = false; label(); return; }
     box.hidden = false;
-    const name = mode === 'auto' ? pickAuto() : (SCENES[mode] ? mode : pickAuto());
-    kind = wxOn && wx && Date.now() - wx.at < 3 * 3600000 ? WX(wx.code)[0] : null;
+    kind = wxKind();
+    let name;
+    if (mode === 'auto') { const p = phase(); name = kind && kind !== 'clear' ? overcastOf(p) : p; }
+    else if (mode === 'bulutlu') name = overcastOf(phase());
+    else name = SCENES[mode] ? mode : phase();
+    if (kind === 'clear') kind = null;
     if (name !== cur) {
-      const sc = SCENES[name], a = $('sceneA'), b = $('sceneB');
-      const next = front === 'A' ? b : a, prev = front === 'A' ? a : b;
-      next.onload = () => { next.style.opacity = 1; prev.style.opacity = 0; front = front === 'A' ? 'B' : 'A'; };
-      next.src = sc.f; cur = name;
-      box.className = 'scene' + (sc.day ? ' day' : '') + (sc.night ? ' night' : '') + (sc.dusk ? ' dusk' : '');
+      const a = $('sceneA'), b = $('sceneB'), shown = front === 'A' ? a : b, next = shown === a ? b : a, tok = ++imgTok;
+      next.onload = () => { if (tok !== imgTok) return; next.style.opacity = 1; shown.style.opacity = 0; front = next === a ? 'A' : 'B'; };
+      next.src = `stg-${name}.webp`; cur = name;
     }
-    box.classList.toggle('wet', kind === 'rain' || kind === 'storm' || kind === 'fog');
-    stars = []; cv.width = 0; // yeniden ölçülsün
-    setRun(); label();
+    const sc = SCENES[cur];
+    box.className = 'scene' + (sc.day ? ' day' : '') + (sc.night ? ' night' : '') + (kind === 'rain' || kind === 'storm' ? ' wet' : '') + (kind === 'snow' ? ' snowy' : '');
+    seedFx(); setRun(); label();
   }
   function label() {
     const el = $('wx'); if (!el) return;
     const parts = [];
     if (wxOn && wx) parts.push(wx.t + '°');
-    if (cur && mode !== 'off') parts.push(SCENES[cur].n.replace(' gecesi', ''));
+    const k = wxKind();
+    if (k && k !== 'clear') parts.push(WX(wx.code)[1] + (cur && SCENES[cur].night ? ' gece' : ''));
+    else if (cur && mode !== 'off') parts.push(SCENES[cur].n);
     el.innerHTML = '<small>Stuttgart</small>' + esc(parts.join(' · ') || 'sevdası');
   }
   function info() {
@@ -884,12 +970,12 @@ const Scene = (() => {
     return { rise: f(s.rise), set: f(s.set), moon: Math.round(moonIllum(new Date()) * 100), scene: cur ? SCENES[cur].n : '-', wx: wx && wxOn ? `${wx.t}°C, ${WX(wx.code)[1]}` : null };
   }
   return {
-    SCENES, info,
-    start() { apply(); fetchWx(); setInterval(() => { apply(); fetchWx(); }, 60000); document.addEventListener('visibilitychange', () => { if (!document.hidden) { apply(); fetchWx(); } }); window.addEventListener('resize', () => { cv.width = 0; }); },
+    PICK, info,
+    start() { apply(); fetchWx(); setInterval(() => { apply(); fetchWx(); }, 60000); document.addEventListener('visibilitychange', () => { if (!document.hidden) { apply(); fetchWx(); } }); },
     get mode() { return mode; }, get wxOn() { return wxOn; },
     setMode(m) { mode = m; LS.set('gp-scene', m); cur = null; apply(); },
-    setWx(v) { wxOn = v; LS.set('gp-wx-on', v); if (v) { wx = null; fetchWx(); } apply(); },
-    describe() { const i = info(); return `Stuttgart'ta şu an: ${i.scene}${i.wx ? ', hava ' + i.wx : ''}. Bugün gün doğumu ${i.rise}, batımı ${i.set}.`; }
+    setWx(v) { wxOn = v; LS.set('gp-wx-on', v); if (v) fetchWx(true); apply(); },
+    describe() { const i = info(); return `Stuttgart'ta şu an: ${i.scene}${i.wx ? ', hava ' + i.wx : ''}. Bugün gün doğumu ${i.rise}, batımı ${i.set}. Ay %${i.moon} dolu.`; }
   };
 })();
 
@@ -1111,6 +1197,7 @@ const UI = {
       else if (App.prefs.shuffle) nx = 'Sırada: karışık';
       else { const n = App.byId(nextId(1)); if (n && n.id !== s.id) nx = `Sırada: <b>${esc(n.title)}</b>`; }
     }
+    if (typeof Sleep !== 'undefined' && Sleep.left) nx += (nx ? ' · ' : '') + `<b>uyku ${Sleep.left} dk</b>`;
     $('upnext').innerHTML = nx;
     $('engineTag').textContent = Engine.mode === 'live' ? 'canlı motor' : 'hazırlamalı motor';
     Tape.sync(); Media.pos();
@@ -1189,15 +1276,20 @@ const UI = {
       <div class="group"><h3>Bulut</h3>${cloud}</div>
       <div class="group"><h3>Spotify</h3>${sp}</div>
       <div class="group"><h3>Gönül Dostu</h3>
-        <p class="msg">Şarkılara yorum yapan, seninle sohbet eden yapay zekâ (Claude). Kendi anahtarınla çalışır; anahtar sadece bu telefonda saklanır, GitHub'a gitmez. Bir mesaj ortalama bir kuruşun çok altında tutar.</p>
+        <p class="msg">Şarkılara laf atan, seninle dertleşen, istersen kaseti senin yerine yöneten yapay zekâ (Claude). Anahtar sadece bu telefonda saklanır.</p>
         <div class="field"><label for="aiKey">Claude API anahtarı</label><input id="aiKey" type="password" autocomplete="off" placeholder="sk-ant-..." value="${esc(AI.key)}"></div>
         <p class="msg" id="aiMsg" hidden></p>
         <div class="btns"><button class="btn primary" id="aiSave">Kaydet ve dene</button>${AI.key ? '<button class="btn danger" id="aiDel">Anahtarı sil</button>' : ''}</div>
-        <div class="toggle"><div class="tl"><span>Şarkı başlayınca yorum yapsın</span><span class="sub">Her şarkıya bir kez, kısa bir laf</span></div><button class="sw" id="aiAuto" role="switch" aria-checked="${AI.auto}" aria-label="Otomatik yorum"></button></div>
+        <div class="field"><label>Zekâ</label><div class="seg" id="aiModel"><button data-aim="akilli" aria-pressed="${AI.model === 'akilli'}">Akıllı (Sonnet)</button><button data-aim="hizli" aria-pressed="${AI.model === 'hizli'}">Hızlı ve ucuz (Haiku)</button></div>
+          <span class="sub">Akıllı: daha derin sohbet, mesaj başı ~0,6 cent. Hızlı: ~0,05 cent. Şarkı başı yorumları her zaman hızlı modelle yapılır.</span></div>
+        <div class="toggle"><div class="tl"><span>İnternetten bilgi baksın</span><span class="sub">Şarkı ve sanatçı bilgisini doğrular, kaynak gösterir. Arama başına ~1 cent.</span></div><button class="sw" id="aiWeb" role="switch" aria-checked="${AI.web}" aria-label="İnternet araması"></button></div>
+        <div class="toggle"><div class="tl"><span>Şarkı başlayınca laf atsın</span><span class="sub">Her şarkıya bir kez, kısa</span></div><button class="sw" id="aiAuto" role="switch" aria-checked="${AI.auto}" aria-label="Otomatik yorum"></button></div>
+        <div class="field"><label>Gönül Dostu'nun seninle ilgili notları</label>
+          ${AI.mem.length ? `<ul class="memlist">${AI.mem.map((m, i) => `<li><span>${esc(m.t)}</span><button class="more" data-forget="${i}" aria-label="Notu sil">×</button></li>`).join('')}</ul>` : '<span class="sub">Henüz not yok. Sohbet ettikçe sevdiklerini öğrenip not alır.</span>'}</div>
         <button class="btn" id="aiClear">Sohbet geçmişini temizle</button></div>
       <div class="group"><h3>Stuttgart manzarası</h3>
         <p class="msg">${(() => { const i = Scene.info(); return `Bugün Stuttgart'ta gün doğumu <strong>${i.rise}</strong>, batımı <strong>${i.set}</strong>. Ay %${i.moon} dolu.${i.wx ? ' Hava: ' + esc(i.wx) + '.' : ''}`; })()}</p>
-        <div class="chips" id="sceneChips">${[['auto', 'Gerçek saate göre'], ...Object.entries(Scene.SCENES).map(([k, v]) => [k, v.n[0].toLocaleUpperCase('tr-TR') + v.n.slice(1)]), ['off', 'Kapalı']].map(([k, n]) => `<button class="chip${Scene.mode === k ? ' on' : ''}" data-scene="${k}">${n}</button>`).join('')}</div>
+        <div class="chips" id="sceneChips">${[['auto', 'Gerçek saat ve hava'], ...Object.entries(Scene.PICK), ['off', 'Kapalı']].map(([k, n]) => `<button class="chip${Scene.mode === k ? ' on' : ''}" data-scene="${k}">${n}</button>`).join('')}</div>
         <div class="toggle"><div class="tl"><span>Canlı Stuttgart havası</span><span class="sub">Yağmur yağıyorsa manzarada da yağar · Hava verisi: Open-Meteo</span></div><button class="sw" id="wxOn" role="switch" aria-checked="${Scene.wxOn}" aria-label="Canlı hava"></button></div></div>
       <div class="group"><h3>Ses motoru</h3>
         <div class="seg" id="engSeg"><button data-m="live" aria-pressed="${d.mode === 'live'}">Canlı</button><button data-m="render" aria-pressed="${d.mode === 'render'}">Hazırlamalı</button></div>
@@ -1341,125 +1433,284 @@ function dialUI(d) {
 })();
 $('formant').onclick = () => { custom({ formant: !fx.formant }); renderFx(); };
 
-/* ================= Gönül Dostu (yapay zekâ sohbet) ================= */
+/* ================= Dinleme geçmişi ve uyku zamanlayıcısı ================= */
+const Hist = (() => {
+  let h = LS.get('gp-hist', []);
+  return {
+    add(s) { h.push({ id: s.id, t: Date.now(), m: fx.preset }); if (h.length > 500) h = h.slice(-500); LS.set('gp-hist', h); },
+    summary() {
+      const now = Date.now(), day = 864e5, start = new Date(); start.setHours(0, 0, 0, 0);
+      const today = h.filter(x => x.t >= start.getTime()).length;
+      const month = h.filter(x => now - x.t < 30 * day);
+      const cnt = (arr, key) => { const m = new Map(); arr.forEach(x => { const k = key(x); if (k) m.set(k, (m.get(k) || 0) + 1); }); return [...m.entries()].sort((a, b) => b[1] - a[1]); };
+      const art = cnt(month, x => (App.byId(x.id) || {}).artist).slice(0, 5).map(([a, n]) => `${a} (${n})`).join(', ');
+      const songs = cnt(month, x => (App.byId(x.id) || {}).title).slice(0, 5).map(([a, n]) => `${a} (${n})`).join(', ');
+      const modes = cnt(month, x => x.m !== 'orijinal' && x.m !== 'custom' ? (PRESETS.find(p => p.id === x.m) || {}).n : null).slice(0, 3).map(([a, n]) => `${a} (${n})`).join(', ');
+      const ago = t => { const m = Math.round((now - t) / 60000); return m < 60 ? m + ' dk önce' : m < 1440 ? Math.round(m / 60) + ' saat önce' : Math.round(m / 1440) + ' gün önce'; };
+      const recent = h.slice(-8).reverse().map(x => { const s = App.byId(x.id); return s ? `${s.title} (${ago(x.t)})` : null; }).filter(Boolean).join('; ');
+      return `Bugün ${today} şarkı dinlendi. Son 30 günde en çok dinlenen sanatçılar: ${art || 'henüz yok'}. En çok dinlenen şarkılar: ${songs || 'henüz yok'}. Sık kullanılan modlar: ${modes || 'yok'}. Son dinlenenler: ${recent || 'yok'}.`;
+    }
+  };
+})();
+const Sleep = (() => {
+  let at = 0, timer = 0;
+  const tick = () => { if (at && Date.now() >= at) { at = 0; Engine.pause(); UI.now(); toast('Uyku zamanı. Kaset durdu, iyi geceler.'); } UI.now(); };
+  return {
+    set(min) { at = min > 0 ? Date.now() + min * 60000 : 0; clearInterval(timer); if (at) timer = setInterval(tick, 15000); UI.now(); },
+    get left() { return at ? Math.max(0, Math.ceil((at - Date.now()) / 60000)) : 0; }
+  };
+})();
+
+/* ================= Gönül Dostu (yapay zekâ) ================= */
 const AI = (() => {
-  const MODEL = 'claude-haiku-5-5';
+  const MODELS = { hizli: 'claude-haiku-5-5', akilli: 'claude-sonnet-5-5' };
   let key = LS.get('gp-ai-key', '');
   let auto = LS.get('gp-ai-auto', true);
-  let log = LS.get('gp-ai-log', []);          // {r:'u'|'a'|'n', t, hide?, mode?}
-  const said = LS.get('gp-ai-said', {});       // şarkı başına ilk yorum (tekrar para harcamasın)
-  let busy = false, songTimer = 0;
-  const save = () => { log = log.slice(-60); LS.set('gp-ai-log', log); };
+  let model = LS.get('gp-ai-model', 'akilli');
+  let web = LS.get('gp-ai-web', true);
+  let mem = LS.get('gp-ai-mem', []);           // kalıcı notlar
+  let log = LS.get('gp-ai-log2', []);          // {r:'u'|'a'|'n'|'e'|'act', t, src?}
+  const said = LS.get('gp-ai-said', {});
+  let busy = false, songTimer = 0, live = null, numMap = [];
+  const save = () => { log = log.slice(-80); LS.set('gp-ai-log2', log); };
 
-  function context() {
+  const STATIC = `Sen "Gönül Dostu"sun: Gönül Plak adlı arabesk müzik çalarının içinde yaşayan sohbet arkadaşı. Stuttgart'ta bir kahvehanede çay demleyip arabesk konuşan, Orhan Gencebay'dan Müslüm Gürses'e, Ferdi Tayfur'dan Bergen'e, Hakkı Bulut'tan İbrahim Tatlıses'e kadar eski kasetleri bilen, dertten anlayan ama ağlak olmayan, esprili, sıcak bir dostsun. Almanya'daki Türklerin, gurbetçi kuşağının ve Stuttgart'ın Türk mahallelerinin arabeskle bağını bilirsin.
+
+Nasıl konuşursun:
+- Türkçe, samimi, kısa: genelde 1-4 cümle. Kullanıcı uzun anlatırsa sen de biraz açılabilirsin.
+- Her cevaba aynı kalıpla başlama; "Ah", "Vay" gibi girişleri tekrar etme. Klişe arabesk lafını ara sıra, yerinde kullan.
+- Şarkı sözlerini asla alıntılama ya da yazma; sözlerin ne anlattığını kendi cümlelerinle anlatabilirsin.
+- Bir şarkı, yıl, albüm ya da hikâye hakkında emin değilsen uydurma. İnternet araman varsa kısa bir aramayla doğrula; yoksa "tam emin değilim" de.
+- Markdown başlık, liste ya da kalın yazı kullanma; düz konuşma dili.
+
+Uygulamayı yönetebilirsin (araçlar): şarkı çalmak, sıraya koymak, liste kurmak, mod açmak, tempo/ton/yankı gibi sesi ayarlamak, uyku zamanlayıcısı kurmak, kullanıcıyla ilgili kalıcı not almak.
+- Kullanıcı bir şey çalmanı, açmanı, ayarlamanı isterse sormadan aracı kullan, sonra kısaca ne yaptığını söyle.
+- Kullanıcı açıkça istemedikçe şarkı değiştirme ya da ses ayarını bozma; öneri yap, "açayım mı?" diye sor.
+- Şarkıları sadece arşivdeki numarayla çalabilirsin. Arşivde olmayan bir şarkıyı önerirsen arşivde olmadığını söyle.
+- Kullanıcı kendisi hakkında kalıcı bir şey söylerse (sevdiği sanatçı, ruh hali alışkanlığı, adı, sevdiği semt) remember aracıyla kısa bir not al. Her konuşmada not alma, sadece gerçekten kalıcı şeylerde.
+- Notları ve dinleme geçmişini doğal kullan; "notlarıma göre" gibi teknik laflar etme.
+
+Kullanıcı Stuttgart'ta yaşıyor ve Stuttgart'a sevdalı. Saate, havaya ve gün batımına göre yeri gelince Stuttgart'a değin (Fernsehturm, Fernmeldeturm, Schlossplatz, Königstraße, Neckar, Bad Cannstatt, Karlshöhe, Killesberg, Feuersee gibi) ama her cevapta değil.
+
+Kullanıcı kendine zarar vermeyi düşündüğünü ya da çok kötü olduğunu söylerse dertleşmeyi sürdür, yargılama; nazikçe güvendiği biriyle ya da bir uzmanla konuşmasını öner ve Almanya'da ücretsiz, 7/24 açık Telefonseelsorge'u ver: 0800 111 0 111 veya 0800 111 0 222.`;
+
+  function dynamicCtx() {
     const s = App.byId(App.curId);
-    const effects = [];
-    if (Math.abs(fx.rate - 1) > 0.001) effects.push('tempo %' + Math.round(fx.rate * 100));
-    if (Math.abs(fx.semi) > 0.01) effects.push('ton ' + signed(fx.semi, 1) + ' yarım ton');
-    if (fx.rvbOn) effects.push(RVB_TYPES[fx.rvbType] + ' yankısı');
-    if (fx.echoOn) effects.push('eko'); if (fx.tapeOn) effects.push('eski kaset efekti'); if (fx.vinylOn) effects.push('plak cızırtısı'); if (fx.radioOn) effects.push('dolmuş hoparlörü'); if (fx.d8On) effects.push('8D');
+    const eff = [];
+    if (Math.abs(fx.rate - 1) > 0.001) eff.push('tempo %' + Math.round(fx.rate * 100));
+    if (Math.abs(fx.semi) > 0.01) eff.push('ton ' + signed(fx.semi, 1) + ' yarım ton');
+    if (fx.rvbOn) eff.push(RVB_TYPES[fx.rvbType] + ' yankısı %' + Math.round(fx.rvbMix * 100));
+    if (fx.echoOn) eff.push('eko'); if (fx.tapeOn) eff.push('eski kaset'); if (fx.vinylOn) eff.push('plak cızırtısı'); if (fx.radioOn) eff.push('dolmuş hoparlörü'); if (fx.d8On) eff.push('8D');
     const mode = PRESETS.find(p => p.id === fx.preset);
-    const arc = App.songs.slice(-60).map(x => `${x.title}${x.artist ? ' – ' + x.artist : ''}`).join('; ');
+    const list = App.songs.slice().sort((a, b) => (b.added || 0) - (a.added || 0)).slice(0, 220);
+    numMap = list.map(x => x.id);
+    const arc = list.map((x, i) => `${i + 1}. ${x.title}${x.artist ? ' – ' + x.artist : ''}`).join('\n');
     const now = new Date();
-    return `Şu an çalan: ${s ? `"${s.title}"${s.artist ? ' – ' + s.artist : ''}${s.album ? ', albüm: ' + s.album : ''}${s.year ? ', ' + s.year : ''}` : 'hiçbir şey çalmıyor'}.
-Çalma durumu: ${Engine.playing ? 'çalıyor' : 'durdu'}. Mod: ${mode ? mode.n : 'özel ayar'}. Efektler: ${effects.join(', ') || 'yok'}.
-Saat: ${now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}. ${Scene.describe()}
-Kullanıcının arşivindeki şarkılar (öneri yaparken önce buradan seç): ${arc || 'arşiv boş'}.
-Uygulanabilir modlar (id: ad): ${PRESETS.map(p => p.id + ': ' + p.n).join(', ')}.`;
+    return `Şu an: ${now.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })}, saat ${now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}. ${Scene.describe()}
+Çalan şarkı: ${s ? `"${s.title}"${s.artist ? ' – ' + s.artist : ''}${s.album ? ', albüm ' + s.album : ''}${s.year ? ', ' + s.year : ''} (arşiv no ${numMap.indexOf(s.id) + 1})` : 'yok'}; ${Engine.playing ? 'çalıyor' : 'duraklatılmış'}.
+Ses: mod ${mode ? mode.n : 'özel ayar'}; efektler: ${eff.join(', ') || 'yok'}.${Sleep.left ? ` Uyku zamanlayıcısı: ${Sleep.left} dk kaldı.` : ''}
+Dinleme: ${Hist.summary()}
+Kullanıcı hakkında notlar: ${mem.length ? mem.map(m => '- ' + m.t).join('\n') : 'henüz yok'}
+Modlar (id: ad): ${PRESETS.map(p => p.id + ': ' + p.n).join(', ')}
+Arşiv (${App.songs.length} şarkı${App.songs.length > 220 ? ', en yeni 220' : ''}):
+${arc || 'boş'}`;
   }
-  const SYSTEM = () => `Sen "Gönül Dostu"sun: Gönül Plak adlı arabesk müzik çalarının içindeki sohbet arkadaşısın. Bir kahvehanede çay içerken arabesk konuşan, eski kasetleri bilen, samimi ve sıcak bir dost gibisin.
-Kurallar:
-- Türkçe konuş, kısa tut: genelde 2-4 cümle. Doğal, içten, abartısız; arada bir arabesk deyimi olabilir ama klişeye boğma.
-- Şarkı sözlerini asla alıntılama ya da yazma; sözlerin ne anlattığını kendi cümlelerinle özetleyebilirsin.
-- Bir şarkı, sanatçı ya da yıl hakkında emin değilsen uydurma; "tam emin değilim" de veya genel konuş.
-- Şarkı önerirken önce kullanıcının arşivindeki şarkılardan seç; arşiv dışından önerirsen bunu belirt.
-- Kullanıcının ruh haline uyan bir mod önermek istersen cevabının en sonuna sadece bir kez [MOD:id] yaz (id listeden). Kullanıcı istemedikçe her cevapta mod önerme.
-- Kullanıcı gerçekten kötü hissettiğini, kendine zarar vermeyi düşündüğünü söylerse dertleşmeyi sürdür ama nazikçe güvendiği biriyle ya da bir uzmanla konuşmasını öner; Almanya'da 0800 111 0 111 (Telefonseelsorge, ücretsiz, 7/24) numarasını verebilirsin.
-- Kullanıcı Stuttgart'ta yaşıyor ve Stuttgart'a sevdalı. Yeri geldikçe saate ve havaya göre Stuttgart'a (Fernsehturm, Schlossplatz, Königstraße, Neckar, Bad Cannstatt, Karlshöhe gibi) değinebilirsin ama her cevapta değil, zorlama.
-- Markdown başlık ya da liste kullanma, düz yazı yaz.
-${context()}`;
 
-  function apiMessages() {
-    const m = [];
-    log.filter(x => x.r === 'u' || x.r === 'a').slice(-16).forEach(x => {
-      const role = x.r === 'u' ? 'user' : 'assistant';
-      if (m.length && m[m.length - 1].role === role) m[m.length - 1].content += '\n' + x.t;
-      else m.push({ role, content: x.t });
-    });
-    while (m.length && m[0].role !== 'user') m.shift();
-    return m;
+  const num = { type: 'integer', description: 'Arşiv listesindeki şarkı numarası' };
+  const TOOLS = [
+    { name: 'play_song', description: 'Arşivden bir şarkıyı hemen çalar.', input_schema: { type: 'object', properties: { song: num }, required: ['song'] } },
+    { name: 'queue_songs', description: 'Şu anki şarkıdan sonra çalacak sırayı belirler.', input_schema: { type: 'object', properties: { songs: { type: 'array', items: num } }, required: ['songs'] } },
+    { name: 'make_playlist', description: 'Arşivdeki şarkılardan yeni bir liste kurar ve Listeler sekmesine kaydeder. İstenirse hemen çalar.', input_schema: { type: 'object', properties: { name: { type: 'string' }, songs: { type: 'array', items: num }, play: { type: 'boolean' } }, required: ['name', 'songs'] } },
+    { name: 'set_mode', description: 'Hazır ses modunu açar.', input_schema: { type: 'object', properties: { mode: { type: 'string', enum: PRESETS.map(p => p.id) } }, required: ['mode'] } },
+    { name: 'set_sound', description: 'Ses ayarlarını değiştirir. Sadece verilen alanlar değişir.', input_schema: { type: 'object', properties: {
+      tempo_percent: { type: 'number', minimum: 50, maximum: 150 }, semitones: { type: 'number', minimum: -12, maximum: 12 },
+      reverb_percent: { type: 'number', minimum: 0, maximum: 100 }, reverb_room: { type: 'string', enum: Object.keys(RVB_TYPES) },
+      echo_percent: { type: 'number', minimum: 0, maximum: 100 }, tape: { type: 'boolean' }, vinyl: { type: 'boolean' }, radio: { type: 'boolean' }, eight_d: { type: 'boolean' },
+      eq_preset: { type: 'string', enum: Object.keys(EQ_PRESETS) } } } },
+    { name: 'sleep_timer', description: 'Belirtilen dakika sonra çalmayı durdurur. 0 iptal eder.', input_schema: { type: 'object', properties: { minutes: { type: 'integer', minimum: 0, maximum: 240 } }, required: ['minutes'] } },
+    { name: 'remember', description: 'Kullanıcı hakkında kalıcı, kısa bir not kaydeder (ör. sevdiği sanatçı).', input_schema: { type: 'object', properties: { fact: { type: 'string' } }, required: ['fact'] } }
+  ];
+  const songAt = n => App.byId(numMap[(n | 0) - 1]);
+  function act(t) { log.push({ r: 'act', t }); }
+  function runTool(name, x) {
+    try {
+      if (name === 'play_song') { const s = songAt(x.song); if (!s) return 'Bu numarada şarkı yok.'; playSong(s.id, App.queue.includes(s.id) ? App.queue : App.filtered().map(y => y.id)); act(`♪ ${s.title} çalıyor`); return `Çalıyor: ${s.title}`; }
+      if (name === 'queue_songs') {
+        const ids = (x.songs || []).map(songAt).filter(Boolean).map(s => s.id); if (!ids.length) return 'Geçerli şarkı yok.';
+        App.queue = [App.curId, ...ids].filter(Boolean); App.prefs.shuffle = false; App.savePrefs(); UI.modes(); UI.now();
+        act(`Sıra kuruldu: ${ids.length} şarkı`); return 'Sıra kuruldu: ' + ids.map(id => App.byId(id).title).join(', ');
+      }
+      if (name === 'make_playlist') {
+        const ss = (x.songs || []).map(songAt).filter(Boolean); if (!ss.length) return 'Geçerli şarkı yok.';
+        const L = { id: 'gd-' + newId(), name: String(x.name || 'Gönül Dostu listesi').slice(0, 60), image: null, tracks: ss.map(s => ({ title: s.title, artist: s.artist, spId: s.spId || null, coverUrl: s.coverUrl || null })), source: 'ai', imported: Date.now() };
+        App.lists.push(L); DB.put('lists', L); UI.lists();
+        if (x.play) playSong(ss[0].id, ss.map(s => s.id));
+        act(`"${L.name}" listesi kuruldu (${ss.length} şarkı)`); return `Liste kuruldu: ${L.name}`;
+      }
+      if (name === 'set_mode') {
+        const m = PRESETS.find(p => p.id === x.mode); if (!m) return 'Böyle bir mod yok.';
+        Engine.setFx(Object.assign({}, BASE, m.id === 'orijinal' ? { eq: FREQS.map(() => 0), eqPreset: 'flat', preOn: false } : {}, m.p, { preset: m.id }));
+        renderFx(); UI.now(); act(`${m.n} modu açıldı`); return `${m.n} açık.`;
+      }
+      if (name === 'set_sound') {
+        const p = {};
+        if (x.tempo_percent != null) p.rate = Math.round(Math.max(50, Math.min(150, x.tempo_percent))) / 100;
+        if (x.semitones != null) p.semi = Math.round(Math.max(-12, Math.min(12, x.semitones)) * 20) / 20;
+        if (x.reverb_percent != null) { p.rvbMix = Math.max(0, Math.min(100, x.reverb_percent)) / 100; p.rvbOn = p.rvbMix > 0.005; }
+        if (x.reverb_room) { p.rvbType = x.reverb_room; if (p.rvbOn == null) p.rvbOn = true; }
+        if (x.echo_percent != null) { p.echoMix = Math.max(0, Math.min(100, x.echo_percent)) / 100; p.echoOn = p.echoMix > 0.005; }
+        if (x.tape != null) p.tapeOn = !!x.tape; if (x.vinyl != null) p.vinylOn = !!x.vinyl; if (x.radio != null) p.radioOn = !!x.radio; if (x.eight_d != null) p.d8On = !!x.eight_d;
+        if (x.eq_preset && EQ_PRESETS[x.eq_preset]) Object.assign(p, { eq: EQ_PRESETS[x.eq_preset].g.slice(), eqPreset: x.eq_preset, eqOn: true });
+        custom(p); renderFx(); UI.now(); act('Ses ayarlandı'); return 'Ayarlandı.';
+      }
+      if (name === 'sleep_timer') { Sleep.set(x.minutes | 0); act(x.minutes > 0 ? `Uyku zamanlayıcısı: ${x.minutes} dk` : 'Uyku zamanlayıcısı kapatıldı'); return 'Tamam.'; }
+      if (name === 'remember') { const f = String(x.fact || '').trim().slice(0, 160); if (f && !mem.some(m => m.t === f)) { mem.push({ t: f, at: Date.now() }); mem = mem.slice(-40); LS.set('gp-ai-mem', mem); act('Not aldım: ' + f); } return 'Kaydedildi.'; }
+    } catch (e) { return 'Hata: ' + e.message; }
+    return 'Bilinmeyen araç.';
   }
-  async function call(messages, max) {
+
+  /* Akışlı istek */
+  async function stream(body, onText) {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify({ model: MODEL, max_tokens: max || 420, system: SYSTEM(), messages })
+      body: JSON.stringify(Object.assign({ stream: true }, body))
     });
     if (!r.ok) {
       let m = ''; try { const j = await r.json(); m = (j.error && j.error.message) || ''; } catch (e) {}
       if (r.status === 401) throw new Error('Anahtar geçersiz. Ben sekmesinden kontrol et.');
       if (r.status === 429) throw new Error('Çok hızlı gittik, birazdan tekrar dene.');
+      if (r.status === 529 || r.status === 503) throw new Error('Sunucular şu an yoğun, biraz sonra tekrar dene.');
       if (/credit|balance|billing/i.test(m)) throw new Error('Claude hesabında kredi kalmamış. console.anthropic.com\'dan yükleme yapabilirsin.');
       throw new Error(m || 'Bağlantı hatası (' + r.status + ')');
     }
-    const j = await r.json();
-    return (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();
+    const blocks = [], json = {}; let stop = null, buf = '';
+    const rd = r.body.getReader(), dec = new TextDecoder();
+    for (;;) {
+      const { done, value } = await rd.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        const line = chunk.split('\n').find(l => l.startsWith('data:')); if (!line) continue;
+        let ev; try { ev = JSON.parse(line.slice(5)); } catch (e) { continue; }
+        if (ev.type === 'content_block_start') { blocks[ev.index] = ev.content_block; if (ev.content_block.type === 'text' && ev.content_block.text) onText(ev.content_block.text); }
+        else if (ev.type === 'content_block_delta') {
+          const b = blocks[ev.index], d = ev.delta;
+          if (d.type === 'text_delta') { b.text = (b.text || '') + d.text; onText(d.text); }
+          else if (d.type === 'input_json_delta') json[ev.index] = (json[ev.index] || '') + d.partial_json;
+          else if (d.type === 'citations_delta') (b.citations = b.citations || []).push(d.citation);
+        }
+        else if (ev.type === 'content_block_stop') { if (json[ev.index] != null) { try { blocks[ev.index].input = JSON.parse(json[ev.index] || '{}'); } catch (e) { blocks[ev.index].input = {}; } } }
+        else if (ev.type === 'message_delta') stop = ev.delta && ev.delta.stop_reason;
+        else if (ev.type === 'error') throw new Error((ev.error && ev.error.message) || 'Akış hatası');
+      }
+    }
+    return { blocks: blocks.filter(Boolean), stop };
   }
-  function parse(t) {
-    let mode = null;
-    t = t.replace(/\[MOD:([a-z0-9]+)\]/gi, (_, id) => { if (PRESETS.find(p => p.id === id.toLowerCase())) mode = id.toLowerCase(); return ''; }).trim();
-    return { t, mode };
+  function history() {
+    const m = [];
+    log.filter(x => x.r === 'u' || x.r === 'a').slice(-18).forEach(x => {
+      const role = x.r === 'u' ? 'user' : 'assistant';
+      if (!x.t) return;
+      if (m.length && m[m.length - 1].role === role) m[m.length - 1].content += '\n' + x.t; else m.push({ role, content: x.t });
+    });
+    while (m.length && m[0].role !== 'user') m.shift();
+    return m;
   }
+  function sysBlocks() { return [{ type: 'text', text: STATIC, cache_control: { type: 'ephemeral' } }, { type: 'text', text: dynamicCtx() }]; }
+  async function converse(messages, opt = {}) {
+    const tools = opt.noTools ? [] : TOOLS.slice();
+    if (!opt.noTools && web) tools.push({ type: 'web_search_20250305', name: 'web_search', max_uses: 2, user_location: { type: 'approximate', city: 'Stuttgart', region: 'Baden-Württemberg', country: 'DE', timezone: 'Europe/Berlin' } });
+    let text = '', src = [], searched = 0;
+    for (let round = 0; round < 6; round++) {
+      const body = { model: opt.model || MODELS[model], max_tokens: opt.max || 700, system: sysBlocks(), messages };
+      if (tools.length) body.tools = tools;
+      const res = await stream(body, d => { text += d; opt.onText && opt.onText(text); });
+      res.blocks.forEach(b => {
+        if (b.type === 'text' && b.citations) b.citations.forEach(c => { if (c.url && !src.some(s => s.url === c.url)) src.push({ url: c.url, title: c.title || c.url }); });
+        if (b.type === 'server_tool_use') { searched++; opt.onStatus && opt.onStatus('İnternete bakıyor…'); }
+      });
+      if (res.stop === 'tool_use') {
+        messages.push({ role: 'assistant', content: res.blocks });
+        const results = res.blocks.filter(b => b.type === 'tool_use').map(b => ({ type: 'tool_result', tool_use_id: b.id, content: runTool(b.name, b.input || {}) }));
+        messages.push({ role: 'user', content: results });
+        save(); render();
+        if (text && !/\s$/.test(text)) text += ' ';
+        continue;
+      }
+      if (res.stop === 'pause_turn') { messages.push({ role: 'assistant', content: res.blocks }); continue; }
+      break;
+    }
+    return { text: text.trim(), src, searched };
+  }
+
   async function send(text) {
     if (!key || busy || !text.trim()) return;
-    log.push({ r: 'u', t: text.trim() }); save(); busy = true; render();
-    try { const p = parse(await call(apiMessages())); log.push({ r: 'a', t: p.t, mode: p.mode }); }
-    catch (e) { log.push({ r: 'e', t: e.message }); }
-    busy = false; save(); render();
+    log.push({ r: 'u', t: text.trim() }); save(); busy = true; live = { t: '' }; render();
+    try {
+      const out = await converse(history(), { onText: t => { live.t = t; live.st = null; renderLive(); }, onStatus: st => { live.st = st; renderLive(); } });
+      log.push({ r: 'a', t: out.text || 'Tamamdır.', src: out.src.slice(0, 4) });
+    } catch (e) { log.push({ r: 'e', t: e.message }); }
+    busy = false; live = null; save(); render();
   }
   async function onSong(s) {
     clearTimeout(songTimer);
-    if (!key || !auto || !s) return;
+    if (!s) return;
+    Hist.add(s);
+    if (!key || !auto) return;
     songTimer = setTimeout(async () => {
-      if (App.curId !== s.id || !Engine.playing) return;
+      if (App.curId !== s.id || !Engine.playing || busy) return;
       const last = log[log.length - 1];
       if (!(last && last.r === 'n' && last.id === s.id)) { log.push({ r: 'n', id: s.id, t: s.title + (s.artist ? ' · ' + s.artist : '') }); save(); }
-      if (said[s.id]) { if (!log.some(x => x.r === 'a' && x.t === said[s.id])) { log.push({ r: 'u', t: `(${s.title} başladı)`, hide: true }, { r: 'a', t: said[s.id] }); save(); } render(); return; }
-      busy = true; render();
+      if (said[s.id]) { render(); return; }
+      busy = true; live = { t: '' }; render();
       try {
-        const p = parse(await call(apiMessages().concat([{ role: 'user', content: `(Sistem notu: "${s.title}"${s.artist ? ' – ' + s.artist : ''} şimdi başladı. Bu şarkıya dair 1-2 cümlelik kısa, samimi bir yorumla sohbet aç. Mod önerme.)` }]).reduce((a, m) => { if (a.length && a[a.length - 1].role === m.role) a[a.length - 1].content += '\n' + m.content; else a.push(m); return a; }, []), 160));
-        log.push({ r: 'u', t: `(${s.title} başladı)`, hide: true }, { r: 'a', t: p.t });
-        said[s.id] = p.t; const keys = Object.keys(said); if (keys.length > 300) delete said[keys[0]]; LS.set('gp-ai-said', said);
-      } catch (e) { /* sessizce geç: otomatik yorum zorunlu değil */ }
-      busy = false; save(); render();
+        const msgs = history(); const note = `(Sistem notu: "${s.title}"${s.artist ? ' – ' + s.artist : ''} şimdi başladı. Bu şarkıya, saate ya da Stuttgart'ın şu anki haline dair 1-2 cümlelik kısa, samimi bir lafla sohbet aç. Araç kullanma.)`;
+        if (msgs.length && msgs[msgs.length - 1].role === 'user') msgs[msgs.length - 1].content += '\n' + note; else msgs.push({ role: 'user', content: note });
+        const out = await converse(msgs, { noTools: true, model: MODELS.hizli, max: 180, onText: t => { live.t = t; renderLive(); } });
+        if (out.text) { log.push({ r: 'u', t: `(${s.title} başladı)`, hide: true }, { r: 'a', t: out.text }); said[s.id] = 1; const k = Object.keys(said); if (k.length > 400) delete said[k[0]]; LS.set('gp-ai-said', said); }
+      } catch (e) {}
+      busy = false; live = null; save(); render();
     }, 3500);
   }
+
   function lastLine() { for (let i = log.length - 1; i >= 0; i--) if (log[i].r === 'a') return log[i]; return null; }
   function bubble(x) {
     if (x.r === 'n') return `<div class="cnote">♪ ${esc(x.t)}</div>`;
+    if (x.r === 'act') return `<div class="cact">${esc(x.t)}</div>`;
     if (x.r === 'e') return `<div class="cmsg err">${esc(x.t)}</div>`;
     if (x.hide) return '';
-    const m = x.mode && PRESETS.find(p => p.id === x.mode);
-    return `<div class="cmsg ${x.r === 'u' ? 'me' : 'gd'}">${esc(x.t).replace(/\n/g, '<br>')}${m ? `<button class="chipbtn" data-apply="${m.id}">${esc(m.n)} modunu aç</button>` : ''}</div>`;
+    const src = x.src && x.src.length ? `<div class="csrc">${x.src.map(s => { let h = ''; try { h = new URL(s.url).hostname.replace(/^www\./, ''); } catch (e) {} return `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(h || s.title)}</a>`; }).join('')}</div>` : '';
+    return `<div class="cmsg ${x.r === 'u' ? 'me' : 'gd'}">${esc(x.t).replace(/\n/g, '<br>')}${src}</div>`;
+  }
+  function renderLive() {
+    const el = $('chatLive'); if (el) el.innerHTML = live && live.t ? esc(live.t).replace(/\n/g, '<br>') : `<span class="typing"><i></i><i></i><i></i></span>${live && live.st ? `<span class="sub">${esc(live.st)}</span>` : ''}`;
+    const c = $('gdLine'); if (c && live && live.t) c.textContent = live.t;
+    const box = $('chatLog'); if (box) box.scrollTop = box.scrollHeight;
   }
   function render() {
     const c = $('gdCard');
     if (c) {
-      if (!key) c.innerHTML = `<div class="gdav">${TEA}</div><div class="gdtx"><b>Gönül Dostu</b><span>Şarkılara yorum yapan, seninle dertleşen bir sohbet arkadaşı. Açmak için Ben sekmesinden anahtarını ekle.</span></div><button class="chipbtn" id="gdSetup">Kur</button>`;
-      else { const l = lastLine(); c.innerHTML = `<div class="gdav">${TEA}</div><div class="gdtx"><b>Gönül Dostu</b><span>${busy && !l ? 'düşünüyor…' : l ? esc(l.t) : 'Bir şarkı aç, lafa girelim.'}</span></div><button class="chipbtn" id="gdOpen">Sohbet</button>`; }
+      if (!key) c.innerHTML = `<div class="gdav">${TEA}</div><div class="gdtx"><b>Gönül Dostu</b><span>Şarkılara laf atan, seninle dertleşen, istersen kaseti senin yerine yöneten bir dost. Açmak için Ben sekmesinden anahtarını ekle.</span></div><button class="chipbtn" id="gdSetup">Kur</button>`;
+      else { const l = lastLine(); c.innerHTML = `<div class="gdav">${TEA}</div><div class="gdtx"><b>Gönül Dostu</b><span id="gdLine">${busy && live && live.t ? esc(live.t) : busy ? 'düşünüyor…' : l ? esc(l.t) : 'Bir şarkı aç, lafa girelim.'}</span></div><button class="chipbtn" id="gdOpen">Sohbet</button>`; }
     }
     const box = $('chatLog'); if (!box || $('chatSheet').hidden) return;
-    box.innerHTML = log.map(bubble).join('') + (busy ? '<div class="cmsg gd typing"><i></i><i></i><i></i></div>' : '') || '';
-    if (!log.length && !busy) box.innerHTML = `<div class="cnote">Merhaba! Bir şarkı aç ya da aşağıdan bir şey sor.</div>`;
+    const html = log.map(bubble).join('') + (busy ? '<div class="cmsg gd" id="chatLive"></div>' : '');
+    box.innerHTML = html || `<div class="cnote">Merhaba! Bir şey sor, ya da "bana gece için bir liste yap" de.</div>`;
+    if (busy) renderLive();
     box.scrollTop = box.scrollHeight;
     $('chatSend').disabled = busy;
   }
   return {
-    get key() { return key; }, get auto() { return auto; },
+    get key() { return key; }, get auto() { return auto; }, get model() { return model; }, get web() { return web; }, get mem() { return mem; },
     setKey(k) { key = k.trim(); LS.set('gp-ai-key', key); render(); },
     setAuto(v) { auto = v; LS.set('gp-ai-auto', v); },
+    setModel(m) { model = MODELS[m] ? m : 'akilli'; LS.set('gp-ai-model', model); },
+    setWeb(v) { web = v; LS.set('gp-ai-web', v); },
+    forget(i) { mem.splice(i, 1); LS.set('gp-ai-mem', mem); },
     clear() { log = []; save(); render(); },
-    async test() { const t = await call([{ role: 'user', content: 'Tek cümleyle merhaba de.' }], 60); return t; },
+    async test() { const out = await converse([{ role: 'user', content: 'Tek kısa cümleyle merhaba de.' }], { noTools: true, max: 60 }); return out.text; },
     send, onSong, render
   };
 })();
@@ -1822,6 +2073,9 @@ $('vAcct').addEventListener('click', async e => {
   }
   else if (e.target.closest('[data-scene]')) { Scene.setMode(e.target.closest('[data-scene]').dataset.scene); UI.account(); }
   else if (id === 'wxOn') { Scene.setWx(!Scene.wxOn); e.target.setAttribute('aria-checked', Scene.wxOn); }
+  else if (e.target.closest('[data-aim]')) { AI.setModel(e.target.closest('[data-aim]').dataset.aim); UI.account(); }
+  else if (id === 'aiWeb') { AI.setWeb(!AI.web); e.target.setAttribute('aria-checked', AI.web); }
+  else if (e.target.closest('[data-forget]')) { AI.forget(+e.target.closest('[data-forget]').dataset.forget); UI.account(); }
   else if (id === 'aiDel') { AI.setKey(''); UI.account(); }
   else if (id === 'aiAuto') { AI.setAuto(!AI.auto); e.target.setAttribute('aria-checked', AI.auto); }
   else if (id === 'aiClear') { AI.clear(); toast('Sohbet temizlendi'); }
