@@ -4,9 +4,9 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 9;
+const VERSION = 10;
 const $ = id => document.getElementById(id);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
 const num = (v, d = 2) => v.toFixed(d).replace('.', ',').replace('-', '−');
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -140,8 +140,10 @@ const Tags = (() => {
     try { await id3v1(file, out); } catch (e) {}
     if ((!out.title || !out.artist) && /\.(m4a|mp4|aac|alac)$/i.test(file.name || '')) { try { await viaLib(file, out); } catch (e) {} }
     const fb = fromName(file.name || '');
-    out.title = (out.title || fb.title || 'İsimsiz şarkı').trim();
-    out.artist = (out.artist || fb.artist || '').trim();
+    const nf = v => String(v || '').normalize('NFC').trim();
+    out.title = nf(out.title || fb.title || 'İsimsiz şarkı');
+    out.artist = nf(out.artist || fb.artist);
+    out.album = nf(out.album); out.year = nf(out.year);
     if (out.cover) out.cover = await Img.square(out.cover);
     return out;
   }
@@ -689,7 +691,7 @@ const Spotify = (() => {
     LS.set('gp-sp-verifier', verifier);
     const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
     const p = new URLSearchParams({ client_id: C.SPOTIFY_CLIENT_ID, response_type: 'code', redirect_uri: REDIRECT,
-      code_challenge_method: 'S256', code_challenge: challenge, scope: 'playlist-read-private playlist-read-collaborative user-library-read' });
+      code_challenge_method: 'S256', code_challenge: challenge, scope: 'playlist-read-private playlist-read-collaborative user-library-read user-read-playback-state user-modify-playback-state' });
     location.href = 'https://accounts.spotify.com/authorize?' + p;
   }
   async function token(body) {
@@ -714,14 +716,36 @@ const Spotify = (() => {
       return true;
     } catch (e) { toast('Spotify bağlanamadı. Redirect adresini kontrol et.'); return false; }
   }
-  async function api(path) {
+  async function api(path, opt = {}) {
     if (!tok) throw new Error('Spotify bağlı değil');
     if (Date.now() > tok.exp) await token({ grant_type: 'refresh_token', refresh_token: tok.refresh });
-    let r = await fetch('https://api.spotify.com/v1' + path, { headers: { Authorization: 'Bearer ' + tok.access } });
-    if (r.status === 401) { await token({ grant_type: 'refresh_token', refresh_token: tok.refresh }); r = await fetch('https://api.spotify.com/v1' + path, { headers: { Authorization: 'Bearer ' + tok.access } }); }
+    const go = () => fetch('https://api.spotify.com/v1' + path, { method: opt.method || 'GET', headers: Object.assign({ Authorization: 'Bearer ' + tok.access }, opt.body ? { 'Content-Type': 'application/json' } : {}), body: opt.body ? JSON.stringify(opt.body) : undefined });
+    let r = await go();
+    if (r.status === 401) { await token({ grant_type: 'refresh_token', refresh_token: tok.refresh }); r = await go(); }
     if (r.status === 429) throw new Error('Spotify limiti doldu, biraz sonra tekrar dene');
-    if (!r.ok) { const e = new Error('Spotify hatası ' + r.status); e.status = r.status; throw e; }
-    return r.json();
+    if (!r.ok) { let m = ''; try { const j = await r.json(); m = (j.error && (j.error.reason || j.error.message)) || ''; } catch (e) {} const e = new Error('Spotify hatası ' + r.status + (m ? ': ' + m : '')); e.status = r.status; e.reason = m; throw e; }
+    if (r.status === 204) return null;
+    const txt = await r.text(); return txt ? JSON.parse(txt) : null;
+  }
+  // Spotify'ın kendi uygulamasında çal (Premium). Ses Spotify'dan gelir, Gönül Plak efektleri uygulanamaz.
+  async function playRemote(list, index) {
+    const t = list.tracks[index]; if (!t || !t.spId) throw new Error('Bu şarkının Spotify bilgisi yok');
+    let devs = [];
+    try { devs = ((await api('/me/player/devices')) || {}).devices || []; }
+    catch (e) { if (e.status === 401 || e.status === 403) { const er = new Error('scope'); er.scope = true; throw er; } throw e; }
+    const dev = devs.find(d => d.is_active) || devs.find(d => d.type === 'Smartphone') || devs[0];
+    if (!dev) { location.href = 'spotify:track:' + t.spId; const er = new Error('nodevice'); er.nodevice = true; throw er; }
+    const pl = list.id.startsWith('sp-') && list.id !== 'sp-liked' ? list.id.slice(3) : null;
+    const body = pl ? { context_uri: 'spotify:playlist:' + pl, offset: { uri: 'spotify:track:' + t.spId } }
+      : { uris: list.tracks.slice(index, index + 100).filter(x => x.spId).map(x => 'spotify:track:' + x.spId) };
+    try { await api('/me/player/play?device_id=' + encodeURIComponent(dev.id), { method: 'PUT', body }); }
+    catch (e) {
+      if (e.status === 403 && /PREMIUM/i.test(e.reason || e.message)) throw new Error('Spotify\'da çalmak için Premium gerekli');
+      if (e.status === 403) { const er = new Error('scope'); er.scope = true; throw er; }
+      if (e.status === 404) { location.href = 'spotify:track:' + t.spId; const er = new Error('nodevice'); er.nodevice = true; throw er; }
+      throw e;
+    }
+    return dev.name;
   }
   const track = t => t && t.type === 'track' && t.id ? {
     spId: t.id, title: t.name, artist: (t.artists || []).map(a => a.name).join(', '), album: t.album ? t.album.name : '',
@@ -751,7 +775,7 @@ const Spotify = (() => {
   }
   async function search(q) { const j = await api('/search?type=track&limit=10&q=' + encodeURIComponent(q)); return (j.tracks && j.tracks.items || []).map(track).filter(Boolean); }
 
-  return { enabled, REDIRECT, login, handleRedirect, playlists, items, search,
+  return { enabled, REDIRECT, login, handleRedirect, playlists, items, search, playRemote,
     get connected() { return !!tok; }, get me() { return me; },
     logout() { tok = null; me = null; LS.del('gp-sp-token'); LS.del('gp-sp-me'); } };
 })();
@@ -1222,6 +1246,7 @@ const Tape = (() => {
     if (run) requestAnimationFrame(frame);
   }
   function fit(el, text, maxW, size, min) {
+    text = String(text).normalize('NFC');
     el.textContent = text; el.setAttribute('font-size', size);
     try {
       let s = size;
@@ -1238,6 +1263,7 @@ const Tape = (() => {
       cv.innerHTML = url ? `<image href="${esc(url)}" x="318" y="30" width="48" height="48" preserveAspectRatio="xMidYMid slice"/>` : '';
       fit($('cTitle'), s ? s.title : 'Plak koy, gönlünü aç', w, 27, 17);
       fit($('cArtist'), s ? (s.artist || 'bilinmeyen sanatçı') : 'arşivden bir şarkı seç', w, 20, 14);
+      if (!$('cTitle').getComputedTextLength()) label = ''; // görünmezken ölçülemez, görünür olunca yeniden sığdır
     },
     sync() { const want = Engine.playing; if (want && !run) { run = true; last = 0; requestAnimationFrame(frame); } else if (!want) { run = false; frame(performance.now()); } }
   };
@@ -1313,11 +1339,12 @@ const UI = {
       const ready = rows.filter(r => r.s).length;
       v.innerHTML = `<div class="lhead"><button class="iconbtn" id="listBack" aria-label="Geri">${ICON.back}</button>
           <div class="grow"><h2>${esc(L.name)}</h2><div class="sub">${ready}/${L.tracks.length} şarkı çalınabilir</div></div>
-          <button class="btn primary" id="listPlay" ${ready ? '' : 'disabled'}>Çal</button></div>
-        <ul class="rows">${rows.map(({ t, i, s }) => `<li class="row${s ? '' : ' missing'}${s && s.id === App.curId ? ' on' : ''}" ${s ? `data-id="${esc(s.id)}"` : ''}>
+          ${ready ? '<button class="btn primary" id="listPlay">Çal</button>' : ''}${L.source === 'spotify' && Spotify.connected ? `<button class="btn sp" id="listSp" aria-label="Spotify'da çal">${ready ? 'Spotify' : 'Spotify\'da çal'}</button>` : ''}</div>
+        ${L.source === 'spotify' && ready < L.tracks.length ? `<p class="msg" style="margin:-4px 0 12px">Dosyası olan ${ready} şarkı burada efektlerle çalar. Diğerlerine dokununca Spotify uygulamasında çalar (Premium). Spotify sesine ton ve yankı uygulanamaz; istersen "Dosya ekle" ile MP3'ünü bağla.</p>` : ''}
+        <ul class="rows">${rows.map(({ t, i, s }) => `<li class="row${s ? '' : ' missing'}${s && s.id === App.curId ? ' on' : ''}" ${s ? `data-id="${esc(s.id)}"` : (t.spId ? `data-sp="${i}"` : '')}>
           ${thumb(s ? Img.url(s) || t.coverUrl : t.coverUrl, t.title)}
           <span class="m"><div class="t">${esc(t.title)}</div><div class="a"><span>${esc(t.artist)}</span></div></span>
-          ${s ? `<button class="more" data-edit="${esc(s.id)}" aria-label="Seçenekler">${ICON.more}</button>` : `<button class="chipbtn" data-attach="${i}">Dosya ekle</button>`}</li>`).join('')}</ul>
+          ${s ? `<button class="more" data-edit="${esc(s.id)}" aria-label="Seçenekler">${ICON.more}</button>` : `<span class="rt">${t.spId && Spotify.connected ? `<span class="spdot" aria-hidden="true">${ICON.play}</span>` : ''}<button class="chipbtn" data-attach="${i}">Dosya ekle</button></span>`}</li>`).join('')}</ul>
         <div style="height:18px"></div><button class="btn danger" id="listDel" style="width:100%">Listeyi sil</button>`;
       return;
     }
@@ -2231,6 +2258,18 @@ $('vLists').addEventListener('click', async e => {
   }
   const open = t.closest('[data-list-open]'); if (open) { App.openList = open.dataset.listOpen; window.scrollTo(0, 0); return UI.lists(); }
   const at = t.closest('[data-attach]'); if (at && L) { attachTrack = L.tracks[+at.dataset.attach]; $('attachInput').click(); return; }
+  const spr = t.closest('[data-sp]'), spAll = t.closest('#listSp');
+  if ((spr || spAll) && L) {
+    if (!Spotify.connected) return Spotify.login();
+    const idx = spr ? +spr.dataset.sp : Math.max(0, L.tracks.findIndex(x => x.spId));
+    try { const dn = await Spotify.playRemote(L, idx); Engine.pause(); UI.now(); toast(`Spotify'da çalıyor (${dn}): ${L.tracks[idx].title}`); }
+    catch (er) {
+      if (er.scope) { toast('Spotify\'da çalabilmem için bir kez yeniden bağlanman gerekiyor'); setTimeout(() => Spotify.login(), 1400); }
+      else if (er.nodevice) toast('Spotify uygulaması açılıyor. Orada çalmaya başlayınca buradan da şarkı seçebilirsin.');
+      else toast(er.message);
+    }
+    return;
+  }
   const ed = t.closest('[data-edit]'); if (ed) return songMenu(ed.dataset.edit);
   const row = t.closest('[data-id]');
   if (row && L) { const q = L.tracks.map(x => App.match(x)).filter(Boolean).map(s => s.id); row.dataset.id === App.curId && Engine.loadedId === row.dataset.id ? toggle() : playSong(row.dataset.id, q); }
@@ -2249,6 +2288,7 @@ $('search').addEventListener('input', raf(() => { App.query = $('search').value;
   await DB.open();
   const [songs, lists] = await Promise.all([DB.all('songs'), DB.all('lists')]);
   App.songs = songs; App.lists = lists; App.sortSongs();
+  for (const x of App.songs) { let ch = false; for (const k of ['title', 'artist', 'album']) { if (x[k] && x[k] !== x[k].normalize('NFC')) { x[k] = x[k].normalize('NFC'); ch = true; } } if (ch) DB.put('songs', x); }
   App.queue = App.filtered().map(s => s.id);
   renderFx(); UI.lib(); AI.render(); $('chatAv').innerHTML = TEA; Scene.start();
   setView(App.songs.length ? 'now' : 'lib');

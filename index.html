@@ -179,6 +179,9 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .rt{display:flex;align-items:center;gap:2px;color:var(--dim);font-size:.8rem;font-variant-numeric:tabular-nums}
 .more{width:38px;height:38px;display:grid;place-items:center;color:var(--muted);border-radius:10px}
 .more svg{width:20px;height:20px}
+.row .rt{display:flex;align-items:center;gap:8px}
+.spdot{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:rgba(29,185,84,.16);color:#1db954}
+.spdot svg{width:14px;height:14px}
 .chipbtn{font-size:.8rem;padding:8px 12px;border-radius:999px;background:var(--amber-soft);color:var(--amber);white-space:nowrap;font-weight:600}
 .empty{background:var(--card);border:1px dashed var(--line);border-radius:18px;padding:22px 18px;color:var(--muted);display:flex;flex-direction:column;gap:10px;align-items:center;text-align:center;margin-top:8px}
 .empty svg{width:120px;opacity:.9}
@@ -308,15 +311,18 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 
 /* Stuttgart manzarası */
 .layout{position:relative;z-index:1}
-.has-scene #vNow .deck{margin-top:min(230px,31vh)}
-.scene{position:absolute;left:0;right:0;top:0;height:min(480px,64vh);overflow:hidden;z-index:0;pointer-events:none}
-.scene .frame{position:absolute;height:144%;aspect-ratio:1672/941;left:50%;top:-34%;transform:translateX(-64%)}
+:root{--banner:calc(100vw * 941 / 1672)}
+.has-scene #vNow .deck{margin-top:calc(var(--banner) - 58px)}
+.has-scene .side{padding-top:calc(var(--banner) - 70px)}
+.has-scene #vNow:not([hidden]) ~ .side{padding-top:0}
+.scene{position:absolute;left:0;right:0;top:env(safe-area-inset-top,0px);height:var(--banner);overflow:hidden;z-index:0;pointer-events:none}
+.scene .frame{position:absolute;inset:0}
 .scene img,.scene canvas,.scene .rainveil{position:absolute;inset:0;width:100%;height:100%}
 .scene img{object-fit:cover;opacity:0;transition:opacity 2.2s ease}
 .scene .rainveil{background:rgba(12,16,26,.0);transition:background 1.5s}
 .scene.wet .rainveil{background:rgba(12,16,26,.18)}
-.scene .veil{position:absolute;inset:0;background:linear-gradient(180deg,rgba(19,11,15,.42) 0%,rgba(19,11,15,0) 18%,rgba(19,11,15,0) 58%,rgba(19,11,15,.55) 76%,rgba(19,11,15,.95) 92%,var(--bg) 100%)}
-.scene.day .veil{background:linear-gradient(180deg,rgba(19,11,15,.55) 0%,rgba(19,11,15,.1) 20%,rgba(19,11,15,.04) 58%,rgba(19,11,15,.58) 76%,rgba(19,11,15,.95) 92%,var(--bg) 100%)}
+.scene .veil{position:absolute;inset:0;background:linear-gradient(180deg,rgba(19,11,15,.5) 0%,rgba(19,11,15,0) 26%,rgba(19,11,15,0) 82%,var(--bg) 100%)}
+.scene.day .veil{background:linear-gradient(180deg,rgba(19,11,15,.62) 0%,rgba(19,11,15,.08) 28%,rgba(19,11,15,0) 82%,var(--bg) 100%)}
 @media (prefers-reduced-motion: reduce){ .scene img{transition:none} }
 .cact{align-self:center;font-size:.78rem;color:var(--amber);background:var(--amber-soft);padding:5px 12px;border-radius:999px;max-width:90%;text-align:center}
 .csrc{display:flex;flex-wrap:wrap;gap:6px}
@@ -341,9 +347,10 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   .nav button{flex-direction:row;font-size:1rem;gap:8px}
   .nav button[aria-selected=true]::before{top:auto;bottom:4px;left:50%}
   #tNow,.mini{display:none!important}
-  .scene{position:fixed;height:100vh}
-  .scene .frame{height:100%;min-width:100%;top:0;left:62%;transform:translateX(-62%)}
+  .scene{position:fixed;top:0;height:100vh}
+  .scene .frame{inset:auto;height:100%;min-width:100%;aspect-ratio:1672/941;top:0;left:62%;transform:translateX(-62%)}
   .has-scene #vNow .deck{margin-top:8px}
+  .has-scene .side{padding-top:0}
   .scene .veil,.scene.day .veil{background:linear-gradient(90deg,rgba(19,11,15,.86) 0,rgba(19,11,15,.62) 42%,rgba(19,11,15,.5) 60%,rgba(19,11,15,.8) 100%),linear-gradient(180deg,transparent 55%,rgba(19,11,15,.9) 100%)}
   .modes{margin:0;padding:2px 0 6px}
 }
