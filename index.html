@@ -384,6 +384,32 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 #sbList li.ph{list-style:none;color:var(--muted);text-align:center;padding:20px}
 .sblines{grid-template-columns:repeat(3,minmax(0,1fr))!important}
 
+/* Ekstralar */
+.damar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 8px;margin:-2px 0 10px;min-height:20px}
+.damar .dl{font-family:var(--hand);color:var(--amber);font-size:1rem}
+.damar .dbar{display:flex;gap:3px}.damar .dbar i{width:9px;height:12px;border-radius:2px;background:#ffffff1a}
+.damar .dbar i.on{background:var(--amber)}.damar .dbar i.on.hot{background:var(--neon);box-shadow:0 0 6px var(--glow)}
+.damar .dv{font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.damar .dsay{flex-basis:100%;text-align:center;font-size:.8rem;color:var(--muted)}
+.soz{margin-top:14px;background:linear-gradient(135deg,#2a1920,#1e1217);border:1px solid var(--line);border-radius:18px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.soz p{margin:0;font-family:var(--hand);font-size:1.3rem;line-height:1.3;color:var(--cream)}
+.vfb{display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px 14px;border-radius:14px;background:linear-gradient(90deg,#e3061322,#ffffff10);border:1px solid #e3061366;font-size:.88rem}
+.vfb span:nth-child(2){flex:1}.vfbdot{width:10px;height:10px;border-radius:50%;background:#e30613;box-shadow:0 0 0 3px #fff,0 0 12px #e30613;flex:none}
+.vfbday .logo{text-shadow:0 0 18px rgba(227,6,19,.7)}
+.moods{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:8px 0 18px}
+.mood{display:flex;flex-direction:column;gap:3px;text-align:left;padding:14px;border-radius:16px;background:linear-gradient(135deg,#3b0f22,#1e1217);border:1px solid var(--line)}
+.mood b{font-family:var(--slab);font-weight:400;font-size:1.05rem}.mood span{font-size:.78rem;color:var(--muted)}
+.mood:nth-child(2){background:linear-gradient(135deg,#0f2a3b,#1e1217)}.mood:nth-child(3){background:linear-gradient(135deg,#2b2b2b,#1e1217)}.mood:nth-child(4){background:linear-gradient(135deg,#3a2a10,#1e1217)}
+.stat3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:6px}
+.stat3 div{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;align-items:center}
+.stat3 b{font-family:var(--slab);font-weight:400;font-size:1.5rem;color:var(--amber)}.stat3 span{font-size:.72rem;color:var(--muted);text-align:center}
+.tidy .row{grid-template-columns:auto minmax(0,1fr) auto}.tidy .was{font-size:.75rem;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tidy .tc{width:44px;height:44px;border-radius:8px;object-fit:cover}.aitag{font-size:.65rem;background:var(--amber-soft);color:var(--amber);padding:1px 5px;border-radius:5px;vertical-align:middle}
+.trip{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;margin-bottom:10px}.trip .m{display:flex;flex-direction:column;min-width:0}.trip .sub{font-size:.8rem;color:var(--muted)}
+.sbtrip .btns{margin-top:4px}.sbtrip .chips{margin-top:8px}.rotar{margin-top:10px!important;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.night3 .scene{filter:brightness(.55) saturate(.8)}.night3 body{background:var(--bg)}
+.night3 .logo{opacity:.75}
+
 
 /* Geniş ekran: kaset solda sabit, sağda arşiv */
 @media (min-width:920px){
@@ -453,6 +479,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       <div class="busy" id="busy" hidden></div>
     </div>
     <div class="np"><div class="t" id="npT">—</div><div class="a" id="npA"></div></div>
+    <div class="damar" id="damar"></div>
     <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Şarkıda ilerle">
     <div class="counter"><span id="cur">0:00</span><span id="dur">0:00</span></div>
     <div class="transport">
@@ -463,7 +490,9 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       <button class="tb sm" id="repeat" aria-pressed="false" aria-label="Tekrarla"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg><span class="one" id="repeatOne" hidden>1</span></button>
     </div>
     <div class="upnext" id="upnext"></div>
+    <div class="vfb" id="vfb" hidden></div>
     <div class="gdcard" id="gdCard"></div>
+    <div class="soz" id="soz"></div>
 
     <div class="sechead"><h2>Modlar</h2><span class="kicker">ruhuna göre</span></div>
     <div class="modes" id="modes"></div>
@@ -588,6 +617,8 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   <label class="search" style="margin:0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input id="sbQ" type="search" placeholder="İstasyon ara (ör. Zuffenhausen)" autocomplete="off" enterkeyhint="search"></label>
   <ul class="rows" id="sbList"></ul>
 </div></div></div>
+
+<div class="sheet" id="xSheet" hidden><div class="sheet-card"><div class="sheet-inner" id="xBody"></div></div></div>
 
 <script src="config.js"></script>
 <script src="app.js" defer></script>

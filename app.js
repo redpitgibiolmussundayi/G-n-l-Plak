@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 14;
+const VERSION = 15;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -226,6 +226,9 @@ const FX_DEFAULT = {
   vinylOn: false, vinyl: 0.4,
   radioOn: false,
   d8On: false, d8Speed: 0.12,
+  karaokeOn: false, karaoke: 0.9,
+  weatherOn: false, weatherAmt: 0.5,
+  normOn: true, xfade: 4, nightOn: true,
   preset: 'orijinal'
 };
 const RVB_TYPES = { oda: 'Oda', gazino: 'Gazino', hamam: 'Hamam', konser: 'Konser' };
@@ -250,11 +253,19 @@ function makeIR(ctx, type) {
   IR_CACHE.set(key, buf); return buf;
 }
 function noiseBuf(ctx, kind) {
-  const sr = ctx.sampleRate, len = sr * (kind === 'crackle' ? 5 : 3), b = ctx.createBuffer(2, len, sr);
-  let rnd = kind === 'crackle' ? 99 : 7; const rand = () => (rnd = (rnd * 16807) % 2147483647) / 2147483647;
+  const sr = ctx.sampleRate, len = sr * (kind === 'crackle' ? 5 : kind === 'rain' ? 6 : 3), b = ctx.createBuffer(2, len, sr);
+  let rnd = kind === 'crackle' ? 99 : kind === 'rain' ? 4242 : 7; const rand = () => (rnd = (rnd * 16807) % 2147483647) / 2147483647;
   for (let c = 0; c < 2; c++) {
     const d = b.getChannelData(c);
     if (kind === 'hiss') { for (let i = 0; i < len; i++) d[i] = rand() * 2 - 1; continue; }
+    if (kind === 'rain') {
+      let a = 0, b = 0;
+      for (let i = 0; i < len; i++) { const w = rand() * 2 - 1; a = a * 0.86 + w * 0.14; b = b * 0.995 + w * 0.005; d[i] = a * 0.5 + b * 1.2; }
+      const drops = Math.round(len / sr * 140);
+      for (let k = 0; k < drops; k++) { const at = Math.floor(rand() * (len - 600)), amp = 0.05 + rand() * 0.25, w = 30 + Math.floor(rand() * 220), f = 0.2 + rand() * 0.5;
+        for (let j = 0; j < w; j++) d[at + j] += amp * Math.exp(-j / (w * 0.22)) * Math.sin(j * f); }
+      continue;
+    }
     let rum = 0;
     for (let i = 0; i < len; i++) { rum = rum * 0.995 + (rand() * 2 - 1) * 0.005; d[i] = rum * 0.6; }
     const pops = Math.round(len / sr * 26);
@@ -267,7 +278,16 @@ function noiseBuf(ctx, kind) {
 }
 function buildGraph(ctx) {
   const n = {}, G = () => ctx.createGain(), nyq = ctx.sampleRate / 2 - 200;
-  n.input = G(); n.pre = G();
+  n.input = G(); n.pre = G(); n.fade = G();
+  // karaoke: L - a·R ve R - a·L ortadaki vokali azaltır; basları geri eklemek için alçak geçiren mono yol
+  n.ksp = ctx.createChannelSplitter(2); n.kmg = ctx.createChannelMerger(2);
+  n.kLL = G(); n.kRR = G(); n.kLR = G(); n.kRL = G(); n.kLR.gain.value = 0; n.kRL.gain.value = 0;
+  n.kBassLp = ctx.createBiquadFilter(); n.kBassLp.type = 'lowpass'; n.kBassLp.frequency.value = 160;
+  n.kBass = G(); n.kBass.gain.value = 0; n.kBass.channelCount = 1; n.kBass.channelCountMode = 'explicit'; n.kBass.channelInterpretation = 'speakers';
+  n.kHi = ctx.createBiquadFilter(); n.kHi.type = 'highpass'; n.kHi.frequency.value = 7000;
+  n.kHiG = G(); n.kHiG.gain.value = 0;
+  n.rainSrc = ctx.createBufferSource(); n.rainSrc.buffer = noiseBuf(ctx, 'rain'); n.rainSrc.loop = true;
+  n.rainLp = ctx.createBiquadFilter(); n.rainLp.type = 'lowpass'; n.rainLp.frequency.value = 5200; n.rain = G(); n.rain.gain.value = 0;
   n.eq = FREQS.map((f, i) => { const b = ctx.createBiquadFilter(); b.type = i === 0 ? 'lowshelf' : i === FREQS.length - 1 ? 'highshelf' : 'peaking'; b.frequency.value = Math.min(f, nyq); b.Q.value = 1.1; return b; });
   n.hp = ctx.createBiquadFilter(); n.hp.type = 'highpass'; n.hp.Q.value = 0.7; n.hp.frequency.value = 10;
   n.lp = ctx.createBiquadFilter(); n.lp.type = 'lowpass'; n.lp.Q.value = 0.7; n.lp.frequency.value = nyq;
@@ -286,7 +306,12 @@ function buildGraph(ctx) {
   n.hissHp = ctx.createBiquadFilter(); n.hissHp.type = 'highpass'; n.hissHp.frequency.value = 2500; n.hiss = G(); n.hiss.gain.value = 0;
   n.crackSrc = ctx.createBufferSource(); n.crackSrc.buffer = noiseBuf(ctx, 'crackle'); n.crackSrc.loop = true; n.crack = G(); n.crack.gain.value = 0;
 
-  let x = n.input; x.connect(n.pre); x = n.pre;
+  n.input.connect(n.ksp);
+  n.ksp.connect(n.kLL, 0); n.ksp.connect(n.kRR, 1); n.ksp.connect(n.kLR, 0); n.ksp.connect(n.kRL, 1);
+  n.kLL.connect(n.kmg, 0, 0); n.kRL.connect(n.kmg, 0, 0); n.kRR.connect(n.kmg, 0, 1); n.kLR.connect(n.kmg, 0, 1);
+  n.input.connect(n.kBassLp); n.kBassLp.connect(n.kBass); n.kBass.connect(n.kmg, 0, 0); n.kBass.connect(n.kmg, 0, 1);
+  n.input.connect(n.kHi); n.kHi.connect(n.kHiG); n.kHiG.connect(n.pre);
+  let x = n.kmg; x.connect(n.pre); x = n.pre;
   n.eq.forEach(b => { x.connect(b); x = b; });
   x.connect(n.hp); n.hp.connect(n.lp); n.lp.connect(n.wow);
   n.wow.connect(n.dry); n.dry.connect(n.mix);
@@ -295,7 +320,8 @@ function buildGraph(ctx) {
   if (n.pan) { n.mix.connect(n.pan); n.pan.connect(n.master); n.panLfo.connect(n.panDepth).connect(n.pan.pan); } else n.mix.connect(n.master);
   n.hissSrc.connect(n.hissHp).connect(n.hiss).connect(n.master);
   n.crackSrc.connect(n.crack).connect(n.master);
-  n.master.connect(n.lim); n.lim.connect(n.output);
+  n.rainSrc.connect(n.rainLp).connect(n.rain).connect(n.master);
+  n.master.connect(n.lim); n.lim.connect(n.fade); n.fade.connect(n.output);
 
   let irType = null;
   n.apply = (fx, smooth) => {
@@ -317,14 +343,23 @@ function buildGraph(ctx) {
     set(n.dry.gain, fx.rvbOn ? 1 - fx.rvbMix * 0.35 : 1);
     set(n.echo.delayTime, fx.echoTime); set(n.echoFb.gain, fx.echoOn ? fx.echoFb : 0); set(n.echoWet.gain, fx.echoOn ? fx.echoMix : 0);
     set(n.panDepth.gain, fx.d8On && n.pan ? 0.85 : 0); set(n.panLfo.frequency, fx.d8Speed);
-    set(n.master.gain, fx.radioOn ? 1.6 : 1);
+    // karaoke
+    const k = fx.karaokeOn ? fx.karaoke : 0;
+    set(n.kLR.gain, -k); set(n.kRL.gain, -k); set(n.kBass.gain, k); set(n.kHiG.gain, k * 0.5);
+    // ses dengeleme (şarkıya göre hesaplanır) + gece yumuşatma
+    const norm = fx.normOn && fx._norm ? Math.pow(10, fx._norm / 20) : 1;
+    set(n.input.gain, norm * (k ? 1 + k * 0.35 : 1));
+    if (fx._night) { set(n.lp.frequency, Math.min(lp, 8500, nyq)); }
+    set(n.rain.gain, fx.weatherOn && fx._rain ? 0.09 * fx.weatherAmt * fx._rain : 0);
+    set(n.master.gain, (fx.radioOn ? 1.6 : 1) * (fx._night ? 0.82 : 1));
   };
-  n.start = (when = 0) => { [n.wowLfo, n.flLfo, n.panLfo, n.hissSrc, n.crackSrc].forEach(s => { try { s.start(when); } catch (e) {} }); };
-  n.stop = () => { [n.wowLfo, n.flLfo, n.panLfo, n.hissSrc, n.crackSrc].forEach(s => { try { s.stop(); } catch (e) {} }); };
+  n.setFade = v => { try { n.fade.gain.setTargetAtTime(Math.max(0, Math.min(1, v)), ctx.currentTime, 0.06); } catch (e) {} };
+  n.start = (when = 0) => { [n.wowLfo, n.flLfo, n.panLfo, n.hissSrc, n.crackSrc, n.rainSrc].forEach(s => { try { s.start(when); } catch (e) {} }); };
+  n.stop = () => { [n.wowLfo, n.flLfo, n.panLfo, n.hissSrc, n.crackSrc, n.rainSrc].forEach(s => { try { s.stop(); } catch (e) {} }); };
   return n;
 }
 const fxNeedsStretch = fx => Math.abs(fx.rate - 1) > 0.001 || Math.abs(fx.semi) > 0.001;
-const fxNeutral = fx => !fxNeedsStretch(fx) && !(fx.eqOn && fx.eq.some(Boolean)) && !(fx.preOn && fx.pre) && !fx.rvbOn && !fx.echoOn && !fx.tapeOn && !fx.vinylOn && !fx.radioOn && !fx.d8On;
+const fxNeutral = fx => !fxNeedsStretch(fx) && !(fx.eqOn && fx.eq.some(Boolean)) && !(fx.preOn && fx.pre) && !fx.rvbOn && !fx.echoOn && !fx.tapeOn && !fx.vinylOn && !fx.radioOn && !fx.d8On && !fx.karaokeOn && !(fx.weatherOn && fx._rain) && !fx._night;
 const fxTail = fx => (fx.rvbOn ? 4 : 0) + (fx.echoOn ? Math.min(6, fx.echoTime * 8) : 0);
 
 function wavBlob(buf) {
@@ -411,15 +446,32 @@ const Engine = (() => {
     });
     el.addEventListener('pause', () => { if (mode === 'render' && playing && !swapping && !waitFull && el.currentTime < el.duration - 0.2) { playing = false; L.state(); } });
     el.addEventListener('play', () => { if (mode === 'render' && !playing) { playing = true; L.state(); } });
+    el.addEventListener('pause', () => { if (mode === 'live' && bridge && el.srcObject && playing) { playing = false; try { stretch.schedule({ active: false, output: ctx.currentTime }); } catch (e) {} L.state(); } });
   }
 
   /* ---- canlı motor ---- */
   let ctx = null, stretch = null, graph = null, initP = null, watchdog = 0;
+  // iOS kilit ekranı sadece gerçekten çalan bir <audio> öğesini "oynatıcı" sayar. Web Audio sesini o öğeden geçiriyoruz;
+  // böylece ileri/geri ve saniye kaydırma kilit ekranında çalışır. Sorun çıkarsa doğrudan hoparlöre döner.
+  let bridge = null, bridgeOn = LS.get('gp-bridge', true);
+  function bridgeOut() { return bridge && bridgeOn ? bridge : ctx.destination; }
+  function bridgeFail(why) {
+    if (!bridge) return; log('Kilit ekranı köprüsü kapandı: ' + why);
+    try { graph.output.disconnect(bridge); } catch (e) {} try { graph.output.connect(ctx.destination); } catch (e) {}
+    bridge = null; if (el && el.srcObject) { el.srcObject = null; }
+  }
+  function bridgePlay() {
+    if (!bridge || mode !== 'live') return;
+    makeEl();
+    if (el.srcObject !== bridge.stream) { el.removeAttribute('src'); el.srcObject = bridge.stream; }
+    el.play().catch(e => bridgeFail(e.message));
+  }
   function unlockCtx() {
     if (!ctx) {
       try {
         ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
         log('AudioContext ' + ctx.sampleRate + ' Hz, ' + ctx.state);
+        try { if (bridgeOn && ctx.createMediaStreamDestination && window.MediaStream) bridge = ctx.createMediaStreamDestination(); } catch (e) { bridge = null; }
         ctx.onstatechange = () => { log('AudioContext: ' + ctx.state); if (playing && mode === 'live' && ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().catch(() => {}); };
       } catch (e) { log('AudioContext açılamadı'); return; }
     }
@@ -430,7 +482,7 @@ const Engine = (() => {
     try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (e) {}
     makeEl();
     if (!primed) { primed = true; silent = silent || silentUrl(); if (!el.src) { el.src = silent; el.play().then(() => { if (el.src === silent) el.pause(); }).catch(() => { primed = false; }); } }
-    if (mode === 'live') unlockCtx();
+    if (mode === 'live') { unlockCtx(); if (bridge && el && el.paused && el.srcObject !== bridge.stream) { el.srcObject = bridge.stream; el.play().then(() => { if (!playing) el.pause(); }).catch(() => {}); } }
   }
   function initLive() {
     if (initP) return initP;
@@ -441,10 +493,10 @@ const Engine = (() => {
       stretch = await Promise.race([window.SignalsmithStretch(ctx), new Promise((_, r) => setTimeout(() => r(new Error('motor 6 sn içinde açılmadı')), 6000))]);
       stretch.onprocessorerror = () => { log('canlı motor çöktü'); if (playing) toRender(); };
       graph = buildGraph(ctx); graph.apply(fx, false); graph.start(0);
-      stretch.connect(graph.input); graph.output.connect(ctx.destination);
+      stretch.connect(graph.input); graph.output.connect(bridgeOut());
       stretch.setUpdateInterval(0.08, t => {
         if (mode !== 'live') return;
-        pos = t; L.time(t);
+        pos = t; L.time(t); fadeTick();
         if (playing && duration && t >= duration - 0.04) { playing = false; stretch.schedule({ active: false }); L.end(); }
       });
       log('Canlı motor hazır');
@@ -452,12 +504,27 @@ const Engine = (() => {
     initP.catch(e => { log('Canlı motor: ' + e.message); initP = null; });
     return initP;
   }
+  // ses dengeleme: şarkının ortalama gücünü ölç, herkes aynı seviyede çalsın (-16 dBFS RMS hedef)
+  function loudness(a, b) {
+    let e = 0, n = 0; const st = 3;
+    for (let i = 0; i < a.length; i += st) { const v = (a[i] + b[i]) * 0.5; e += v * v; n++; }
+    const db = 10 * Math.log10(e / Math.max(1, n) + 1e-12);
+    return Math.max(-8, Math.min(7, -16 - db));
+  }
+  let duck = 1;
+  function fadeTick() {
+    if (!graph || mode !== 'live') return;
+    let f = duck;
+    if (fx.xfade > 0 && duration && playing) { const rem = (duration - pos) / (fx.rate || 1); if (rem < fx.xfade) f *= Math.max(0, rem / fx.xfade); const st = pos / (fx.rate || 1); if (st < 0.8) f *= 0.3 + st / 0.8 * 0.7; }
+    graph.setFade(f);
+  }
   const params = () => ({ rate: fx.rate, semitones: fx.semi, formantCompensation: fx.formant, formantBaseHz: 0 });
   /* ---- hazırlamalı motor ---- */
   let dsp = null, src = null, seg = null, job = 0, waitFull = false, swapping = false, origUrl = null, dirtyT = 0, applyBusy = false;
   const urls = new Set();
   function setSeg(s, at, autoplay) {
     const old = seg; seg = s; swapping = true;
+    if (el.srcObject) el.srcObject = null;
     el.src = s.url;
     const go = () => {
       try { el.currentTime = Math.max(0, (at - s.inStart) / s.rate); } catch (e) {}
@@ -502,6 +569,7 @@ const Engine = (() => {
     src = await decodeAt(ab); if (cancelled()) return false;
     duration = src.duration; pos = 0;
     const L0 = src.getChannelData(0).slice(), R0 = (src.numberOfChannels > 1 ? src.getChannelData(1) : src.getChannelData(0)).slice();
+    fx._norm = loudness(L0, R0);
     await dsp.call({ type: 'load', L: L0, R: R0, sr: src.sampleRate }, [L0.buffer, R0.buffer]);
     if (cancelled()) return false;
     if (origUrl) URL.revokeObjectURL(origUrl);
@@ -541,6 +609,7 @@ const Engine = (() => {
     // Tek parça halinde ver: kütüphane parça sınırlarında taşma hatası veriyor
     const a = buf.getChannelData(0).slice(), b = buf.numberOfChannels > 1 ? buf.getChannelData(1).slice() : a.slice();
     duration = buf.duration;
+    fx._norm = loudness(a, b); graph.apply(fx, true);
     await stretch.addBuffers([a, b], [a.buffer, b.buffer]);
     if (cancelled()) return false;
     stretch.schedule({ input: 0, output: ctx.currentTime, active: false });
@@ -560,7 +629,7 @@ const Engine = (() => {
     if (pos >= duration - 0.1) seek(0);
     if (ctx.state !== 'running') ctx.resume().catch(() => {});
     stretch.schedule(Object.assign({ active: true, output: ctx.currentTime + 0.03 }, params()));
-    playing = true;
+    playing = true; bridgePlay();
     const p0 = pos; clearTimeout(watchdog);
     watchdog = setTimeout(() => { if (mode === 'live' && playing && Math.abs(pos - p0) < 0.3) { log('Canlı motor ilerlemiyor (ses ' + ctx.state + ')'); toRender(); } }, 2200);
   }
@@ -568,6 +637,7 @@ const Engine = (() => {
     clearTimeout(watchdog); playing = false; waitFull = false;
     if (mode === 'render') { if (el) el.pause(); L.busy(null); return; }
     if (stretch) stretch.schedule({ active: false, output: ctx.currentTime });
+    if (bridge && el && el.srcObject) el.pause();
   }
   function seek(t) {
     t = Math.max(0, Math.min(duration, t)); pos = t;
@@ -591,13 +661,15 @@ const Engine = (() => {
       dirtyT = setTimeout(() => { if (playing || seg) prepare(curPos(), playing); }, 380);
     }
   }
+  function setDuck(v) { duck = v; fadeTick(); if (mode === 'render' && el) { try { el.volume = Math.max(0, Math.min(1, v)); } catch (e) {} } }
+  function refresh() { if (graph) graph.apply(fx, true); if (mode === 'render' && loadedId && (playing || seg)) { clearTimeout(dirtyT); dirtyT = setTimeout(() => prepare(curPos(), playing), 380); } }
   function setMode(m) { if (m === mode) return; if (m === 'render') return toRender(); LS.set('gp-engine2', 'live'); location.reload(); }
   function info() {
     return { mode, ctx: ctx ? ctx.state + ' · ' + ctx.sampleRate + ' Hz' : 'kullanılmıyor', motor: !!stretch,
       session: navigator.audioSession ? navigator.audioSession.type : 'yok', ua: navigator.userAgent.replace(/^Mozilla\/5\.0 /, ''), events: diag.slice() };
   }
   return {
-    fx, unlock, load, play, pause, seek, setFx, setMode, info, log,
+    fx, unlock, load, play, pause, seek, setFx, setMode, info, log, setDuck, refresh, get bridge() { return !!bridge; }, setBridge(v) { LS.set('gp-bridge', v); location.reload(); },
     on(ev, fn) { L[ev] = fn; },
     get mode() { return mode; }, get duration() { return duration; }, get pos() { return mode === 'render' && seg ? curPos() : pos; },
     get playing() { return playing; }, get loadedId() { return loadedId; }
@@ -1064,7 +1136,7 @@ const Scene = (() => {
   return {
     PICK, info, get meta() { return META; }, get cur() { return cur; },
     start() { apply(); fetchWx(); setInterval(() => { apply(); fetchWx(); }, 60000); document.addEventListener('visibilitychange', () => { if (!document.hidden) { apply(); fetchWx(); } }); },
-    get mode() { return mode; }, get wxOn() { return wxOn; },
+    get mode() { return mode; }, get wxOn() { return wxOn; }, get wxKind() { return wxKind(); },
     setMode(m) { mode = m; LS.set('gp-scene', m); curFile = null; apply(); },
     setWx(v) { wxOn = v; LS.set('gp-wx-on', v); if (v) fetchWx(true); apply(); },
     get artUrl() { return curFile; },
@@ -1179,7 +1251,7 @@ Engine.on('mode', () => { toast('iPhone için hazırlamalı motora geçildi. Ton
 /* Kilit ekranı ve Kontrol Merkezi */
 const Media = (() => {
   const ok = 'mediaSession' in navigator;
-  let artFor = null, artUrl = null;
+  let artFor = null, artUrl = null, extra = null;
   // Kapak yoksa: o anki Stuttgart manzarası + kaset etiketi
   async function makeArt(s) {
     try {
@@ -1204,7 +1276,7 @@ const Media = (() => {
     if (!ok) return;
     const s = App.byId(App.curId); if (!s) return;
     const key = s.id + '|' + s.title + '|' + s.artist + '|' + (s.cover ? 1 : 0) + '|' + (Img.url(s) ? '' : Scene.artUrl);
-    const set = url => { try { navigator.mediaSession.metadata = new MediaMetadata({ title: s.title, artist: s.artist || 'Bilinmeyen sanatçı', album: s.album || 'Gönül Plak', artwork: [{ src: url || 'icon-512.png', sizes: '600x600', type: url && url.startsWith('data:') ? 'image/jpeg' : 'image/png' }] }); } catch (e) {} };
+    const set = url => { try { navigator.mediaSession.metadata = new MediaMetadata({ title: s.title, artist: s.artist || 'Bilinmeyen sanatçı', album: extra || s.album || 'Gönül Plak', artwork: [{ src: url || 'icon-512.png', sizes: '600x600', type: url && url.startsWith('data:') ? 'image/jpeg' : 'image/png' }] }); } catch (e) {} };
     if (artFor === key && artUrl) return set(artUrl);
     set(artUrl && artFor && artFor.startsWith(s.id + '|') ? artUrl : null);
     const u = await makeArt(s); if (App.curId !== s.id) return;
@@ -1227,7 +1299,8 @@ const Media = (() => {
     h('seekto', d => { if (d && isFinite(d.seekTime)) { Engine.seek(d.seekTime * (fx.rate || 1)); pos(); } });
     h('stop', () => { Engine.pause(); UI.now(); });
   }
-  return { meta, pos };
+  function setExtra(t) { if (t === extra) return; extra = t; meta(); }
+  return { meta, pos, setExtra };
 })();
 
 /* ================= Simgeler ================= */
@@ -1312,7 +1385,7 @@ function setSeek(t, d) {
   $('miniBar').style.width = (v / 10) + '%';
 }
 let dragging = false;
-Engine.on('time', t => { if (!dragging && Engine.loadedId === App.curId) setSeek(t, Engine.duration); Media.pos(); });
+Engine.on('time', t => { if (!dragging && Engine.loadedId === App.curId) setSeek(t, Engine.duration); Media.pos(); X.onTime(); });
 
 const UI = {
   now() {
@@ -1381,11 +1454,11 @@ const UI = {
           ${thumb(s ? Img.url(s) || t.coverUrl : t.coverUrl, t.title)}
           <span class="m"><div class="t">${esc(t.title)}</div><div class="a"><span>${esc(t.artist)}</span></div></span>
           ${s ? `<button class="more" data-edit="${esc(s.id)}" aria-label="Seçenekler">${ICON.more}</button>` : `<span class="rt">${t.spId && Spotify.connected ? `<span class="spdot" aria-hidden="true">${ICON.play}</span>` : ''}<button class="chipbtn" data-attach="${i}">Dosya ekle</button></span>`}</li>`).join('')}</ul>
-        <div style="height:18px"></div><button class="btn danger" id="listDel" style="width:100%">Listeyi sil</button>`;
+        <div style="height:18px"></div><button class="btn" id="listShare" style="width:100%;margin-bottom:10px">Listeyi paylaş (link)</button><button class="btn danger" id="listDel" style="width:100%">Listeyi sil</button>`;
       return;
     }
     const sp = Spotify.enabled ? (Spotify.connected ? `<button class="btn sp" id="spImport">Spotify'dan aktar</button>` : `<button class="btn sp" id="spConnect">Spotify'ı bağla</button>`) : '';
-    v.innerHTML = `<div class="toprow"><div><span class="kicker">derdimin</span><h1>Listeleri</h1></div><div class="acts">${sp}</div></div>` +
+    v.innerHTML = `<div class="toprow"><div><span class="kicker">derdimin</span><h1>Listeleri</h1></div><div class="acts">${sp}</div></div>` + X.moodRow() +
       (App.lists.length ? `<div class="cards">${App.lists.map(L => {
         const ready = L.tracks.filter(t => App.match(t)).length;
         return `<button class="card" data-list-open="${esc(L.id)}"><span class="img" style="${L.image ? `background-image:url('${esc(L.image)}')` : ''}">${L.image ? '' : miniTape(L.name)}</span>
@@ -1432,6 +1505,7 @@ const UI = {
         <p class="msg">${(() => { const i = Scene.info(); return `Bugün Stuttgart'ta gün doğumu <strong>${i.rise}</strong>, batımı <strong>${i.set}</strong>. Ay %${i.moon} dolu.${i.wx ? ' Hava: ' + esc(i.wx) + '.' : ''}`; })()}</p>
         <div class="chips" id="sceneChips">${[['auto', 'Gerçek saat ve hava'], ...Object.entries(Scene.PICK), ['off', 'Kapalı']].map(([k, n]) => `<button class="chip${Scene.mode === k ? ' on' : ''}" data-scene="${k}">${n}</button>`).join('')}</div>
         <div class="toggle"><div class="tl"><span>Canlı Stuttgart havası</span><span class="sub">Yağmur yağıyorsa manzarada da yağar · Hava verisi: Open-Meteo</span></div><button class="sw" id="wxOn" role="switch" aria-checked="${Scene.wxOn}" aria-label="Canlı hava"></button></div></div>
+      ${X.acct()}
       <div class="group"><h3>Ses motoru</h3>
         <div class="seg" id="engSeg"><button data-m="live" aria-pressed="${d.mode === 'live'}">Canlı</button><button data-m="render" aria-pressed="${d.mode === 'render'}">Hazırlamalı</button></div>
         <p class="msg">${d.mode === 'live' ? 'Canlı: ayarlar anında duyulur. Telefon desteklemezse uygulama kendiliğinden hazırlamalıya geçer.' : 'Hazırlamalı: ses arka planda işlenip çalınır. Her iPhone\'da çalışır, kilit ekranında da devam eder. Ayar değişince yaklaşık bir saniyede güncellenir.'}</p>
@@ -1461,7 +1535,7 @@ const SB = (() => {
 
   let src = LS.get('gp-sb-src', 'vvs'), ids = LS.get('gp-sb-ids2', {});
   let recent = LS.get('gp-sb-recent', DEF), cur = recent[0] || DEF[0];
-  let deps = [], err = '', busy = false, at = 0, timers = [], filter = null, built = false;
+  let deps = [], err = '', busy = false, at = 0, timers = [], filter = null, built = false, offline = false;
   const net = { trips: [], stops: new Map(), at: 0, busy: false, err: '' };
 
   const j = async (u, ms = 12000) => { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); try { const r = await fetch(u, { signal: c.signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); } finally { clearTimeout(t); } };
@@ -1708,6 +1782,7 @@ const SB = (() => {
     v.innerHTML = `<div class="toprow"><div><span class="kicker">canlı</span><h1>S-Bahn</h1></div>
         <div class="acts"><button class="iconbtn" id="sbRefresh" aria-label="Yenile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div></div>
       <div class="sbstops" id="sbChips"></div>
+      <div class="sbcard sbtrip" id="sbTrip"></div>
       <div class="sbcard sbmapcard"><div class="sbhead"><b>Canlı harita</b><span class="sub" id="sbCount"></span></div><div id="sbMap"></div></div>
       <div class="sbcard"><div class="sbhead"><b>Hat durumu</b><span class="sub">yoldaki trenlere göre, şu an</span></div><div class="sblines" id="sbLines"></div><p class="sbmood" id="sbMood" hidden></p></div>
       <div class="sbcard"><div class="sbhead"><b id="sbFlowT"></b><span class="sub" id="sbFlowS"></span></div><div id="sbFlow"></div></div>
@@ -1740,7 +1815,7 @@ const SB = (() => {
         <span class="w">${d.cancelled ? '<em>iptal</em>' : `<b>${m <= 0 ? 'şimdi' : m + ' dk'}</b>${dl >= 1 ? `<span class="late${dl >= 5 ? ' hi' : ''}">+${dl}</span>` : (d.rt ? '<span class="ontime">✓</span>' : '')}`}</span></li>`; }).join('')
       || `<li class="ph">${busy ? 'Yükleniyor…' : (filter ? filter + ' bu duraktan geçmiyor ya da yakında sefer yok' : 'Şu an gösterilecek sefer yok')}</li>`;
     $('sbSrc').textContent = `Veri: ${src === 'vvs' ? 'VVS (EFA, gerçek zamanlı)' : 'Deutsche Bahn (transport.rest); harita için VVS gerekli'}. Haritadaki konumlar canlı saatlerden hesaplanan tahmindir. ✓ dakik, sarı rötar.`;
-    ensureMap(); drawNet();
+    ensureMap(); drawNet(); X.sbRender();
   }
 
   async function refresh(force) {
@@ -1749,9 +1824,13 @@ const SB = (() => {
     try {
       const out = await withSrc(async (A, sv) => A.deps(await stopId(cur, sv)));
       const now = Date.now() - 60000;
-      deps = out.filter(d => when(d) > now).sort((a, b) => when(a) - when(b));
-      at = Date.now();
-    } catch (e) { err = e.message === 'Durak bulunamadı' ? 'Bu durak bulunamadı.' : 'Canlı veriye ulaşılamadı. İnternetini kontrol et, biraz sonra tekrar dene.'; }
+ deps = out.filter(d => when(d) > now).sort((a, b) => when(a) - when(b));
+      at = Date.now(); offline = false;
+      try { const c = LS.get('gp-sb-cache', {}); c[label(cur)] = { at, deps: deps.slice(0, 40) }; const ks = Object.keys(c); if (ks.length > 8) delete c[ks[0]]; LS.set('gp-sb-cache', c); } catch (e2) {}
+    } catch (e) {
+      const c = (LS.get('gp-sb-cache', {}) || {})[label(cur)];
+      if (c && Date.now() - c.at < 4 * 3600000) { deps = c.deps.filter(d => when(d) > Date.now() - 60000); at = c.at; offline = true; busy = false; err = `Çevrimdışısın, ${hm(c.at)} verisi gösteriliyor (rötarlar güncel değil).`; render(); return; }
+      err = e.message === 'Durak bulunamadı' ? 'Bu durak bulunamadı.' : 'Canlı veriye ulaşılamadı. İnternetini kontrol et, biraz sonra tekrar dene.'; }
     busy = false; render();
   }
   async function refreshNet(force) {
@@ -1782,7 +1861,10 @@ const SB = (() => {
     $('sbList').innerHTML = (rows.join('') + rem.join('')) || `<li class="ph">${net.busy ? 'İstasyonlar yükleniyor…' : q ? 'Bulunamadı' : 'İstasyon listesi canlı veriden gelir; adını yazarak da arayabilirsin.'}</li>`;
     $('sbCnt').textContent = xs.length ? `${xs.length} istasyon` : '';
   }
-  function openAll() {
+  let pickCb = null;
+  function openAll(cb) {
+    pickCb = typeof cb === 'function' ? cb : null;
+    $('sbSheet').querySelector('h3').textContent = pickCb ? 'Nereye gidiyorsun?' : 'Bütün istasyonlar';
     sheetQ = ''; remote = []; $('sbQ').value = ''; openSheet('sbSheet'); renderSheet();
     if (!net.at) refreshNet(true).then(renderSheet);
   }
@@ -1791,6 +1873,7 @@ const SB = (() => {
       const t = e.target;
       if (t.closest('#sbRefresh')) { refresh(true); refreshNet(true); return; }
       if (t.closest('#sbAll')) return openAll();
+      if (X.sbClick(t)) return;
       const rc = t.closest('[data-rec]'); if (rc) return pick(recent[+rc.dataset.rec]);
       const ln = t.closest('[data-line]'); if (ln) { filter = filter === ln.dataset.line ? null : ln.dataset.line; drawnNet = 0; render(); moveTrains(); return; }
     });
@@ -1800,7 +1883,7 @@ const SB = (() => {
       if (sheetQ.trim().length >= 3) searchT = setTimeout(async () => { try { remote = (await withSrc(A => A.find(sheetQ.trim()))).slice(0, 8); renderSheet(); } catch (e) {} }, 450);
     });
     $('sbList').addEventListener('click', e => {
-      const a = e.target.closest('[data-pick]'); if (a) { const s = net.stops.get(a.dataset.pick); if (s) pick({ id: s.id, name: s.name }); return; }
+      const a = e.target.closest('[data-pick]'); if (a) { const s = net.stops.get(a.dataset.pick); if (s) { if (pickCb) { const cb = pickCb; pickCb = null; closeSheet('sbSheet'); cb({ id: s.id, name: s.name }); } else pick({ id: s.id, name: s.name }); } return; }
       const b = e.target.closest('[data-pickr]'); if (b) { const r = remote.find(x => x.id === b.dataset.pickr); if (r) { if (src === 'db') pick({ id: null, dbId: r.id, name: r.name }); else pick({ id: r.id, name: r.name }); } }
     });
   }
@@ -1812,7 +1895,7 @@ const SB = (() => {
   }
   function stop() { timers.forEach(clearInterval); timers = []; clearTimeout(moveT); }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && timers.length) { refresh(true); refreshNet(true); moveTrains(); } });
-  return { start, stop, bind, render };
+  return { start, stop, bind, render, openAll, where, tripDelay, label, nm, COL, refreshNet, get net() { return net; }, get cur() { return cur; }, get deps() { return deps; }, get src() { return src; } };
 })();
 
 function setView(v) {
@@ -1989,7 +2072,7 @@ $('formant').onclick = () => { custom({ formant: !fx.formant }); renderFx(); };
 const Hist = (() => {
   let h = LS.get('gp-hist', []);
   return {
-    add(s) { h.push({ id: s.id, t: Date.now(), m: fx.preset }); if (h.length > 500) h = h.slice(-500); LS.set('gp-hist', h); },
+    add(s) { h.push({ id: s.id, t: Date.now(), m: fx.preset, j: X.tripLine ? X.tripLine.split(' ')[0] : undefined }); if (h.length > 500) h = h.slice(-500); LS.set('gp-hist', h); },
     summary() {
       const now = Date.now(), day = 864e5, start = new Date(); start.setHours(0, 0, 0, 0);
       const today = h.filter(x => x.t >= start.getTime()).length;
@@ -2006,9 +2089,16 @@ const Hist = (() => {
 })();
 const Sleep = (() => {
   let at = 0, timer = 0;
-  const tick = () => { if (at && Date.now() >= at) { at = 0; Engine.pause(); UI.now(); toast('Uyku zamanı. Kaset durdu, iyi geceler.'); } UI.now(); };
+  const tick = () => {
+    if (!at) return;
+    const left = at - Date.now();
+    if (left <= 0) { at = 0; clearInterval(timer); Engine.pause(); Engine.setDuck(1); UI.now(); toast('Uyku zamanı. Kaset durdu, iyi geceler.'); return; }
+    if (left < 40000) Engine.setDuck(left / 40000);
+    if (left < 70000 && !tick.fast) { tick.fast = true; clearInterval(timer); timer = setInterval(tick, 1000); }
+    UI.now();
+  };
   return {
-    set(min) { at = min > 0 ? Date.now() + min * 60000 : 0; clearInterval(timer); if (at) timer = setInterval(tick, 15000); UI.now(); },
+    set(min) { at = min > 0 ? Date.now() + min * 60000 : 0; clearInterval(timer); tick.fast = false; Engine.setDuck(1); if (at) timer = setInterval(tick, 15000); UI.now(); },
     get left() { return at ? Math.max(0, Math.ceil((at - Date.now()) / 60000)) : 0; }
   };
 })();
@@ -2058,7 +2148,7 @@ Kullanıcı kendine zarar vermeyi düşündüğünü ya da çok kötü olduğunu
     numMap = list.map(x => x.id);
     const arc = list.map((x, i) => `${i + 1}. ${x.title}${x.artist ? ' – ' + x.artist : ''}`).join('\n');
     const now = new Date();
-    return `Şu an: ${now.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })}, saat ${now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}. ${Scene.describe()}
+    return `Şu an: ${now.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })}, saat ${now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}. ${Scene.describe()}${X.aiHint()}
 Çalan şarkı: ${s ? `"${s.title}"${s.artist ? ' – ' + s.artist : ''}${s.album ? ', albüm ' + s.album : ''}${s.year ? ', ' + s.year : ''} (arşiv no ${numMap.indexOf(s.id) + 1})` : 'yok'}; ${Engine.playing ? 'çalıyor' : 'duraklatılmış'}.
 Ses: mod ${mode ? mode.n : 'özel ayar'}; efektler: ${eff.join(', ') || 'yok'}.${Sleep.left ? ` Uyku zamanlayıcısı: ${Sleep.left} dk kaldı.` : ''}
 Dinleme: ${Hist.summary()}
@@ -2209,7 +2299,7 @@ ${arc || 'boş'}`;
   async function onSong(s) {
     clearTimeout(songTimer);
     if (!s) return;
-    Hist.add(s);
+    Hist.add(s); X.nowUI();
     if (!key || !auto) return;
     songTimer = setTimeout(async () => {
       if (App.curId !== s.id || !Engine.playing || busy) return;
@@ -2283,7 +2373,9 @@ const FXCARDS = [
   { id: 'tape', on: 'tapeOn', ic: ICON.tape, n: 'Eski kaset', d: 'Bant titremesi ve hışırtı', sl: [['tapeWow', 'Titreme', 0, 1, 0.01, v => '%' + Math.round(v * 100)], ['tapeHiss', 'Hışırtı', 0, 1, 0.01, v => '%' + Math.round(v * 100)]] },
   { id: 'vinyl', on: 'vinylOn', ic: ICON.vinyl, n: 'Plak cızırtısı', d: 'İğnenin plakta gezinmesi', sl: [['vinyl', 'Seviye', 0, 1, 0.01, v => '%' + Math.round(v * 100)]] },
   { id: 'radio', on: 'radioOn', ic: ICON.radio, n: 'Dolmuş hoparlörü', d: 'Küçük, cızırtılı teyp sesi', sl: [] },
-  { id: 'd8', on: 'd8On', ic: ICON.d8, n: '8D dönen ses', d: 'Kulaklıkla dinle', sl: [['d8Speed', 'Hız', 0.04, 0.4, 0.01, v => num(v, 2) + ' Hz']] }
+  { id: 'd8', on: 'd8On', ic: ICON.d8, n: '8D dönen ses', d: 'Kulaklıkla dinle', sl: [['d8Speed', 'Hız', 0.04, 0.4, 0.01, v => num(v, 2) + ' Hz']] },
+  { id: 'kar', on: 'karaokeOn', ic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>', n: 'Karaoke', d: 'Vokali azaltır, sen söyle', sl: [['karaoke', 'Vokal kesme', 0.5, 1, 0.01, v => '%' + Math.round(v * 100)]] },
+  { id: 'hava', on: 'weatherOn', ic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 15a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 7 4 4 0 0 1 18 15z"/><path d="M8 19l-1 2M12 19l-1 2M16 19l-1 2"/></svg>', n: 'Havaya uy', d: 'Stuttgart\'ta yağmur yağıyorsa arkada yağmur sesi', sl: [['weatherAmt', 'Yağmur sesi', 0, 1, 0.01, v => '%' + Math.round(v * 100)]] }
 ];
 function buildFx() {
   $('fxlist').innerHTML = FXCARDS.map(c => `<div class="fx" id="fx-${c.id}"><div class="fxh"><span class="ic">${c.ic}</span><span class="tl"><b>${c.n}</b><span class="sub">${c.d}</span></span>
@@ -2684,6 +2776,7 @@ $('vLists').addEventListener('click', async e => {
   if (t.closest('#spImport')) return openSpImport();
   const L = App.lists.find(l => l.id === App.openList);
   if (t.closest('#listPlay') && L) { const q = L.tracks.map(x => App.match(x)).filter(Boolean).map(s => s.id); if (q.length) playSong(App.prefs.shuffle ? q[Math.floor(Math.random() * q.length)] : q[0], q); return; }
+  if (t.closest('#listShare') && L) return X.shareList(L);
   if (t.closest('#listDel') && L) {
     const b = t.closest('#listDel');
     if (!b.classList.contains('sure')) { b.classList.add('sure'); b.textContent = 'Emin misin? Tekrar bas'; return; }
@@ -2716,6 +2809,524 @@ $('list').addEventListener('click', e => {
 $('search').addEventListener('input', raf(() => { App.query = $('search').value; UI.lib(); }));
 
 /* ================= Başlat ================= */
+/* ================= Ekstralar: damar, kader kasetleri, istatistik, yedek, yolculuk ================= */
+const X = (() => {
+  const nrm = s => String(s || '').toLocaleLowerCase('tr').normalize('NFC');
+  // ---- Damar ölçer: sanatçı + sözcük + o anki modlar
+  const ART = { 'müslüm gürses': 10, 'ferdi tayfur': 9, 'bergen': 9, 'orhan gencebay': 8, 'hakkı bulut': 8, 'ümit besen': 8, 'gökhan güney': 8, 'azer bülbül': 8, 'cengiz kurtoğlu': 7,
+    'kibariye': 7, 'ceylan': 7, 'selda bağcan': 6, 'ibrahim tatlıses': 6, 'i̇brahim tatlıses': 6, 'emrah': 7, 'küçük emrah': 7, 'mahsun kırmızıgül': 7, 'ebru gündeş': 6, 'zara': 6, 'sibel can': 5,
+    'özcan deniz': 6, 'cengiz kurtoglu': 7, 'arif susam': 7, 'güllü': 6, 'ahmet kaya': 8, 'neşet ertaş': 8, 'kurtlar vadisi': 5 };
+  const HEAVY = ['ölsün', 'ölüm', 'öldüm', 'dert', 'kader', 'yalan', 'zalim', 'kahır', 'yıkıl', 'ağla', 'gözyaş', 'yanarım', 'yandım', 'hasret', 'gurbet', 'acı', 'isyan', 'vefasız', 'terk', 'sevmeyen', 'bitti', 'unut', 'mahvol', 'yaralı', 'bırak', 'çile', 'sitem', 'hor gör', 'batsın', 'tanrı', 'allah', 'yazık', 'uyandım', 'kör', 'leyla'];
+  const LIGHT = ['gül', 'bahar', 'mutlu', 'neşe', 'dans', 'oyna', 'halay', 'düğün', 'bayram', 'gel gel', 'yaz', 'sevgilim', 'canım'];
+  function damar(s) {
+    if (!s) return 0;
+    const a = nrm(s.artist), t = nrm(s.title + ' ' + (s.album || ''));
+    let v = 5;
+    for (const k in ART) if (a.includes(k) || t.includes(k)) { v = ART[k]; break; }
+    for (const w of HEAVY) if (t.includes(w)) v += 0.8;
+    for (const w of LIGHT) if (t.includes(w)) v -= 0.8;
+    return Math.max(1, Math.min(10, Math.round(v)));
+  }
+  function damarNow() {
+    let v = damar(App.byId(App.curId)) || 5;
+    if (fx.rate < 0.95) v += 1; if (fx.rvbOn) v += 0.5; if (fx.semi < -0.5) v += 0.5;
+    const h = new Date().getHours(); if (h >= 0 && h < 5) v += 1;
+    if (fx.karaokeOn) v -= 1;
+    return Math.max(1, Math.min(10, Math.round(v)));
+  }
+  function damarToday() {
+    const h = LS.get('gp-hist', []), st = new Date(); st.setHours(0, 0, 0, 0);
+    const xs = h.filter(x => x.t >= st.getTime()).map(x => damar(App.byId(x.id))).filter(Boolean);
+    if (!xs.length) return null;
+    return Math.round(xs.reduce((a, b) => a + b, 0) / xs.length * 10) / 10;
+  }
+  const DSAY = ['', 'Bugün gönül hafif, kuş gibi.', 'Bugün gönül hafif, kuş gibi.', 'Hafif bir hüzün, çayın yanında.', 'Hafif bir hüzün, çayın yanında.', 'Orta karar damar, tadında.',
+    'Damar kabarıyor, dikkat.', 'Damar kabarıyor, dikkat.', 'Ağır damar. Sigara yok, çay var.', 'Çok ağır damar. Kader bu, ne yapalım.', 'Müslüm Baba seviyesi. Kolların sağlam olsun.'];
+  function nowUI() {
+    const el = $('damar'); if (!el) return;
+    const s = App.byId(App.curId); if (!s) { el.innerHTML = ''; return; }
+    const v = damarNow(), td = damarToday();
+    el.innerHTML = `<span class="dl">damar</span><span class="dbar">${Array.from({ length: 10 }, (_, i) => `<i class="${i < v ? 'on' : ''}${i >= 7 ? ' hot' : ''}"></i>`).join('')}</span><span class="dv">${v}/10</span>`
+      + (td ? `<span class="dsay">${DSAY[Math.round(td)]} Bugün ortalama ${num(td, 1)}/10 damar gidiyorsun.</span>` : '');
+  }
+
+  // ---- Kader kasetleri (ruh haline göre otomatik liste)
+  const MOODS = [
+    { id: 'terk', n: 'Terk edildim', d: 'Giden gitti', w: ['terk', 'gitti', 'git', 'ayrıl', 'yalan', 'vefasız', 'unut', 'bırak', 'dön', 'sevmeyen', 'hor gör', 'zalim'] },
+    { id: 'gurbet', n: 'Gurbetteyim', d: 'Stuttgart\'tan memlekete', w: ['gurbet', 'sıla', 'memleket', 'ana', 'anne', 'hasret', 'uzak', 'yol', 'özledim', 'almanya', 'tren', 'köy'] },
+    { id: 'kus', n: 'Hayata küstüm', d: 'Dünya dönüyor, ben duruyorum', w: ['hayat', 'kader', 'dünya', 'ölüm', 'öl', 'yıkıl', 'kahır', 'isyan', 'çile', 'batsın', 'tanrı', 'yazık', 'mahvol'] },
+    { id: 'umut', n: 'Yine de umut var', d: 'Yarın başka gün', w: ['umut', 'sev', 'gül', 'bahar', 'yarın', 'mutlu', 'aşk', 'gel', 'güneş', 'canım', 'sevgilim'] }
+  ];
+  function moodList(id) {
+    const m = MOODS.find(x => x.id === id); if (!m) return [];
+    const sc = App.songs.filter(s => s.blob || s.audioPath).map(s => {
+      const t = nrm(s.title + ' ' + s.album), d = damar(s);
+      let v = m.w.reduce((a, w) => a + (t.includes(w) ? 3 : 0), 0);
+      if (id === 'umut') v += (10 - d) * 0.6; else v += d * 0.5;
+      return { s, v: v + Math.random() * 1.5 };
+    }).sort((a, b) => b.v - a.v);
+    return sc.slice(0, Math.max(5, Math.min(25, Math.ceil(sc.length * 0.4)))).map(x => x.s.id);
+  }
+  const moodRow = () => App.songs.length ? `<div class="sechead" style="margin-top:6px"><h2>Kader kaseti</h2><span class="kicker">ruh haline göre</span></div>
+    <div class="moods">${MOODS.map(m => `<button class="mood" data-mood="${m.id}"><b>${m.n}</b><span>${m.d}</span></button>`).join('')}</div>` : '';
+
+  // ---- Günün sözü (Gönül Plak'ın kendi sözleri)
+  const SOZ = ['Gönül bir kaset gibi; sararsın, sararsın, en güzel yerinde kopar.', 'Stuttgart\'ın yağmuru da gurbetçinin gözyaşı gibi; durmaz, sadece yavaşlar.', 'Her S-Bahn bir gün gelir, her sevgili değil.',
+    'Çayın demi, derdin demi; ikisi de bekledikçe koyulaşır.', 'Kader dediğin bir plak: bir yüzü çalar, öbür yüzü beklenir.', 'Fernsehturm bile yalnız; o yüzden en yükseğe çıkmış.', 'Gece üçte çalan her şarkı biraz itiraftır.',
+    'Gurbette kalbin iki saati olur; biri burada, biri orada işler.', 'Kırılan kalp de kaset gibi; kalemle sarılır, yine çalar.', 'Ağır damar ağır yük değil; paylaşınca hafifler.', 'Neckar akar, dert akmaz; bari şarkı aksın.',
+    'Rötar yapan sadece tren değil, gönül de bazen geç kalır.', 'Bekle beni demek kolay, Hauptbahnhof\'ta beklemek zor.', 'Kimse bilmez ama her kasetin bir B yüzü vardır.', 'Sessizlik de bir şarkıdır; sadece sözleri içeride.',
+    'Unutmak istediğini bir şarkıya koy; şarkı hatırlasın, sen değil.', 'Bugün de geçer; gün batımı bile Killesberg\'de bekletmez.', 'Arabesk ağlamak değil, ağlarken dik durmaktır.', 'Gönül kapısı itmekle değil, çalmakla açılır.',
+    'Her durak bir veda, her kalkış bir umut.', 'Karanlık tünelde bile S-Bahn ışığını yakar.', 'Gözyaşı da yağmur gibi; toprağı yumuşatır.', 'Kalbinin sesini aç; kulaklık sadece müziği duyurur.', 'Derdin varsa çayı tazele, kaseti çevir.',
+    'Yolun yarısı sabır, yarısı şarkı.', 'Ay dolunay olunca gönül de taşar.', 'Bir şarkı yetmez, bir ömür de.', 'Her gece biraz Müslüm, her sabah biraz umut.'];
+  const sozToday = () => { const d = new Date(), k = d.getFullYear() * 400 + d.getMonth() * 32 + d.getDate(); return SOZ[k % SOZ.length]; };
+  function sozUI() { const el = $('soz'); if (el) el.innerHTML = `<span class="kicker">günün sözü</span><p>“${esc(sozToday())}”</p><button class="chipbtn" id="sozCard">Söz kartı yap</button>`; }
+
+  // ---- Söz kartı (paylaşılabilir resim)
+  async function card(text) {
+    const s = App.byId(App.curId);
+    const c = document.createElement('canvas'); c.width = 1080; c.height = 1920; const g = c.getContext('2d');
+    g.fillStyle = '#130b0f'; g.fillRect(0, 0, 1080, 1920);
+    const src = Scene.artUrl || 'icon-512.png';
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+      const h = 1920, w = img.naturalWidth * h / img.naturalHeight; g.drawImage(img, Math.min(0, (1080 - w) * 0.62), 0, w, h);
+    } catch (e) {}
+    const gr = g.createLinearGradient(0, 0, 0, 1920); gr.addColorStop(0, 'rgba(19,11,15,.55)'); gr.addColorStop(.45, 'rgba(19,11,15,.25)'); gr.addColorStop(1, 'rgba(19,11,15,.95)'); g.fillStyle = gr; g.fillRect(0, 0, 1080, 1920);
+    await document.fonts.ready;
+    g.fillStyle = '#ff3f6d'; g.shadowColor = 'rgba(255,63,109,.8)'; g.shadowBlur = 30; g.font = '96px "GP Logo", serif'; g.textAlign = 'center'; g.fillText('Gönül Plak', 540, 190); g.shadowBlur = 0;
+    g.fillStyle = '#f5e7d0'; g.font = '600 74px "GP Hand", cursive';
+    const words = text.split(/\s+/), lines = []; let ln = '';
+    for (const w of words) { const t = ln ? ln + ' ' + w : w; if (g.measureText(t).width > 900 && ln) { lines.push(ln); ln = w; } else ln = t; }
+    if (ln) lines.push(ln);
+    const y0 = 1000 - lines.length * 46;
+    lines.slice(0, 9).forEach((l, i) => g.fillText(i === 0 ? '“' + l : i === lines.length - 1 ? l + '”' : l, 540, y0 + i * 92));
+    if (s) {
+      g.fillStyle = '#efe1c4'; g.beginPath(); (g.roundRect ? g.roundRect(120, 1560, 840, 190, 18) : g.rect(120, 1560, 840, 190)); g.fill();
+      g.fillStyle = '#ff3f6d'; g.fillRect(120, 1700, 840, 14); g.fillStyle = '#f4b13e'; g.fillRect(120, 1714, 840, 10);
+      g.fillStyle = '#2b1b14'; g.textAlign = 'left'; g.font = '700 62px "GP Hand", cursive';
+      let t = s.title; while (g.measureText(t).width > 780 && t.length > 3) t = t.slice(0, -2) + '…'; g.fillText(t, 150, 1630);
+      g.fillStyle = '#6b4a3a'; g.font = '600 44px "GP Hand", cursive'; g.fillText(s.artist || '', 150, 1685);
+    }
+    g.textAlign = 'center'; g.fillStyle = '#b39a90'; g.font = '500 30px -apple-system, sans-serif'; g.fillText('Stuttgart · ' + new Date().toLocaleDateString('tr-TR'), 540, 1840);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
+    const file = new File([blob], 'gonul-plak-soz.jpg', { type: 'image/jpeg' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+
+  // ---- Akıllı etiketleme
+  const JUNK = /\s*[\(\[\{][^\)\]\}]*(official|video|klip|lyric|lyrics|sözleri|söz|hd|hq|4k|audio|music|remaster|kaliteli|full|orijinal|original|plak kayd|yüksek kalite|mp3)[^\)\]\}]*[\)\]\}]/gi;
+  const KNOWN = Object.keys(ART);
+  function guess(s) {
+    let t = String(s.title || '').normalize('NFC'), a = String(s.artist || '').normalize('NFC').trim();
+    t = t.replace(/\.(mp3|m4a|wav|flac|aac)$/i, '').replace(/_/g, ' ').replace(JUNK, '').replace(/\s+(official|video|klip|lyrics|hd)$/i, '').replace(/\s{2,}/g, ' ').trim();
+    if (/^(bilinmeyen|unknown|various|<unknown>)/i.test(a)) a = '';
+    const parts = t.split(/\s+[-–—|]\s+/);
+    if (parts.length >= 2) {
+      let [x, ...rest] = parts; let y = rest.join(' - ');
+      const kx = KNOWN.some(k => nrm(x).includes(k)), ky = KNOWN.some(k => nrm(y).includes(k));
+      if (ky && !kx) [x, y] = [y, x];
+      if (!a || kx) { a = x; t = y; }
+      else if (nrm(x) === nrm(a)) t = y;
+      else if (nrm(y) === nrm(a)) t = x;
+    }
+    const tc = w => w.replace(/(^|\s)(\S)(\S*)/g, (m, sp, f, r) => sp + f.toLocaleUpperCase('tr') + (r === r.toLocaleUpperCase('tr') && r.length > 2 ? r.toLocaleLowerCase('tr') : r));
+    if (t === t.toLocaleUpperCase('tr') && t.length > 3) t = tc(t.toLocaleLowerCase('tr'));
+    if (a === a.toLocaleUpperCase('tr') && a.length > 3) a = tc(a.toLocaleLowerCase('tr'));
+    const bad = /telegram|cloud|document|^audio|^track\s*\d|^\d+$|^[a-f0-9-]{16,}$/i.test(t);
+    return { title: t || s.title, artist: a, bad };
+  }
+  async function itunes(title, artist) {
+    try {
+      const q = encodeURIComponent((artist + ' ' + title).trim());
+      const r = await fetch(`https://itunes.apple.com/search?term=${q}&entity=song&limit=3&country=TR`); if (!r.ok) return null;
+      const j = await r.json(); const x = (j.results || []).find(x => !artist || nrm(x.artistName).includes(nrm(artist).split(' ')[0])) || null;
+      return x ? { cover: x.artworkUrl100 && x.artworkUrl100.replace('100x100', '600x600'), album: x.collectionName, year: (x.releaseDate || '').slice(0, 4) } : null;
+    } catch (e) { return null; }
+  }
+  async function aiFix(items) {
+    if (!AI.key || !items.length) return {};
+    try {
+      const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': AI.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model: 'claude-haiku-5-5', max_tokens: 2000, messages: [{ role: 'user', content: 'Bunlar Türkçe arabesk/türkü şarkı dosyalarının bozuk etiketleri. Her biri için doğru şarkı adını ve sanatçıyı tahmin et. Emin değilsen boş bırak. Sadece JSON dizi döndür: [{"i":0,"title":"","artist":""}]\n' + items.map((x, i) => `${i}: ${x.title} | ${x.artist}`).join('\n') }] }) });
+      if (!r.ok) return {};
+      const j = await r.json(); const txt = (j.content || []).map(c => c.text || '').join(''); const arr = JSON.parse(txt.slice(txt.indexOf('['), txt.lastIndexOf(']') + 1));
+      const out = {}; for (const o of arr) if (o && o.title) out[o.i] = o; return out;
+    } catch (e) { return {}; }
+  }
+  let tidyRows = [];
+  async function tidyOpen() {
+    openSheet('xSheet');
+    const body = $('xBody'); body.innerHTML = '<h3>Akıllı etiketleme</h3><p class="msg">Bozuk isimler ayıklanıyor…</p>';
+    tidyRows = [];
+    for (const s of App.songs) {
+      const gss = guess(s);
+      const need = gss.title !== s.title || (gss.artist || '') !== (s.artist || '') || !s.cover;
+      if (need || gss.bad) tidyRows.push({ s, title: gss.title, artist: gss.artist, bad: gss.bad, cover: null, ok: !gss.bad });
+    }
+    const aiNeed = tidyRows.filter(r => r.bad || !r.artist);
+    if (aiNeed.length && AI.key) { body.querySelector('.msg').textContent = 'Gönül Dostu isimlere bakıyor…'; const m = await aiFix(aiNeed.slice(0, 60)); aiNeed.slice(0, 60).forEach((r, i) => { if (m[i]) { r.title = m[i].title || r.title; r.artist = m[i].artist || r.artist; r.bad = false; r.ok = true; r.ai = true; } }); }
+    let n = 0;
+    for (const r of tidyRows) { if (r.s.cover || r.bad) continue; body.querySelector('.msg').textContent = `Kapaklar aranıyor… ${++n}`; const it = await itunes(r.title, r.artist); if (it) { r.cover = it.cover; if (!r.s.album && it.album) r.album = it.album; if (!r.s.year && it.year) r.year = it.year; } }
+    tidyRows = tidyRows.filter(r => r.title !== r.s.title || (r.artist || '') !== (r.s.artist || '') || r.cover || r.bad);
+    tidyRender();
+  }
+  function tidyRender() {
+    const body = $('xBody');
+    if (!tidyRows.length) { body.innerHTML = '<h3>Akıllı etiketleme</h3><p class="msg">Arşivin tertemiz, düzeltilecek bir şey bulamadım.</p><button class="btn" data-xclose>Tamam</button>'; return; }
+    body.innerHTML = `<h3>Akıllı etiketleme</h3><p class="msg">${tidyRows.length} şarkı için öneri var. İstemediklerinin işaretini kaldır.${AI.key ? '' : ' Gönül Dostu anahtarı eklersen anlaşılmayan isimleri de tahmin eder.'}</p>
+      <ul class="rows tidy">${tidyRows.map((r, i) => `<li class="row"><button class="sw" role="switch" aria-checked="${r.ok}" data-tidy="${i}" aria-label="Uygula"></button>
+        <span class="m"><div class="t">${esc(r.title)}${r.ai ? ' <span class="aitag">yz</span>' : ''}</div><div class="a"><span>${esc(r.artist || '—')}${r.cover ? ' · kapak bulundu' : ''}</span></div>
+        <div class="was">${r.bad && !r.ai ? 'anlaşılmadı, elle düzelt' : 'eski: ' + esc(r.s.title) + (r.s.artist ? ' · ' + esc(r.s.artist) : '')}</div></span>
+        ${r.cover ? `<img class="tc" src="${esc(r.cover)}" alt="">` : ''}</li>`).join('')}</ul>
+      <div class="btns"><button class="btn primary" id="tidyGo">Uygula</button><button class="btn" data-xclose>Vazgeç</button></div>`;
+  }
+  async function tidyApply() {
+    const go = tidyRows.filter(r => r.ok && !(r.bad && !r.ai)); let n = 0;
+    $('tidyGo').disabled = true; $('tidyGo').textContent = 'Uygulanıyor…';
+    for (const r of go) {
+      const s = r.s; s.title = r.title; s.artist = r.artist || s.artist; if (r.album) s.album = r.album; if (r.year) s.year = r.year;
+      let cov = false;
+      if (r.cover) { const b = await Img.fromUrl(r.cover); if (b) { s.cover = b; s.coverUrl = r.cover; Img.drop(s.id); cov = true; } }
+      s.updated = Date.now(); await DB.song(s); Cloud.pushMeta(s, cov); n++;
+    }
+    closeSheet('xSheet'); UI.lib(); UI.lists(); UI.now(); Media.meta(); toast(n + ' şarkı düzeltildi');
+  }
+
+  // ---- Arşiv yedeği (tek .tar dosyası; iCloud Drive'a "Dosyalara kaydet")
+  function tarHeader(name, size) {
+    const h = new Uint8Array(512), w = (o, s, l) => { for (let i = 0; i < Math.min(s.length, l); i++) h[o + i] = s.charCodeAt(i) & 255; };
+    w(0, name, 100); w(100, '0000644\0', 8); w(108, '0000000\0', 8); w(116, '0000000\0', 8);
+    w(124, size.toString(8).padStart(11, '0') + '\0', 12); w(136, Math.floor(Date.now() / 1000).toString(8).padStart(11, '0') + '\0', 12);
+    w(148, '        ', 8); h[156] = 48; w(257, 'ustar\0', 6); w(263, '00', 2);
+    let sum = 0; for (let i = 0; i < 512; i++) sum += h[i]; w(148, sum.toString(8).padStart(6, '0') + '\0 ', 8);
+    return h;
+  }
+  const ext = b => ({ 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/flac': 'flac', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' })[b.type] || 'bin';
+  async function backup(withAudio) {
+    const parts = [], meta = { app: 'gonulplak', v: VERSION, at: Date.now(), songs: [], lists: App.lists, fx: Object.assign({}, fx), prefs: App.prefs, hist: LS.get('gp-hist', []), mem: AI.mem, places: LS.get('gp-places', []) };
+    const add = (name, blob) => { parts.push(tarHeader(name, blob.size), blob); const pad = (512 - blob.size % 512) % 512; if (pad) parts.push(new Uint8Array(pad)); };
+    for (const s of App.songs) {
+      const m = {}; for (const k in s) if (k !== 'blob' && k !== 'cover' && k[0] !== '_') m[k] = s[k];
+      if (withAudio && s.blob) { m.file = 'a/' + s.id + '.' + ext(s.blob); m.type = s.blob.type; add(m.file, s.blob); }
+      if (s.cover) { m.coverFile = 'c/' + s.id + '.' + ext(s.cover); m.coverType = s.cover.type; add(m.coverFile, s.cover); }
+      meta.songs.push(m);
+    }
+    const mb = new Blob([JSON.stringify(meta)], { type: 'application/json' });
+    parts.unshift(...[tarHeader('gonulplak.json', mb.size), mb, new Uint8Array((512 - mb.size % 512) % 512)]);
+    parts.push(new Uint8Array(1024));
+    const d = new Date(), name = `GonulPlak-yedek-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.tar`;
+    const file = new File(parts, name, { type: 'application/x-tar' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: 'Gönül Plak yedeği' }); toast('Yedek hazır. "Dosyalara kaydet" ile iCloud Drive\'a koyabilirsin.'); return; } catch (e) { if (e.name === 'AbortError') return; } }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    toast('Yedek indirildi (' + Math.round(file.size / 1048576) + ' MB)');
+  }
+  async function restore(file) {
+    const files = new Map(); let off = 0;
+    while (off + 512 <= file.size) {
+      const h = new Uint8Array(await file.slice(off, off + 512).arrayBuffer()); if (!h[0]) break;
+      const name = new TextDecoder().decode(h.slice(0, 100)).replace(/\0.*$/s, ''), size = parseInt(new TextDecoder().decode(h.slice(124, 136)).replace(/\0.*$/s, '').trim() || '0', 8);
+      files.set(name, file.slice(off + 512, off + 512 + size)); off += 512 + Math.ceil(size / 512) * 512;
+    }
+    const mf = files.get('gonulplak.json'); if (!mf) throw new Error('Bu bir Gönül Plak yedeği değil');
+    const meta = JSON.parse(await mf.text()); let n = 0;
+    for (const m of meta.songs) {
+      let s = App.byId(m.id);
+      const blob = m.file && files.get(m.file) ? new Blob([await files.get(m.file).arrayBuffer()], { type: m.type || 'audio/mpeg' }) : null;
+      const cover = m.coverFile && files.get(m.coverFile) ? new Blob([await files.get(m.coverFile).arrayBuffer()], { type: m.coverType || 'image/jpeg' }) : null;
+      if (!s) { if (!blob && !m.audioPath) continue; s = Object.assign({}, m); delete s.file; delete s.type; delete s.coverFile; delete s.coverType; s.blob = blob; s.cover = cover; App.songs.push(s); n++; }
+      else { if (!s.blob && blob) s.blob = blob; if (!s.cover && cover) s.cover = cover; }
+      await DB.song(s);
+    }
+    for (const L of meta.lists || []) if (!App.lists.some(x => x.id === L.id)) { App.lists.push(L); await DB.put('lists', L); }
+    if (meta.hist && !LS.get('gp-hist', []).length) LS.set('gp-hist', meta.hist);
+    if (meta.places && !LS.get('gp-places', []).length) LS.set('gp-places', meta.places);
+    App.sortSongs(); UI.lib(); UI.lists(); return n;
+  }
+
+  // ---- Liste paylaşma (link)
+  const b64u = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const unb64u = s => decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/'))));
+  async function shareList(L) {
+    const data = { n: L.name, t: L.tracks.slice(0, 150).map(t => [t.title, t.artist || '', t.spId || ''].map(x => String(x).slice(0, 80))) };
+    const url = location.origin + location.pathname + '#liste=' + b64u(JSON.stringify(data));
+    try { if (navigator.share) { await navigator.share({ title: L.name + ' · Gönül Plak', text: `"${L.name}" listem, ${data.t.length} şarkı`, url }); return; } } catch (e) { if (e.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(url); toast('Link kopyalandı'); } catch (e) { prompt('Linki kopyala', url); }
+  }
+  async function importShared() {
+    const m = location.hash.match(/^#liste=(.+)$/); if (!m) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    try {
+      const d = JSON.parse(unb64u(m[1]));
+      const L = { id: 'sh-' + Date.now().toString(36), name: d.n || 'Paylaşılan liste', source: 'shared', tracks: (d.t || []).map(([title, artist, spId]) => ({ title, artist, spId: spId || null })), added: Date.now() };
+      App.lists.push(L); await DB.put('lists', L); App.openList = L.id; setView('lists');
+      toast(`"${L.name}" listesi eklendi`);
+    } catch (e) { toast('Paylaşılan liste açılamadı'); }
+  }
+
+  // ---- İstatistik ve Wrapped
+  function stats(days) {
+    const h = LS.get('gp-hist', []), from = days ? Date.now() - days * 864e5 : new Date(new Date().getFullYear(), 0, 1).getTime();
+    const xs = h.filter(x => x.t >= from);
+    const cnt = key => { const m = new Map(); xs.forEach(x => { const k = key(x); if (k) m.set(k, (m.get(k) || 0) + 1); }); return [...m.entries()].sort((a, b) => b[1] - a[1]); };
+    let sec = 0; xs.forEach(x => { const s = App.byId(x.id); sec += s && s.duration ? Math.min(s.duration, 600) : 210; });
+    const night = xs.filter(x => { const hh = new Date(x.t).getHours(); return hh < 5; }).length;
+    const lines = cnt(x => x.j);
+    const dm = xs.map(x => damar(App.byId(x.id))).filter(Boolean);
+    return { n: xs.length, hours: sec / 3600, art: cnt(x => (App.byId(x.id) || {}).artist).slice(0, 5), songs: cnt(x => { const s = App.byId(x.id); return s ? s.title + (s.artist ? ' · ' + s.artist : '') : null; }).slice(0, 5),
+      night, line: lines[0], damar: dm.length ? dm.reduce((a, b) => a + b, 0) / dm.length : 0, modes: cnt(x => x.m && x.m !== 'orijinal' && x.m !== 'custom' ? (PRESETS.find(p => p.id === x.m) || {}).n : null).slice(0, 2) };
+  }
+  function statsHTML() {
+    const s = stats(30), y = stats(0);
+    if (!y.n) return '<p class="msg">Dinledikçe burada senin arabesk karnen çıkacak.</p>';
+    return `<div class="stat3"><div><b>${y.n}</b><span>şarkı bu yıl</span></div><div><b>${num(y.hours, y.hours < 10 ? 1 : 0)}</b><span>saat damar</span></div><div><b>${num(y.damar, 1)}</b><span>ortalama damar</span></div></div>
+      ${s.art.length ? `<p class="msg"><strong>Son 30 gün en çok:</strong> ${s.art.map(([a, n]) => esc(a) + ' (' + n + ')').join(', ')}</p>` : ''}
+      ${s.songs.length ? `<p class="msg"><strong>Şarkı:</strong> ${esc(s.songs[0][0])} (${s.songs[0][1]} kez)</p>` : ''}
+      ${y.night ? `<p class="msg">Gece 00:00 ile 05:00 arası ${y.night} şarkı. Uykusuz gönül.</p>` : ''}
+      ${y.line ? `<p class="msg">En çok <strong>${esc(y.line[0])}</strong> yolculuğunda dinledin (${y.line[1]} şarkı).</p>` : ''}
+      <button class="btn" id="wrapBtn">Arabesk Wrapped kartı</button>`;
+  }
+  async function wrapped() {
+    const y = stats(0), c = document.createElement('canvas'); c.width = 1080; c.height = 1920; const g = c.getContext('2d');
+    const gr = g.createLinearGradient(0, 0, 0, 1920); gr.addColorStop(0, '#3b0f22'); gr.addColorStop(.6, '#130b0f'); gr.addColorStop(1, '#3a2210'); g.fillStyle = gr; g.fillRect(0, 0, 1080, 1920);
+    await document.fonts.ready; g.textAlign = 'center';
+    g.fillStyle = '#ff3f6d'; g.shadowColor = 'rgba(255,63,109,.8)'; g.shadowBlur = 30; g.font = '100px "GP Logo", serif'; g.fillText('Gönül Plak', 540, 200); g.shadowBlur = 0;
+    g.fillStyle = '#f4b13e'; g.font = '600 70px "GP Hand", cursive'; g.fillText(new Date().getFullYear() + ' Arabesk Wrapped', 540, 300);
+    const big = (v, l, yy) => { g.fillStyle = '#f5e7d0'; g.font = '150px "GP Slab", serif'; g.fillText(v, 540, yy); g.fillStyle = '#b39a90'; g.font = '500 44px -apple-system, sans-serif'; g.fillText(l, 540, yy + 64); };
+    big(num(y.hours, 0), 'saat damar', 560); big(String(y.n), 'şarkı', 820); big(num(y.damar, 1) + '/10', 'ortalama damar', 1080);
+    g.font = '600 56px "GP Hand", cursive'; g.fillStyle = '#f5e7d0';
+    if (y.art[0]) g.fillText('Gönlün: ' + y.art[0][0], 540, 1300);
+    if (y.songs[0]) { let t = y.songs[0][0]; g.font = '600 46px "GP Hand", cursive'; while (g.measureText(t).width > 940) t = t.slice(0, -2) + '…'; g.fillText('Yılın şarkısı: ' + t, 540, 1390); }
+    if (y.line) { g.font = '600 50px "GP Hand", cursive'; g.fillText('En çok ' + y.line[0] + "'te ağladın", 540, 1490); }
+    if (y.night) { g.font = '500 40px -apple-system, sans-serif'; g.fillStyle = '#b39a90'; g.fillText(y.night + ' şarkı gece yarısından sonra', 540, 1580); }
+    g.fillStyle = '#b39a90'; g.font = '500 30px -apple-system, sans-serif'; g.fillText('Stuttgart', 540, 1840);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9)), file = new File([blob], 'arabesk-wrapped.jpg', { type: 'image/jpeg' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+  }
+
+  // ---- Gece 3 modu + hava (dakikada bir)
+  function env() {
+    const h = new Date().getHours(), night = !!fx.nightOn && h >= 2 && h < 5;
+    const k = Scene.wxKind, rain = k === 'rain' ? 1 : k === 'storm' ? 1.3 : 0;
+    const ch = night !== !!fx._night || rain !== (fx._rain || 0);
+    fx._night = night; fx._rain = rain;
+    document.documentElement.classList.toggle('night3', night);
+    if (ch) Engine.refresh();
+  }
+  const aiHint = () => fx._night ? ' Saat gece 2\'yi geçti (Gece 3 modu): daha derin, daha yavaş, daha içten konuş; kısa ama dokunaklı ol.' : '';
+
+  // ---- Benim yerlerim (uygulama açıkken konuma göre şarkı)
+  let places = LS.get('gp-places', []), watch = null, placed = LS.get('gp-placed', {});
+  const dist = (a, b) => { const R = 6371e3, t = Math.PI / 180, dl = (b[0] - a[0]) * t, dn = (b[1] - a[1]) * t; const x = Math.sin(dl / 2) ** 2 + Math.cos(a[0] * t) * Math.cos(b[0] * t) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); };
+  function placesWatch() {
+    if (watch !== null || !places.length || !navigator.geolocation) return;
+    watch = navigator.geolocation.watchPosition(p => {
+      const me = [p.coords.latitude, p.coords.longitude];
+      for (const pl of places) {
+        if (dist(me, pl.c) > (pl.r || 250)) { if (placed[pl.id]) { delete placed[pl.id]; LS.set('gp-placed', placed); } continue; }
+        if (placed[pl.id]) continue; placed[pl.id] = Date.now(); LS.set('gp-placed', placed);
+        const s = App.byId(pl.song);
+        if (s) { toast(`${pl.n}'e hoş geldin. ${s.title} çalıyor.`); Engine.unlock(); playSong(s.id); }
+      }
+    }, () => {}, { enableHighAccuracy: false, maximumAge: 60000, timeout: 30000 });
+  }
+  function placesHTML() {
+    return `${places.length ? `<ul class="memlist">${places.map((p, i) => `<li><span><strong>${esc(p.n)}</strong> · ${esc((App.byId(p.song) || {}).title || 'şarkı silinmiş')}</span><button class="more" data-xplacedel="${i}" aria-label="Sil">×</button></li>`).join('')}</ul>` : '<span class="sub">Henüz yer yok.</span>'}
+      <button class="btn" id="placeAdd">Burayı ekle (şu an çalan şarkıyla)</button>
+      <span class="sub">Uygulama açıkken o yere gelince şarkın kendiliğinden başlar. iPhone, web uygulamalarına kapalıyken konum vermez.</span>`;
+  }
+  function placeAdd() {
+    const s = App.byId(App.curId); if (!s) return toast('Önce bu yerde çalmasını istediğin şarkıyı başlat');
+    if (!navigator.geolocation) return toast('Konum desteklenmiyor');
+    navigator.geolocation.getCurrentPosition(p => {
+      const n = prompt('Bu yerin adı (ör. Killesberg, Karlshöhe)'); if (!n) return;
+      places.push({ id: Date.now().toString(36), n: n.trim(), c: [p.coords.latitude, p.coords.longitude], r: 250, song: s.id }); LS.set('gp-places', places);
+      placed[places[places.length - 1].id] = Date.now(); LS.set('gp-placed', placed);
+      UI.account(); placesWatch(); toast(n + ' eklendi');
+    }, () => toast('Konum izni verilmedi. Ayarlar > Gizlilik > Konum Servisleri > Safari Web Siteleri'), { timeout: 15000 });
+  }
+
+  // ---- VfB maç günü (OpenLigaDB, ücretsiz)
+  let vfb = LS.get('gp-vfb', null);
+  async function vfbCheck() {
+    if (vfb && Date.now() - vfb.at < 3 * 3600000 && !(vfb.today && !vfb.done)) return vfbUI();
+    try {
+      const r = await fetch('https://api.openligadb.de/getmatchesbyteamid/16/1/1'); if (!r.ok) return;
+      const ms = await r.json(), today = new Date().toDateString();
+      const m = ms.find(x => new Date(x.matchDateTimeUTC || x.matchDateTime).toDateString() === today);
+      vfb = { at: Date.now(), today: !!m };
+      if (m) {
+        const home = /stuttgart/i.test(m.team1.teamName), opp = home ? m.team2.teamName : m.team1.teamName;
+        const res = (m.matchResults || []).find(x => x.resultTypeID === 2) || (m.matchResults || [])[0];
+        Object.assign(vfb, { opp, time: new Date(m.matchDateTimeUTC || m.matchDateTime).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }), done: !!m.matchIsFinished });
+        if (res) { const us = home ? res.pointsTeam1 : res.pointsTeam2, them = home ? res.pointsTeam2 : res.pointsTeam1; vfb.score = `${us}:${them}`; vfb.res = us > them ? 'w' : us < them ? 'l' : 'd'; }
+      }
+      LS.set('gp-vfb', vfb);
+    } catch (e) {}
+    vfbUI();
+  }
+  function vfbUI() {
+    const el = $('vfb'); if (!el) return;
+    document.documentElement.classList.toggle('vfbday', !!(vfb && vfb.today));
+    if (!vfb || !vfb.today) { el.hidden = true; return; }
+    el.hidden = false;
+    const t = !vfb.done ? `Bugün VfB maçı: ${esc(vfb.opp)} · ${vfb.time}. Kırmızı beyaz gönül!` : vfb.res === 'w' ? `VfB kazandı ${vfb.score}! Bugün damar hafif, oyun havası.` : vfb.res === 'l' ? `VfB kaybetti ${vfb.score}. Ağır damar kasetini hazırladım.` : `VfB berabere ${vfb.score}. Ne ağla ne gül.`;
+    el.innerHTML = `<span class="vfbdot"></span><span>${t}</span>${vfb.done ? `<button class="chipbtn" data-mood="${vfb.res === 'w' ? 'umut' : 'kus'}">Çal</button>` : ''}`;
+  }
+
+  // ---- Yolculuk: liste, durak uyarısı, kilit ekranında tren
+  let trip = LS.get('gp-trip', null), alarmT = null, tripT = null;
+  function findTrip(fromS, toS) {
+    const net = SB.net, t = Date.now(); let best = null;
+    const same = (a, b) => a.id === b.id || SB.label(a) === SB.label(b);
+    for (const tr of net.trips) {
+      if (tr.cancelled) continue;
+      const i = tr.st.findIndex(s => same(s, fromS)); if (i < 0) continue;
+      const j = tr.st.findIndex((s, k) => k > i && same(s, toS)); if (j < 0) continue;
+      if (tr.st[i].dep < t - 60000) continue;
+      if (!best || tr.st[i].dep < best.dep) best = { key: tr.key, line: tr.line, dest: tr.dest, dep: tr.st[i].dep, arr: tr.st[j].arr, from: SB.label(fromS), to: SB.label(toS), toId: tr.st[j].id, fromId: tr.st[i].id };
+    }
+    return best;
+  }
+  function fitPlaylist(sec) {
+    const pool = App.songs.filter(s => s.blob || s.audioPath).map(s => ({ s, d: (s.duration || 220) / (fx.rate || 1) }));
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    pool.sort((a, b) => damar(b.s) - damar(a.s) + (Math.random() - 0.5) * 6);
+    const out = []; let tot = 0;
+    for (const p of pool) { if (tot + p.d <= sec + 45) { out.push(p.s.id); tot += p.d; } if (tot >= sec - 40) break; }
+    return { ids: out, tot };
+  }
+  function tripStart(tr) {
+    trip = Object.assign({}, tr, { alarm: true, started: Date.now() }); LS.set('gp-trip', trip);
+    const sec = Math.max(60, (tr.arr - Date.now()) / 1000), pl = fitPlaylist(sec);
+    if (pl.ids.length) { Engine.unlock(); playSong(pl.ids[0], pl.ids); }
+    toast(`${tr.line} · ${tr.to} ${new Date(tr.arr).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}. ${pl.ids.length} şarkı, yaklaşık ${Math.round(pl.tot / 60)} dk.`);
+    tripTick(); SB.render();
+  }
+  function tripStop(msg) { trip = null; LS.set('gp-trip', null); clearTimeout(alarmT); Media.setExtra(null); Engine.setDuck(1); if (msg) toast(msg); SB.render && SB.render(); }
+  function chime() {
+    try {
+      const c = new (window.AudioContext || window.webkitAudioContext)(), t = c.currentTime;
+      [880, 1175, 1568].forEach((f, i) => { const o = c.createOscillator(), g = c.createGain(); o.frequency.value = f; o.type = 'sine'; g.gain.setValueAtTime(0, t + i * 0.28); g.gain.linearRampToValueAtTime(0.35, t + i * 0.28 + 0.02); g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.28 + 0.9); o.connect(g).connect(c.destination); o.start(t + i * 0.28); o.stop(t + i * 0.28 + 1); });
+      setTimeout(() => c.close(), 2500);
+    } catch (e) {}
+    try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch (e) {}
+  }
+  function tripTick() {
+    clearTimeout(tripT); if (!trip) return;
+    // canlı veriden varış saatini güncelle
+    const tr = SB.net.trips.find(x => x.key === trip.key);
+    if (tr) { const st = tr.st.find(s => s.id === trip.toId); if (st && Math.abs(st.arr - trip.arr) > 20000) { trip.arr = st.arr; LS.set('gp-trip', trip); } const p = SB.where(tr, Date.now()); trip.delay = SB.tripDelay(tr, p); }
+    const left = trip.arr - Date.now(), m = Math.max(0, Math.round(left / 60000));
+    Media.setExtra(`${trip.line} → ${trip.to} · ${m ? m + ' dk' : 'şimdi'}${trip.delay >= 2 ? ' · +' + trip.delay : ''}`);
+    if (trip.alarm && left <= 120000 && !trip.rang) {
+      trip.rang = true; LS.set('gp-trip', trip);
+      Engine.setDuck(0.25); chime(); toast(`${trip.to} geliyor, 2 dakika! İnmeye hazırlan.`);
+      setTimeout(() => Engine.setDuck(1), 15000);
+    }
+    if (left < -180000) return tripStop('Yolculuk bitti. İyi akşamlar.');
+    tripT = setTimeout(tripTick, left < 200000 ? 5000 : 20000);
+  }
+  // kilitliyken de çalışsın diye ses zamanlayıcısından da yoklanır
+  function onTime() { if (trip && !trip.rang && trip.alarm && trip.arr - Date.now() <= 120000) tripTick(); }
+
+  function rotarSong() {
+    const words = ['bekle', 'gel', 'yol', 'tren', 'özledim', 'gurbet', 'hasret', 'geç', 'sabır', 'dön'];
+    const xs = App.songs.filter(s => (s.blob || s.audioPath) && words.some(w => nrm(s.title).includes(w)));
+    return xs.length ? xs[Math.floor(Math.random() * xs.length)] : App.songs.filter(s => s.blob).sort((a, b) => damar(b) - damar(a))[0];
+  }
+  function sbRender() {
+    const el = $('sbTrip'); if (!el) return;
+    const cur = SB.cur, hasNet = SB.src === 'vvs' && SB.net.trips.length;
+    let h = `<div class="sbhead"><b>Yolculuk</b><span class="sub">varış süresine göre liste · inmeden 2 dk önce uyarı</span></div>`;
+    if (trip) {
+      const m = Math.max(0, Math.round((trip.arr - Date.now()) / 60000));
+      h += `<div class="trip"><span class="sbb" style="--c:${SB.COL[trip.line]}">${trip.line}</span><span class="m"><b>${esc(trip.from)} → ${esc(trip.to)}</b><span class="sub">varış ${new Date(trip.arr).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} · ${m} dk kaldı${trip.delay >= 2 ? ` · <span style="color:var(--amber)">+${trip.delay} rötar</span>` : ''}</span></span>
+        <button class="sw" role="switch" id="tripAlarm" aria-checked="${!!trip.alarm}" aria-label="Durak uyarısı"></button></div>
+        <div class="btns"><button class="btn" id="tripEnd">Yolculuğu bitir</button></div>`;
+      if (trip.delay >= 10) { const r = rotarSong(); if (r) h += `<p class="msg rotar">Tren ${trip.delay} dk gecikmiş. Bari şarkı gecikmesin: <button class="chipbtn" data-xplay="${esc(r.id)}">${esc(r.title)}</button></p>`; }
+    } else {
+      h += `<div class="btns"><button class="btn primary" id="tripTo">${esc(SB.label(cur).replace(' (tief)', ''))}'dan nereye?</button></div>`;
+      if (!hasNet) h += `<span class="sub">Canlı ağ bilgisi gelince varış süresi hesaplanır. Şimdilik süreyi seç: </span><div class="chips">${[10, 20, 30, 45].map(m => `<button class="chip" data-tripmin="${m}">${m} dk</button>`).join('')}</div>`;
+      const late = SB.deps.find(d => d.est && (d.est - d.planned) / 60000 >= 10);
+      if (late) { const r = rotarSong(); if (r) h += `<p class="msg rotar">${late.line} ${Math.round((late.est - late.planned) / 60000)} dk rötarlı. Bekleyene şarkı: <button class="chipbtn" data-xplay="${esc(r.id)}">${esc(r.title)}</button></p>`; }
+    }
+    el.innerHTML = h;
+  }
+  function sbClick(t) {
+    if (t.closest('#tripTo')) {
+      SB.openAll(async to => {
+        if (!SB.net.trips.length) await SB.refreshNet(true);
+        const tr = findTrip(SB.cur, to);
+        if (!tr) return toast(`${SB.label(SB.cur)} ile ${SB.label(to)} arasında yakında direkt tren bulamadım`);
+        tripStart(tr);
+      }); return true;
+    }
+    const tm = t.closest('[data-tripmin]'); if (tm) { const m = +tm.dataset.tripmin; tripStart({ key: 'manual', line: 'S', dest: '', dep: Date.now(), arr: Date.now() + m * 60000, from: SB.label(SB.cur), to: m + ' dk sonra', toId: null }); return true; }
+    if (t.closest('#tripEnd')) { tripStop('Yolculuk bitti.'); return true; }
+    if (t.closest('#tripAlarm')) { trip.alarm = !trip.alarm; LS.set('gp-trip', trip); sbRender(); return true; }
+    const xp = t.closest('[data-xplay]'); if (xp) { Engine.unlock(); playSong(xp.dataset.xplay); return true; }
+    return false;
+  }
+
+  // ---- Ben sekmesi bölümleri
+  function acct() {
+    return `<div class="group"><h3>Dinleme</h3>
+        <div class="toggle"><div class="tl"><span>Ses dengeleme</span><span class="sub">Kısık ve yüksek kayıtlar aynı seviyede çalar</span></div><button class="sw" role="switch" data-xfx="normOn" aria-checked="${!!fx.normOn}" aria-label="Ses dengeleme"></button></div>
+        <div class="field"><label>Şarkı geçişi</label><div class="seg" id="xfadeSeg">${[[0, 'Kapalı'], [3, '3 sn'], [6, '6 sn']].map(([v, n]) => `<button data-xfade="${v}" aria-pressed="${(fx.xfade || 0) === v}">${n}</button>`).join('')}</div><span class="sub">Şarkı sonu kısılarak biter, yenisi yumuşak başlar (canlı motorda).</span></div>
+        <div class="toggle"><div class="tl"><span>Gece 3 modu</span><span class="sub">02:00 ile 05:00 arası ekran kararır, ses yumuşar, Gönül Dostu derinleşir</span></div><button class="sw" role="switch" data-xfx="nightOn" aria-checked="${!!fx.nightOn}" aria-label="Gece 3 modu"></button></div>
+        <div class="toggle"><div class="tl"><span>Kilit ekranı kontrolleri</span><span class="sub">İleri, geri ve saniye kaydırma kilit ekranında çalışır. Ses kesilirse kapat.</span></div><button class="sw" role="switch" id="xBridge" aria-checked="${LS.get('gp-bridge', true)}" aria-label="Kilit ekranı kontrolleri"></button></div>
+      </div>
+      <div class="group"><h3>Arabesk karnem</h3>${statsHTML()}</div>
+      <div class="group"><h3>Arşiv araçları</h3>
+        <p class="msg">"telegram-cloud-document" gibi bozuk isimleri düzeltir, "Sanatçı - Şarkı" adlarını ayırır, eksik kapakları internetten bulur.</p>
+        <button class="btn" id="tidyBtn">Akıllı etiketleme</button>
+        <p class="msg" style="margin-top:6px">Bütün şarkıların, kapakların, listelerin ve ayarların tek dosyada. "Dosyalara kaydet" ile iCloud Drive'a koy; telefon değişse de geri yüklersin.</p>
+        <div class="btns"><button class="btn primary" id="bkFull">Tam yedek</button><button class="btn" id="bkLite">Sadece etiketler</button></div>
+        <label class="btn" style="width:100%">Yedekten geri yükle<input type="file" id="bkIn" accept=".tar,application/x-tar" hidden></label></div>
+      <div class="group"><h3>Benim yerlerim</h3>${placesHTML()}</div>`;
+  }
+  function acctClick(e) {
+    const t = e.target;
+    const xf = t.closest('[data-xfx]'); if (xf) { Engine.setFx({ [xf.dataset.xfx]: !fx[xf.dataset.xfx] }); env(); Engine.refresh(); UI.account(); return true; }
+    const xd = t.closest('[data-xfade]'); if (xd) { Engine.setFx({ xfade: +xd.dataset.xfade }); UI.account(); return true; }
+    if (t.closest('#xBridge')) { const v = !LS.get('gp-bridge', true); toast(v ? 'Açılıyor…' : 'Kapatılıyor…'); setTimeout(() => Engine.setBridge(v), 500); return true; }
+    if (t.closest('#tidyBtn')) { tidyOpen(); return true; }
+    if (t.closest('#bkFull')) { backup(true); return true; }
+    if (t.closest('#bkLite')) { backup(false); return true; }
+    if (t.closest('#wrapBtn')) { wrapped(); return true; }
+    if (t.closest('#placeAdd')) { placeAdd(); return true; }
+    const pd = t.closest('[data-xplacedel]'); if (pd) { places.splice(+pd.dataset.xplacedel, 1); LS.set('gp-places', places); UI.account(); return true; }
+    return false;
+  }
+
+  function bind() {
+    $('vAcct').addEventListener('click', e => { acctClick(e); });
+    $('vAcct').addEventListener('change', async e => {
+      if (e.target.id !== 'bkIn' || !e.target.files[0]) return;
+      toast('Yedek açılıyor…');
+      try { const n = await restore(e.target.files[0]); toast(`Geri yüklendi: ${n} yeni şarkı`); } catch (er) { toast(er.message || 'Yedek açılamadı'); }
+      e.target.value = '';
+    });
+    $('xSheet').addEventListener('click', e => {
+      if (e.target.closest('[data-xclose]')) return closeSheet('xSheet');
+      const tg = e.target.closest('[data-tidy]'); if (tg) { const r = tidyRows[+tg.dataset.tidy]; r.ok = !r.ok; tg.setAttribute('aria-checked', r.ok); return; }
+      if (e.target.closest('#tidyGo')) tidyApply();
+    });
+    document.addEventListener('click', e => {
+      const md = e.target.closest('[data-mood]'); if (md) { const ids = moodList(md.dataset.mood); if (!ids.length) return toast('Arşivde şarkı yok'); Engine.unlock(); playSong(ids[0], ids); toast((MOODS.find(m => m.id === md.dataset.mood) || {}).n + ' kaseti takıldı · ' + ids.length + ' şarkı'); return; }
+      if (e.target.closest('#sozCard')) { const t = prompt('Kartta hangi söz olsun?', sozToday()); if (t && t.trim()) card(t.trim()); }
+    });
+    env(); setInterval(env, 60000);
+    sozUI(); vfbCheck(); setInterval(vfbCheck, 30 * 60000);
+    placesWatch();
+    if (trip) { if (Date.now() - trip.arr > 180000) tripStop(); else tripTick(); }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { env(); if (trip) tripTick(); } });
+  }
+  return { damar, nowUI, moodRow, acct, bind, sbRender, sbClick, aiHint, onTime, shareList, importShared, get tripLine() { return trip ? trip.line + ' ' + trip.from + '→' + trip.to : null; } };
+})();
+
 (async () => {
   buildKnobs(); buildFx(); buildEq(); renderModes(); UI.modes();
   await DB.open();
@@ -2726,6 +3337,8 @@ $('search').addEventListener('input', raf(() => { App.query = $('search').value;
   App.queue = App.filtered().map(s => s.id);
   renderFx(); UI.lib(); AI.render(); $('chatAv').innerHTML = TEA; Scene.start();
   setView(App.songs.length ? 'now' : 'lib');
+  X.bind(); X.nowUI(); X.importShared();
+  if (/^#sb$|^#sbahn$/.test(location.hash) || new URLSearchParams(location.search).get('go') === 'sb') setView('sb');
   document.documentElement.classList.remove('booting');
   const back = await Spotify.handleRedirect();
   if (back) { setView('lists'); openSpImport(); }
