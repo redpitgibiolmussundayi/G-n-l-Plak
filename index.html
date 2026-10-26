@@ -411,6 +411,24 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .night3 .scene{filter:brightness(.55) saturate(.8)}.night3 body{background:var(--bg)}
 .night3 .logo{opacity:.75}
 
+/* Ses dalgası */
+.wave{margin:8px -4px 0;height:92px;border-radius:14px;background:linear-gradient(180deg,#1b1015,#140b10);border:1px solid var(--line);overflow:hidden;position:relative}
+.wave canvas{width:100%;height:100%;display:block;touch-action:pan-y;cursor:grab}
+.wtools{margin-top:8px}
+.wrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.wbtn{height:32px;padding:0 11px;border-radius:999px;background:var(--card2);color:var(--muted);font-size:.8rem;font-weight:700;display:inline-flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums}
+.wbtn svg{width:15px;height:15px}.wbtn.on{background:var(--amber-soft);color:var(--amber)}.wbtn.x{padding:0 10px;color:var(--cream)}
+.wbtn.lvl{color:var(--cream)}
+.wlv{position:relative}
+.wmenu{position:absolute;left:0;bottom:40px;z-index:40;background:#241519f5;-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:16px;padding:6px;min-width:210px;box-shadow:0 12px 30px #000c;display:flex;flex-direction:column}
+.wmenu button{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:10px;font-size:.95rem;color:var(--cream);text-align:left}
+.wmenu button.on{background:#ffffff10}.wmenu .ck{width:14px;color:var(--neon);font-weight:800}.wmenu .sub{margin-left:auto;font-size:.75rem;color:var(--muted)}
+.wkey{margin-left:auto;padding-top:3px;font-size:.85rem;color:var(--cream);white-space:nowrap}.wkey .kl{font-family:var(--hand);color:var(--amber);font-size:1rem;margin-right:2px}.wkey .ar{color:var(--muted)}.wkey b{color:var(--neon)}
+.wrow2{display:flex;align-items:flex-start;gap:8px;margin-top:6px;min-height:22px}.wmarks{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0}
+.wrow{flex-wrap:nowrap}
+.wmk{display:inline-flex;align-items:center;background:#5bc0be1f;border:1px solid #5bc0be55;border-radius:999px;font-size:.78rem}
+.wmk button{color:#8fdcda;padding:5px 4px 5px 10px}.wmk .x{padding:5px 9px 5px 4px;color:var(--muted)}
+
 
 /* Geniş ekran: kaset solda sabit, sağda arşiv */
 @media (min-width:920px){
@@ -483,6 +501,14 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
     <div class="damar" id="damar"></div>
     <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Şarkıda ilerle">
     <div class="counter"><span id="cur">0:00</span><span id="dur">0:00</span></div>
+    <div class="wave"><canvas id="waveC" aria-label="Ses dalgası: sağa sola kaydırarak şarkıda ilerle"></canvas></div>
+    <div class="wtools" id="waveTools">
+      <div class="wrow"><div class="wlv"><button id="waveLvl" class="wbtn lvl"></button><div id="waveMenu" class="wmenu" hidden></div></div>
+        <button id="waveA" class="wbtn">A</button><button id="waveB" class="wbtn">B</button><button id="waveX" class="wbtn x" hidden aria-label="Döngüyü kaldır">×</button>
+        <button id="waveMk" class="wbtn" aria-label="İşaret koy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 21V4h11l-2 4 2 4H6"/></svg>+</button>
+</div>
+      <div class="wrow2"><div class="wmarks" id="waveMarks"></div><span class="wkey" id="waveKey"></span></div>
+    </div>
     <div class="transport">
       <button class="tb sm" id="shuffle" aria-pressed="false" aria-label="Karışık"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
       <button class="tb" id="prev" aria-label="Önceki"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.5 5H8v14H5.5zM19 5.5v13L9.5 12z"/></svg></button>

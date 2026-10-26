@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 16;
+const VERSION = 17;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -419,7 +419,7 @@ const Engine = (() => {
   fx.eq = (fx.eq && fx.eq.length === 10) ? fx.eq : FREQS.map(() => 0);
   let mode = LS.get('gp-engine2', 'live') === 'render' ? 'render' : 'live';
   let duration = 0, pos = 0, playing = false, loadedId = null, curBlob = null;
-  const L = { time() {}, end() {}, mode() {}, state() {}, busy() {} };
+  const L = { time() {}, end() {}, mode() {}, state() {}, busy() {}, decoded() {} };
   const diag = [];
   function log(m) { diag.push(new Date().toTimeString().slice(0, 8) + ' ' + m); if (diag.length > 40) diag.shift(); }
   window.addEventListener('error', e => log('JS hata: ' + (e.message || '')));
@@ -570,6 +570,7 @@ const Engine = (() => {
     duration = src.duration; pos = 0;
     const L0 = src.getChannelData(0).slice(), R0 = (src.numberOfChannels > 1 ? src.getChannelData(1) : src.getChannelData(0)).slice();
     fx._norm = loudness(L0, R0);
+    try { L.decoded(id, L0, R0, src.sampleRate); } catch (e) { log('dalga: ' + e.message); }
     await dsp.call({ type: 'load', L: L0, R: R0, sr: src.sampleRate }, [L0.buffer, R0.buffer]);
     if (cancelled()) return false;
     if (origUrl) URL.revokeObjectURL(origUrl);
@@ -610,6 +611,7 @@ const Engine = (() => {
     const a = buf.getChannelData(0).slice(), b = buf.numberOfChannels > 1 ? buf.getChannelData(1).slice() : a.slice();
     duration = buf.duration;
     fx._norm = loudness(a, b); graph.apply(fx, true);
+    try { L.decoded(id, a, b, buf.sampleRate); } catch (e) { log('dalga: ' + e.message); }
     await stretch.addBuffers([a, b], [a.buffer, b.buffer]);
     if (cancelled()) return false;
     stretch.schedule({ input: 0, output: ctx.currentTime, active: false });
@@ -1180,7 +1182,7 @@ async function playSong(id, queue) {
   if (queue) App.queue = queue;
   if (!App.queue.includes(id)) App.queue = App.filtered().map(x => x.id);
   const tok = ++loadToken;
-  App.curId = id; App.loadingId = id;
+  App.curId = id; App.loadingId = id; Wave.song();
   UI.now(); UI.markOn(); UI.lists(); UI.busy('Kaset takılıyor');
   try {
     let blob = s.blob;
@@ -1244,7 +1246,7 @@ function step(dir, auto) {
   const id = nextId(dir); if (id) playSong(id);
 }
 Engine.on('end', () => step(1, true));
-Engine.on('state', () => UI.now());
+Engine.on('state', () => { UI.now(); Wave.state(); });
 Engine.on('busy', t => UI.busy(t));
 Engine.on('mode', () => { toast('iPhone için hazırlamalı motora geçildi. Ton, yankı ve EQ çalışır; ayar değişince ses bir saniyede güncellenir.'); UI.now(); renderFx(); UI.account(); });
 
@@ -1374,6 +1376,7 @@ const Tape = (() => {
       fit($('cArtist'), s ? (s.artist || 'bilinmeyen sanatçı') : 'arşivden bir şarkı seç', w, 20, 14);
       if (!$('cTitle').getComputedTextLength()) label = ''; // görünmezken ölçülemez, görünür olunca yeniden sığdır
     },
+    spin(dSec) { if (reduce) return; const [rl, rr] = radii(), v = dSec * 46; aL += v / rl * 57.3; aR += v / rr * 57.3; frame(performance.now()); },
     sync() { const want = Engine.playing; if (want && !run) { run = true; last = 0; requestAnimationFrame(frame); } else if (!want) { run = false; frame(performance.now()); } }
   };
 })();
@@ -1385,7 +1388,8 @@ function setSeek(t, d) {
   $('miniBar').style.width = (v / 10) + '%';
 }
 let dragging = false;
-Engine.on('time', t => { if (!dragging && Engine.loadedId === App.curId) setSeek(t, Engine.duration); Media.pos(); X.onTime(); });
+Engine.on('time', t => { if (!dragging && Engine.loadedId === App.curId) setSeek(t, Engine.duration); Media.pos(); X.onTime(); Wave.onTime(t); });
+Engine.on('decoded', (id, a, b, sr) => Wave.build(id, a, b, sr));
 
 const UI = {
   now() {
@@ -1906,6 +1910,7 @@ function setView(v) {
   if (v === 'acct') UI.account();
   if (v === 'lists') UI.lists();
   UI.now(); window.scrollTo(0, 0);
+  if (v === 'now') requestAnimationFrame(() => { Wave.draw(); Wave.ui(); });
 }
 $('tNow').onclick = () => setView('now');
 $('tLib').onclick = () => setView('lib');
@@ -2411,7 +2416,7 @@ $('fxReset').onclick = () => { Engine.setFx(Object.assign({}, FX_DEFAULT, { eq: 
 $('npExport').onclick = () => { if (App.curId) openExport(App.curId); else toast('Önce bir şarkı çal'); };
 
 function renderFx() {
-  DIALS.forEach(dialUI);
+  DIALS.forEach(dialUI); Wave.ui();
   $('formant').setAttribute('aria-checked', fx.formant);
   FXCARDS.forEach(c => {
     const on = !!fx[c.on], card = $('fx-' + c.id);
@@ -2808,6 +2813,217 @@ $('list').addEventListener('click', e => {
 $('search').addEventListener('input', raf(() => { App.query = $('search').value; UI.lib(); }));
 
 /* ================= Başlat ================= */
+/* ================= Ses dalgası: kaydırarak sarma, Level hassasiyeti, A-B döngü, işaretler, tonart ================= */
+const Wave = (() => {
+  const RES = 200;                          // saniyede 200 tepe değeri
+  const SPANS = [0, 240, 150, 90, 60, 30, 20, 12, 7, 4, 2.5]; // Level 0 = bütün şarkı (saniye, ekran genişliği)
+  let level = LS.get('gp-wave-lvl', 5), peaks = null, pid = null, dur = 0;
+  let loopA = null, loopB = null, drag = null, preview = null, raf = 0;
+  const cv = $('waveC'), g = cv.getContext('2d');
+
+  // ---- tepe değerleri (şarkı çözülünce bir kere)
+  function build(id, a, b, sr) {
+    const n = Math.ceil(a.length / sr * RES), step = sr / RES, out = new Uint8Array(n);
+    let mx = 0;
+    for (let i = 0; i < n; i++) {
+      const s0 = Math.floor(i * step), s1 = Math.min(a.length, Math.floor((i + 1) * step));
+      let m = 0;
+      for (let j = s0; j < s1; j += 2) { const v = Math.abs(a[j]) + Math.abs(b[j]); if (v > m) m = v; }
+      out[i] = Math.min(255, m * 127.5); if (out[i] > mx) mx = out[i];
+    }
+    // sessiz kayıtlar da görünsün
+    if (mx && mx < 200) { const k = 230 / mx; for (let i = 0; i < n; i++) out[i] = Math.min(255, out[i] * k); }
+    peaks = out; pid = id; dur = a.length / sr;
+    const s = App.byId(id);
+    if (s && !s.key) { try { s.key = Key.detect(a, b, sr); DB.song(s); } catch (e) {} }
+    if (id !== App.curId) return;
+    loopA = loopB = null; ui(); draw();
+  }
+
+  // ---- çizim: ortada sabit okuma kafası, bant altından akar
+  function size() {
+    const r = cv.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1);
+    const w = Math.round(r.width * d), h = Math.round(r.height * d);
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    return { w, h, d };
+  }
+  const span = () => SPANS[level] || Math.max(10, dur);
+  const posNow = () => preview !== null ? preview : (Engine.loadedId === App.curId ? Engine.pos : 0);
+  function draw() {
+    const { w, h, d } = size(); if (!w) return;
+    g.clearRect(0, 0, w, h);
+    const mid = h * 0.46, amp = h * 0.38, sp = span(), pos = posNow(), pxs = w / sp, x0 = w / 2 - pos * pxs;
+    // A-B bölgesi
+    if (loopA !== null) {
+      const xa = x0 + loopA * pxs, xb = loopB !== null ? x0 + loopB * pxs : w / 2;
+      g.fillStyle = 'rgba(244,177,62,.16)'; g.fillRect(Math.min(xa, xb), 0, Math.abs(xb - xa), h);
+      g.fillStyle = '#f4b13e'; g.fillRect(xa - d, 0, 2 * d, h); if (loopB !== null) g.fillRect(xb - d, 0, 2 * d, h);
+      g.font = `700 ${10 * d}px -apple-system, sans-serif`; g.fillText('A', xa + 3 * d, 11 * d); if (loopB !== null) g.fillText('B', xb + 3 * d, 11 * d);
+    }
+    if (peaks && pid === App.curId) {
+      const bw = Math.max(2 * d, Math.round(2.5 * d)), gap = Math.max(1, Math.round(d));
+      for (let x = 0; x < w; x += bw + gap) {
+        const t0 = (x - x0) / pxs, t1 = (x + bw - x0) / pxs;
+        if (t1 < 0 || t0 > dur) continue;
+        const i0 = Math.max(0, Math.floor(t0 * RES)), i1 = Math.min(peaks.length, Math.max(i0 + 1, Math.ceil(t1 * RES)));
+        let m = 0; for (let i = i0; i < i1; i++) if (peaks[i] > m) m = peaks[i];
+        const hh = Math.max(d, m / 255 * amp);
+        g.fillStyle = t0 < pos ? '#ff3f6d' : 'rgba(245,231,208,.28)';
+        g.fillRect(x, mid - hh, bw, hh * 2);
+      }
+      // zaman çizgisi
+      const tick = sp > 120 ? 30 : sp > 40 ? 10 : sp > 15 ? 5 : sp > 5 ? 1 : 0.5;
+      g.fillStyle = 'rgba(179,154,144,.55)'; g.font = `${9 * d}px -apple-system, sans-serif`; g.textAlign = 'center';
+      for (let t = Math.max(0, Math.ceil(((-x0) / pxs) / tick) * tick); t <= Math.min(dur, (w - x0) / pxs); t += tick) {
+        const x = x0 + t * pxs; g.fillRect(x, h - 14 * d, 1, 4 * d);
+        if ((x - w / 2) ** 2 > (26 * d) ** 2 && Math.abs(t - Math.round(t)) < 1e-6) g.fillText(fmt(t / (fx.rate || 1)), x, h - 2 * d);
+      }
+      g.textAlign = 'left';
+    } else {
+      g.fillStyle = 'rgba(179,154,144,.6)'; g.font = `${12 * d}px -apple-system, sans-serif`; g.textAlign = 'center';
+      g.fillText(App.curId ? 'ses dalgası hazırlanıyor…' : 'bir şarkı çal', w / 2, mid + 4 * d); g.textAlign = 'left';
+    }
+    // işaretler
+    const s = App.byId(App.curId);
+    for (const mk of (s && s.marks) || []) {
+      const x = x0 + mk.t * pxs; if (x < -40 || x > w + 40) continue;
+      g.fillStyle = '#5bc0be'; g.fillRect(x - d * 0.75, 0, 1.5 * d, h - 16 * d);
+      g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 9 * d, 4 * d); g.lineTo(x, 8 * d); g.fill();
+    }
+    // okuma kafası
+    g.fillStyle = '#f5e7d0'; g.fillRect(w / 2 - d, 0, 2 * d, h - 16 * d);
+    g.beginPath(); g.arc(w / 2, 3 * d, 4 * d, 0, 7); g.fill();
+  }
+  function loop() { raf = 0; if (!visible()) return; draw(); if (Engine.playing || drag) raf = requestAnimationFrame(loop); }
+  const visible = () => !$('vNow').hidden || matchMedia('(min-width:920px)').matches;
+  function kick() { if (!raf) raf = requestAnimationFrame(loop); }
+
+  // ---- kaydırma (sadece yatay; dikey kaydırma sayfaya kalır)
+  cv.addEventListener('pointerdown', e => {
+    if (!App.curId || Engine.loadedId !== App.curId) return;
+    drag = { x: e.clientX, y: e.clientY, t: Engine.pos, moved: false, id: e.pointerId, last: Engine.pos };
+    preview = Engine.pos; kick();
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x;
+    if (!drag.moved && Math.abs(dx) < 6) return;
+    if (!drag.moved) { drag.moved = true; try { cv.setPointerCapture(e.pointerId); } catch (er) {} }
+    const r = cv.getBoundingClientRect();
+    preview = Math.max(0, Math.min(Engine.duration, drag.t - dx * span() / r.width));
+    Tape.spin(preview - drag.last); drag.last = preview;
+    $('cur').textContent = fmt(preview / fx.rate);
+    const sk = $('seek'); sk.value = Engine.duration ? preview / Engine.duration * 1000 : 0; rangeFill(sk);
+  });
+  function end(e) {
+    if (!drag || (e && e.pointerId !== drag.id)) return;
+    const r = cv.getBoundingClientRect();
+    let t = preview;
+    if (!drag.moved && e && e.type === 'pointerup') t = Math.max(0, Math.min(Engine.duration, Engine.pos + (e.clientX - r.left - r.width / 2) * span() / r.width)); // dokunma: o noktaya atla
+    drag = null; preview = null;
+    if (t !== null && isFinite(t)) Engine.seek(t);
+    kick();
+  }
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', e => { if (drag) { drag = null; preview = null; kick(); } });
+
+  // ---- A-B döngü
+  function onTime(t) {
+    if (loopA !== null && loopB !== null && Engine.playing && !drag && t >= loopB) Engine.seek(loopA);
+    if (visible() && !raf) draw();
+  }
+  function setA() { loopA = Engine.pos; if (loopB !== null && loopB <= loopA + 0.2) loopB = null; ui(); draw(); }
+  function setB() {
+    if (loopA === null) return toast('Önce A noktasını koy');
+    if (Engine.pos <= loopA + 0.3) return toast('B noktası A\'dan sonra olmalı');
+    loopB = Engine.pos; ui(); draw(); toast(`Döngü: ${fmt(loopA / fx.rate)} – ${fmt(loopB / fx.rate)}`);
+  }
+  function clearLoop() { loopA = loopB = null; ui(); draw(); }
+
+  // ---- işaretler
+  async function addMark() {
+    const s = App.byId(App.curId); if (!s || Engine.loadedId !== s.id) return;
+    const n = prompt('İşaretin adı', 'Nakarat'); if (n === null) return;
+    s.marks = (s.marks || []).concat({ t: Engine.pos, n: (n.trim() || 'İşaret').slice(0, 24) }).sort((a, b) => a.t - b.t);
+    await DB.song(s); ui(); draw();
+  }
+  async function delMark(i) { const s = App.byId(App.curId); if (!s || !s.marks) return; s.marks.splice(i, 1); await DB.song(s); ui(); draw(); }
+
+  // ---- arayüz
+  function ui() {
+    $('waveLvl').innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2M8.5 11h5M11 8.5v5"/></svg>Level ${level}`;
+    $('waveA').classList.toggle('on', loopA !== null); $('waveB').classList.toggle('on', loopB !== null);
+    $('waveA').textContent = loopA !== null ? 'A ' + fmt(loopA / fx.rate) : 'A';
+    $('waveB').textContent = loopB !== null ? 'B ' + fmt(loopB / fx.rate) : 'B';
+    $('waveX').hidden = loopA === null;
+    const s = App.byId(App.curId);
+    $('waveMarks').innerHTML = ((s && s.marks) || []).map((m, i) => `<span class="wmk"><button data-mk="${i}">${esc(m.n)} · ${fmt(m.t / fx.rate)}</button><button class="x" data-mkdel="${i}" aria-label="İşareti sil">×</button></span>`).join('');
+    const k = s && s.key;
+    $('waveKey').innerHTML = k ? `<span class="kl">ton</span> ${Key.name(k)}${Math.abs(fx.semi) > 0.05 ? ` <span class="ar">→</span> <b>${Key.name(k, fx.semi)}</b>` : ''}` : '';
+  }
+  function menu() {
+    const m = $('waveMenu');
+    if (!m.hidden) { m.hidden = true; return; }
+    m.innerHTML = SPANS.map((sp, i) => `<button data-lvl="${i}" class="${i === level ? 'on' : ''}"><span class="ck">${i === level ? '✓' : ''}</span>Level ${i}<span class="sub">${i === 0 ? 'bütün şarkı' : sp >= 60 ? Math.round(sp / 60) + ' dk' : sp + ' sn'}</span></button>`).join('');
+    m.hidden = false;
+  }
+  $('waveTools').addEventListener('click', e => {
+    const t = e.target;
+    if (t.closest('#waveLvl')) return menu();
+    const lv = t.closest('[data-lvl]'); if (lv) { level = +lv.dataset.lvl; LS.set('gp-wave-lvl', level); $('waveMenu').hidden = true; ui(); draw(); return; }
+    if (t.closest('#waveA')) return setA();
+    if (t.closest('#waveB')) return setB();
+    if (t.closest('#waveX')) return clearLoop();
+    if (t.closest('#waveMk')) return addMark();
+    const mk = t.closest('[data-mk]'); if (mk) { const s = App.byId(App.curId); if (s && s.marks[+mk.dataset.mk]) { Engine.seek(s.marks[+mk.dataset.mk].t); kick(); } return; }
+    const md = t.closest('[data-mkdel]'); if (md) return delMark(+md.dataset.mkdel);
+  });
+  document.addEventListener('click', e => { if (!e.target.closest('#waveMenu') && !e.target.closest('#waveLvl')) $('waveMenu').hidden = true; });
+  window.addEventListener('resize', () => draw());
+  function song() { if (pid !== App.curId) { peaks = null; loopA = loopB = null; } ui(); draw(); }
+  function state() { ui(); kick(); }
+  return { build, onTime, song, state, draw, kick, ui };
+})();
+
+/* ================= Tonart tahmini (Krumhansl-Schmuckler, kroma) ================= */
+const Key = (() => {
+  const N = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const MAJ = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+  const MIN = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+  function fft(re, im) {
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+    for (let len = 2; len <= n; len <<= 1) {
+      const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+      for (let i = 0; i < n; i += len) { let cr = 1, ci = 0;
+        for (let k = 0; k < len / 2; k++) { const ur = re[i + k], ui = im[i + k], xr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci, xi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+          re[i + k] = ur + xr; im[i + k] = ui + xi; re[i + k + len / 2] = ur - xr; im[i + k + len / 2] = ui - xi; const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t; } }
+    }
+  }
+  function detect(a, b, sr) {
+    const dec = Math.max(1, Math.round(sr / 11025)), fs = sr / dec, F = 4096;
+    const total = Math.floor(a.length / dec), from = Math.floor(total * 0.1), to = Math.min(total, from + Math.floor(fs * 90));
+    const chroma = new Float64Array(12), win = new Float32Array(F);
+    for (let i = 0; i < F; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / F);
+    const binNote = new Int8Array(F / 2).fill(-1);
+    for (let k = 1; k < F / 2; k++) { const f = k * fs / F; if (f < 60 || f > 2000) continue; binNote[k] = ((Math.round(12 * Math.log2(f / 440)) + 69) % 12 + 12) % 12; }
+    const re = new Float32Array(F), im = new Float32Array(F);
+    for (let p = from; p + F < to; p += F) {
+      for (let i = 0; i < F; i++) { const j = (p + i) * dec; re[i] = (a[j] + b[j]) * 0.5 * win[i]; im[i] = 0; }
+      fft(re, im);
+      for (let k = 1; k < F / 2; k++) if (binNote[k] >= 0) chroma[binNote[k]] += Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+    }
+    const corr = (x, y) => { const mx = x.reduce((s, v) => s + v, 0) / 12, my = y.reduce((s, v) => s + v, 0) / 12; let n = 0, dx = 0, dy = 0; for (let i = 0; i < 12; i++) { n += (x[i] - mx) * (y[i] - my); dx += (x[i] - mx) ** 2; dy += (y[i] - my) ** 2; } return n / Math.sqrt(dx * dy + 1e-12); };
+    let best = { r: -2 };
+    for (let root = 0; root < 12; root++) for (const [prof, minor] of [[MAJ, false], [MIN, true]]) {
+      const rot = Array.from({ length: 12 }, (_, i) => prof[(i - root + 12) % 12]);
+      const r = corr(Array.from(chroma), rot); if (r > best.r) best = { r, root, minor };
+    }
+    return { root: best.root, minor: best.minor, conf: Math.round(best.r * 100) / 100 };
+  }
+  const name = (k, semi = 0) => { const r = ((k.root + Math.round(semi)) % 12 + 12) % 12; return N[r] + (k.minor ? 'm' : ''); };
+  return { detect, name };
+})();
+
 /* ================= Ekstralar: damar, kader kasetleri, istatistik, yedek, yolculuk ================= */
 const X = (() => {
   const nrm = s => String(s || '').toLocaleLowerCase('tr').normalize('NFC');
