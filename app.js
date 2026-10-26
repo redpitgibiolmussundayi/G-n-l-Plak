@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 15;
+const VERSION = 16;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -1458,7 +1458,7 @@ const UI = {
       return;
     }
     const sp = Spotify.enabled ? (Spotify.connected ? `<button class="btn sp" id="spImport">Spotify'dan aktar</button>` : `<button class="btn sp" id="spConnect">Spotify'ı bağla</button>`) : '';
-    v.innerHTML = `<div class="toprow"><div><span class="kicker">derdimin</span><h1>Listeleri</h1></div><div class="acts">${sp}</div></div>` + X.moodRow() +
+    v.innerHTML = `<div class="toprow"><div><span class="kicker">derdimin</span><h1>Listeleri</h1></div><div class="acts">${sp}</div></div>` +
       (App.lists.length ? `<div class="cards">${App.lists.map(L => {
         const ready = L.tracks.filter(t => App.match(t)).length;
         return `<button class="card" data-list-open="${esc(L.id)}"><span class="img" style="${L.image ? `background-image:url('${esc(L.image)}')` : ''}">${L.image ? '' : miniTape(L.name)}</span>
@@ -1714,7 +1714,7 @@ const SB = (() => {
     try { L_ = await loadLeaflet(); } catch (e) { el.innerHTML = '<p class="msg" style="padding:16px">Harita yüklenemedi. İnterneti kontrol et.</p>'; return; }
     if (map || !$('sbMap')) return;
     map = L_.map(el, { zoomControl: false, attributionControl: true, preferCanvas: true, tap: true }).setView([48.79, 9.18], 10);
-    L_.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 18, attribution: '© OpenStreetMap · © CARTO' }).addTo(map);
+    L_.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, className: 'osmdark', attribution: '© OpenStreetMap' }).addTo(map);
     L_.control.zoom({ position: 'bottomright' }).addTo(map);
     lineLayer = L_.layerGroup().addTo(map); stopLayer = L_.layerGroup().addTo(map); trainLayer = L_.layerGroup().addTo(map);
     drawNet(); moveTrains();
@@ -1782,7 +1782,6 @@ const SB = (() => {
     v.innerHTML = `<div class="toprow"><div><span class="kicker">canlı</span><h1>S-Bahn</h1></div>
         <div class="acts"><button class="iconbtn" id="sbRefresh" aria-label="Yenile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div></div>
       <div class="sbstops" id="sbChips"></div>
-      <div class="sbcard sbtrip" id="sbTrip"></div>
       <div class="sbcard sbmapcard"><div class="sbhead"><b>Canlı harita</b><span class="sub" id="sbCount"></span></div><div id="sbMap"></div></div>
       <div class="sbcard"><div class="sbhead"><b>Hat durumu</b><span class="sub">yoldaki trenlere göre, şu an</span></div><div class="sblines" id="sbLines"></div><p class="sbmood" id="sbMood" hidden></p></div>
       <div class="sbcard"><div class="sbhead"><b id="sbFlowT"></b><span class="sub" id="sbFlowS"></span></div><div id="sbFlow"></div></div>
@@ -2308,10 +2307,10 @@ ${arc || 'boş'}`;
       if (said[s.id]) { render(); return; }
       busy = true; live = { t: '' }; render();
       try {
-        const msgs = history(); const note = `(Sistem notu: "${s.title}"${s.artist ? ' – ' + s.artist : ''} şimdi başladı. Bu şarkıya, saate ya da Stuttgart'ın şu anki haline dair 1-2 cümlelik kısa, samimi bir lafla sohbet aç. Araç kullanma.)`;
+        const msgs = history(); const note = `(Sistem notu: "${s.title}"${s.artist ? ' – ' + s.artist : ''} şimdi başladı. Bu şarkıya ya da saate dair 1-2 cümlelik kısa, samimi bir lafla sohbet aç. Şarkının hikâyesi, yılı, filmi gibi emin olmadığın hiçbir bilgiyi uydurma; bilmiyorsan sadece duyguyu söyle. Hava ya da manzara betimleme. Araç kullanma.)`;
         if (msgs.length && msgs[msgs.length - 1].role === 'user') msgs[msgs.length - 1].content += '\n' + note; else msgs.push({ role: 'user', content: note });
-        const out = await converse(msgs, { noTools: true, model: MODELS.hizli, max: 180, onText: t => { live.t = t; renderLive(); } });
-        if (out.text) { log.push({ r: 'u', t: `(${s.title} başladı)`, hide: true }, { r: 'a', t: out.text }); said[s.id] = 1; const k = Object.keys(said); if (k.length > 400) delete said[k[0]]; LS.set('gp-ai-said', said); }
+        const out = await converse(msgs, { noTools: true, model: MODELS.hizli, max: 180, onText: t => { if (App.curId === s.id) { live.t = t; renderLive(); } } });
+        if (out.text && App.curId === s.id) { log.push({ r: 'u', t: `(${s.title} başladı)`, hide: true }, { r: 'a', t: out.text, id: s.id }); said[s.id] = 1; const k = Object.keys(said); if (k.length > 400) delete said[k[0]]; LS.set('gp-ai-said', said); }
       } catch (e) {}
       busy = false; live = null; save(); render();
     }, 3500);
@@ -2335,7 +2334,7 @@ ${arc || 'boş'}`;
     const c = $('gdCard');
     if (c) {
       if (!key) c.innerHTML = `<div class="gdav">${TEA}</div><div class="gdtx"><b>Gönül Dostu</b><span>Şarkılara laf atan, seninle dertleşen, istersen kaseti senin yerine yöneten bir dost. Açmak için Ben sekmesinden anahtarını ekle.</span></div><button class="chipbtn" id="gdSetup">Kur</button>`;
-      else { const l = lastLine(); c.innerHTML = `<div class="gdav">${TEA}</div><div class="gdtx"><b>Gönül Dostu</b><span id="gdLine">${busy && live && live.t ? esc(live.t) : busy ? 'düşünüyor…' : l ? esc(l.t) : 'Bir şarkı aç, lafa girelim.'}</span></div><button class="chipbtn" id="gdOpen">Sohbet</button>`; }
+      else { const l = lastLine(); c.innerHTML = `<div class="gdav">${TEA}</div><div class="gdtx"><b>Gönül Dostu</b><span id="gdLine">${busy && live && live.t ? esc(live.t) : busy ? 'düşünüyor…' : l && !(l.id && l.id !== App.curId) ? esc(l.t) : App.curId ? 'Dinliyorum. Bir derdin varsa yaz.' : 'Bir şarkı aç, lafa girelim.'}</span></div><button class="chipbtn" id="gdOpen">Sohbet</button>`; }
     }
     const box = $('chatLog'); if (!box || $('chatSheet').hidden) return;
     const html = log.map(bubble).join('') + (busy ? '<div class="cmsg gd" id="chatLive"></div>' : '');
@@ -3278,7 +3277,6 @@ const X = (() => {
         <div class="toggle"><div class="tl"><span>Gece 3 modu</span><span class="sub">02:00 ile 05:00 arası ekran kararır, ses yumuşar, Gönül Dostu derinleşir</span></div><button class="sw" role="switch" data-xfx="nightOn" aria-checked="${!!fx.nightOn}" aria-label="Gece 3 modu"></button></div>
         <div class="toggle"><div class="tl"><span>Kilit ekranı kontrolleri</span><span class="sub">İleri, geri ve saniye kaydırma kilit ekranında çalışır. Ses kesilirse kapat.</span></div><button class="sw" role="switch" id="xBridge" aria-checked="${LS.get('gp-bridge', true)}" aria-label="Kilit ekranı kontrolleri"></button></div>
       </div>
-      <div class="group"><h3>Arabesk karnem</h3>${statsHTML()}</div>
       <div class="group"><h3>Arşiv araçları</h3>
         <p class="msg">"telegram-cloud-document" gibi bozuk isimleri düzeltir, "Sanatçı - Şarkı" adlarını ayırır, eksik kapakları internetten bulur.</p>
         <button class="btn" id="tidyBtn">Akıllı etiketleme</button>
@@ -3319,9 +3317,9 @@ const X = (() => {
       if (e.target.closest('#sozCard')) { const t = prompt('Kartta hangi söz olsun?', sozToday()); if (t && t.trim()) card(t.trim()); }
     });
     env(); setInterval(env, 60000);
-    sozUI(); vfbCheck(); setInterval(vfbCheck, 30 * 60000);
+    vfbCheck(); setInterval(vfbCheck, 30 * 60000);
     placesWatch();
-    if (trip) { if (Date.now() - trip.arr > 180000) tripStop(); else tripTick(); }
+    if (trip) tripStop();
     document.addEventListener('visibilitychange', () => { if (!document.hidden) { env(); if (trip) tripTick(); } });
   }
   return { damar, nowUI, moodRow, acct, bind, sbRender, sbClick, aiHint, onTime, shareList, importShared, get tripLine() { return trip ? trip.line + ' ' + trip.from + '→' + trip.to : null; } };
