@@ -66,9 +66,9 @@ h1{font-family:var(--slab);font-weight:400;font-size:2rem;margin:4px 0 2px;lette
 /* ===== Kaset ===== */
 .deck{position:relative;margin:8px auto 0;max-width:430px}
 .cassette{width:100%;height:auto;filter:drop-shadow(0 18px 30px #000a)}
-.cassette .lt{font-family:var(--hand);font-weight:700;fill:var(--ink)}
-.cassette .la{font-family:var(--hand);font-weight:600;fill:#6b4a3a}
-.cassette .side{font-family:var(--slab);fill:var(--neon)}
+.cassette .lt{font-family:var(--cfont,var(--hand));font-weight:700;fill:var(--cink,var(--ink))}
+.cassette .la{font-family:var(--cfont,var(--hand));font-weight:600;fill:var(--cink2,#6b4a3a)}
+.cassette .side{font-family:var(--slab);fill:var(--cs1,var(--neon))}
 .busy{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#130b0fe6;border:1px solid var(--line);color:var(--amber);font-family:var(--hand);font-size:1.25rem;padding:6px 16px;border-radius:999px;white-space:nowrap;pointer-events:none}
 .busy::after{content:"";display:inline-block;width:1.2em;text-align:left;animation:dots 1.2s steps(4) infinite}
 @keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
@@ -429,6 +429,61 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .wmk{display:inline-flex;align-items:center;background:#5bc0be1f;border:1px solid #5bc0be55;border-radius:999px;font-size:.78rem}
 .wmk button{color:#8fdcda;padding:5px 4px 5px 10px}.wmk .x{padding:5px 9px 5px 4px;color:var(--muted)}
 
+/* Gece lambası */
+.lampbtn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:999px;background:var(--card2);color:var(--amber);font-size:.82rem;font-weight:700}
+.lampbtn svg{width:16px;height:16px}
+.lamp{position:fixed;inset:0;z-index:95;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top,0px) + 8vh) 24px calc(env(safe-area-inset-bottom,0px) + 7vh);
+  background:radial-gradient(120% 70% at 50% 40%,rgba(10,6,9,.05),rgba(10,6,9,.55) 70%,rgba(10,6,9,.85));-webkit-user-select:none;user-select:none}
+.lamp[hidden]{display:none}
+.lc{text-align:center;color:#f5e7d0;text-shadow:0 2px 24px #000}
+.lclock{font-family:var(--slab);font-size:clamp(64px,22vw,150px);line-height:1;letter-spacing:.02em;opacity:.86;font-variant-numeric:tabular-nums}
+.ldate{font-family:var(--hand);color:var(--amber);font-size:1.4rem;margin-top:6px;opacity:.85}
+.lsong{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;color:#f5e7d0;text-shadow:0 2px 16px #000;max-width:90%}
+.lsong b{font-family:var(--hand);font-size:2rem;font-weight:700;line-height:1.1}.lsong span{color:#d9c6b8;font-size:1rem}
+.lctl{display:flex;align-items:center;gap:22px;margin-top:-10px}.lctl[hidden]{display:none}
+.lctl button{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;background:#ffffff14;color:#f5e7d0;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.lctl button svg{width:26px;height:26px}.lctl .pl{width:68px;height:68px;background:var(--neon);color:#fff}
+.lctl .cl{width:auto;border-radius:999px;padding:0 18px;height:44px;font-weight:700;font-size:.9rem}
+.lhint{position:absolute;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);margin:0;font-size:.75rem;color:#ffffff55}
+.lampon{overflow:hidden}.lampon body{overflow:hidden}
+.lampon .layout,.lampon .nav,.lampon .mini,.lampon .toast{visibility:hidden}
+.lampon .scene{position:fixed;top:0;height:100vh;z-index:90}
+.lampon .scene .frame{inset:auto;height:100%;min-width:100%;aspect-ratio:1672/941;top:0;left:66%;transform:translateX(-66%)}
+.lampon .scene .veil{background:linear-gradient(180deg,rgba(10,6,9,.35),rgba(10,6,9,.1) 40%,rgba(10,6,9,.5))}
+
+/* Kaset süsleme */
+.skprev{max-width:300px;margin:0 auto}.skprev svg{width:100%;height:auto}
+.skgrp{display:flex;flex-direction:column;gap:8px}.skgrp>span{font-size:.8rem;color:var(--muted);font-weight:600;letter-spacing:.04em}
+.skrow{display:flex;flex-wrap:wrap;gap:8px}
+.sk{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 12px 0 6px;border-radius:999px;background:var(--card2);color:var(--cream);font-size:.82rem;border:2px solid transparent}
+.sk.on{border-color:var(--neon)}.sk i{width:24px;height:24px;border-radius:50%;display:block;box-shadow:inset 0 0 0 1px #ffffff30}
+.sk.f{padding:0 14px}
+
+/* Yatay mod (telefon yan) */
+@media (orientation:landscape) and (max-height:540px){
+  body{padding-block:6px 10px}
+  .brand,.layout>.side,.mini,.nav{display:none!important}
+  .has-scene .scene{position:fixed;top:0;height:100vh}
+  .scene .frame{inset:auto!important;height:100%;min-width:100%;aspect-ratio:1672/941;top:0;left:62%;transform:translateX(-62%)}
+  .scene .veil,.scene.day .veil{background:linear-gradient(90deg,rgba(19,11,15,.5) 0,rgba(19,11,15,.25) 40%,rgba(19,11,15,.62) 62%,rgba(19,11,15,.78) 100%)!important}
+  #vNow,#vNow[hidden]{display:grid!important;grid-template-columns:minmax(0,.85fr) minmax(0,1.35fr);column-gap:28px;row-gap:2px;align-items:center;align-content:center;min-height:calc(100vh - 16px);max-width:1000px;margin:0 auto}
+  #vNow>*{display:none}
+  #vNow>.deck{display:block;grid-column:1;grid-row:1/span 7;margin:0!important;max-width:none}
+  #vNow .cassette{max-height:78vh}
+  .layout{display:block!important;max-width:none!important}
+  #vNow{position:static!important}
+  #vNow>.np{display:block;grid-column:2;grid-row:1;text-align:left;margin-top:0;min-height:0}
+  #vNow>#seek{display:block;grid-column:2;grid-row:2}
+  #vNow>.counter{display:flex;grid-column:2;grid-row:3}
+  #vNow>.wave{display:block;grid-column:2;grid-row:4;height:min(96px,24vh);margin-top:4px}
+  #vNow .np .t{font-size:1.15rem}#vNow .np .a{font-size:.85rem}
+  #vNow>#seek{height:26px}
+  #vNow .wrow2{min-height:0;margin-top:4px}#vNow .wbtn{height:28px}
+  #vNow>.transport{margin:0!important}#vNow .tb.play{width:58px;height:58px}#vNow .tb{width:42px;height:42px}
+  #vNow>.wtools{display:block;grid-column:2;grid-row:5}
+  #vNow>.transport{display:flex;grid-column:2;grid-row:6;margin-top:4px}
+}
+
 
 /* Geniş ekran: kaset solda sabit, sağda arşiv */
 @media (min-width:920px){
@@ -467,17 +522,17 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         <defs>
           <clipPath id="win"><rect x="108" y="96" width="184" height="58" rx="10"/></clipPath>
           <clipPath id="cov"><rect x="318" y="30" width="48" height="48" rx="4"/></clipPath>
-          <linearGradient id="body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a252c"/><stop offset="1" stop-color="#21141a"/></linearGradient>
+          <linearGradient id="body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--cb1,#3a252c)"/><stop offset="1" style="stop-color:var(--cb2,#21141a)"/></linearGradient>
           <pattern id="teeth" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="2" height="4" fill="#00000040"/></pattern>
         </defs>
-        <rect x="2" y="2" width="396" height="248" rx="18" fill="url(#body)" stroke="#4d333b" stroke-width="2"/>
+        <rect x="2" y="2" width="396" height="248" rx="18" fill="url(#body)" style="stroke:var(--cst,#4d333b)" stroke-width="2"/>
         <rect x="10" y="10" width="380" height="232" rx="13" fill="none" stroke="#ffffff10"/>
         <g fill="#130b0f" stroke="#5a3d45"><circle cx="20" cy="20" r="5"/><circle cx="380" cy="20" r="5"/><circle cx="20" cy="232" r="5"/><circle cx="380" cy="232" r="5"/><circle cx="200" cy="232" r="5"/></g>
-        <rect x="24" y="18" width="352" height="152" rx="9" fill="#efe1c4"/>
+        <rect x="24" y="18" width="352" height="152" rx="9" style="fill:var(--clab,#efe1c4)"/>
         <rect x="24" y="18" width="352" height="152" rx="9" fill="url(#teeth)" opacity=".18"/>
-        <rect x="24" y="86" width="352" height="9" fill="#ff3f6d"/>
-        <rect x="24" y="95" width="352" height="6" fill="#f4b13e"/>
-        <rect x="24" y="152" width="352" height="6" fill="#f4b13e"/>
+        <rect x="24" y="86" width="352" height="9" style="fill:var(--cs1,#ff3f6d)"/>
+        <rect x="24" y="95" width="352" height="6" style="fill:var(--cs2,#f4b13e)"/>
+        <rect x="24" y="152" width="352" height="6" style="fill:var(--cs2,#f4b13e)"/>
         <text class="side" x="36" y="62" font-size="34">A</text>
         <text class="lt" id="cTitle" x="70" y="50" font-size="27">Plak koy, gönlünü aç</text>
         <text class="la" id="cArtist" x="70" y="76" font-size="20">şarkı seç</text>
@@ -492,7 +547,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         </g>
         <g id="hubL" transform="translate(148 125)"><circle r="13" fill="#efe1c4"/><circle r="5.5" fill="#130b0f"/><g fill="#130b0f"><rect x="-1.6" y="-11" width="3.2" height="4"/><rect x="-1.6" y="-11" width="3.2" height="4" transform="rotate(60)"/><rect x="-1.6" y="-11" width="3.2" height="4" transform="rotate(120)"/><rect x="-1.6" y="-11" width="3.2" height="4" transform="rotate(180)"/><rect x="-1.6" y="-11" width="3.2" height="4" transform="rotate(240)"/><rect x="-1.6" y="-11" width="3.2" height="4" transform="rotate(300)"/></g></g>
         <g id="hubR" transform="translate(252 125)"><circle r="13" fill="#efe1c4"/><circle r="5.5" fill="#130b0f"/><g fill="#130b0f"><rect x="-1.6" y="-11" width="3.2" height="4"/><rect x="-1.6" y="-11" width="3.2" height="4" transform="rotate(60)"/><rect x="-1.6" y="-11" width="3.2" height="4" transform="rotate(120)"/><rect x="-1.6" y="-11" width="3.2" height="4" transform="rotate(180)"/><rect x="-1.6" y="-11" width="3.2" height="4" transform="rotate(240)"/><rect x="-1.6" y="-11" width="3.2" height="4" transform="rotate(300)"/></g></g>
-        <path d="M86 250 L104 192 H296 L314 250" fill="#2c1b21" stroke="#4d333b" stroke-width="2"/>
+        <path d="M86 250 L104 192 H296 L314 250" style="fill:var(--cb2,#2c1b21);stroke:var(--cst,#4d333b)" stroke-width="2"/>
         <g fill="#130b0f"><circle cx="138" cy="226" r="6"/><circle cx="262" cy="226" r="6"/><rect x="176" y="208" width="14" height="10" rx="2"/><rect x="210" y="208" width="14" height="10" rx="2"/></g>
       </svg>
       <div class="busy" id="busy" hidden></div>
@@ -520,7 +575,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
     <div class="vfb" id="vfb" hidden></div>
     <div class="gdcard" id="gdCard"></div>
 
-    <div class="sechead"><h2>Modlar</h2><span class="kicker">ruhuna göre</span></div>
+    <div class="sechead"><h2>Modlar</h2><button class="lampbtn" id="lampBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Gece lambası</button></div>
     <div class="modes" id="modes"></div>
 
     <div class="sechead"><h2>Ses masası</h2><span class="kicker" id="engineTag"></span></div>
@@ -645,6 +700,20 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 </div></div></div>
 
 <div class="sheet" id="xSheet" hidden><div class="sheet-card"><div class="sheet-inner" id="xBody"></div></div></div>
+
+<div class="lamp" id="lamp" hidden>
+  <div class="lc"><div class="lclock" id="lClock"></div><div class="ldate" id="lDate"></div></div>
+  <div class="lsong"><b id="lT"></b><span id="lA"></span></div>
+  <div class="lctl" id="lCtl" hidden>
+    <button id="lPrev" aria-label="Önceki"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.5 5H8v14H5.5zM19 5.5v13L9.5 12z"/></svg></button>
+    <button id="lPlay" class="pl" aria-label="Çal/Duraklat"></button>
+    <button id="lNext" aria-label="Sonraki"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5.5v13l9.5-6.5zM16 5h2.5v14H16z"/></svg></button>
+    <button id="lClose" class="cl">Kapat</button>
+  </div>
+  <p class="lhint" id="lHint">kontroller için ekrana dokun</p>
+</div>
+
+<div class="sheet" id="skinSheet" hidden><div class="sheet-card"><div class="sheet-inner" id="skinBody"></div></div></div>
 
 <script src="config.js"></script>
 <script src="app.js" defer></script>

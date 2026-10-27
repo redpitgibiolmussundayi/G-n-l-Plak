@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 17;
+const VERSION = 18;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -671,7 +671,7 @@ const Engine = (() => {
       session: navigator.audioSession ? navigator.audioSession.type : 'yok', ua: navigator.userAgent.replace(/^Mozilla\/5\.0 /, ''), events: diag.slice() };
   }
   return {
-    fx, unlock, load, play, pause, seek, setFx, setMode, info, log, setDuck, refresh, get bridge() { return !!bridge; }, setBridge(v) { LS.set('gp-bridge', v); location.reload(); },
+    fx, unlock, load, play, pause, seek, setFx, setMode, info, log, setDuck, refresh, get bridge() { return !!bridge; }, get bridgeActive() { return !!(bridge && mode === 'live' && el && el.srcObject); }, setBridge(v) { LS.set('gp-bridge', v); location.reload(); },
     on(ev, fn) { L[ev] = fn; },
     get mode() { return mode; }, get duration() { return duration; }, get pos() { return mode === 'render' && seg ? curPos() : pos; },
     get playing() { return playing; }, get loadedId() { return loadedId; }
@@ -998,6 +998,20 @@ const Scene = (() => {
     if (on) { g.fillStyle = 'rgba(255,60,60,1)'; g.fillRect(cx - 1, top - 1, 2, 2); glow(cx, top, 4, '255,40,40', 0.6); }
     g.globalCompositeOperation = 'source-over';
   }
+  let beatOn = LS.get('gp-beat', true);
+  function towerBeat(t, T) {
+    const [cx, top, head, base] = T, b = Wave.beat(), en = Wave.energy();
+    g.globalCompositeOperation = 'lighter';
+    // gövde boyunca vuruşla yükselen ışık
+    const hgt = base - head, lit = hgt * Math.min(1, 0.25 + en * 0.9);
+    for (let y = base; y > base - lit; y -= 3) { const a = (0.05 + 0.25 * b) * (1 - (base - y) / hgt * 0.4); g.fillStyle = `rgba(255,214,150,${a.toFixed(3)})`; g.fillRect(cx - 1, y, 3, 2); }
+    // sepet
+    g.fillStyle = `rgba(255,238,200,${(0.35 + 0.6 * b).toFixed(2)})`; g.fillRect(cx - 4, head - 2, 9, 5);
+    glow(cx, head, 10 + 26 * b, '255,215,140', 0.25 + 0.55 * b);
+    if (b > 0.55) glow(cx, head, 46 * b, '255,90,140', 0.18 * b);
+    if ((t % 1500) < 750) { g.fillStyle = 'rgba(255,60,60,1)'; g.fillRect(cx - 1, top - 1, 2, 2); glow(cx, top, 4, '255,40,40', 0.6); }
+    g.globalCompositeOperation = 'source-over';
+  }
   function fmtLights(t, T) {
     const [, , , , fx, ftop, fplat] = T;
     g.globalCompositeOperation = 'lighter';
@@ -1047,7 +1061,7 @@ const Scene = (() => {
       g.globalCompositeOperation = 'source-over';
     }
     // kuleler
-    if (T && (sc.night || sc.dusk)) { towerShow(t, T); fmtLights(t, T); }
+    if (T && (sc.night || sc.dusk)) { if (beatOn && Engine.playing) towerBeat(t, T); else towerShow(t, T); fmtLights(t, T); }
     // sis
     if (kind === 'fog') {
       fogT += dt / 1000;
@@ -1141,7 +1155,7 @@ const Scene = (() => {
     get mode() { return mode; }, get wxOn() { return wxOn; }, get wxKind() { return wxKind(); },
     setMode(m) { mode = m; LS.set('gp-scene', m); curFile = null; apply(); },
     setWx(v) { wxOn = v; LS.set('gp-wx-on', v); if (v) fetchWx(true); apply(); },
-    get artUrl() { return curFile; },
+    get artUrl() { return curFile; }, get beatOn() { return beatOn; }, setBeat(v) { beatOn = v; LS.set('gp-beat', v); },
     describe() { const i = info(); return `Stuttgart'ta şu an ${i.season}, ${i.scene}${i.wx ? ', hava ' + i.wx : ''}. Bugün gün doğumu ${i.rise}, batımı ${i.set}. Ay %${i.moon} dolu.`; }
   };
 })();
@@ -1246,14 +1260,14 @@ function step(dir, auto) {
   const id = nextId(dir); if (id) playSong(id);
 }
 Engine.on('end', () => step(1, true));
-Engine.on('state', () => { UI.now(); Wave.state(); });
+Engine.on('state', () => { UI.now(); Wave.state(); Media.state(); if (Lamp.on) Lamp.upd(); });
 Engine.on('busy', t => UI.busy(t));
 Engine.on('mode', () => { toast('iPhone için hazırlamalı motora geçildi. Ton, yankı ve EQ çalışır; ayar değişince ses bir saniyede güncellenir.'); UI.now(); renderFx(); UI.account(); });
 
 /* Kilit ekranı ve Kontrol Merkezi */
 const Media = (() => {
   const ok = 'mediaSession' in navigator;
-  let artFor = null, artUrl = null, extra = null;
+  let artFor = null, artUrl = null, extra = null, rebindFn = () => {};
   // Kapak yoksa: o anki Stuttgart manzarası + kaset etiketi
   async function makeArt(s) {
     try {
@@ -1287,6 +1301,7 @@ const Media = (() => {
   const pos = raf(() => {
     if (!ok) return;
     try { navigator.mediaSession.playbackState = Engine.loadedId && Engine.playing ? 'playing' : 'paused'; } catch (e) {}
+    state();
     if (!Engine.duration || Engine.loadedId !== App.curId) return;
     const r = fx.rate || 1;
     try { navigator.mediaSession.setPositionState({ duration: Engine.duration / r, playbackRate: 1, position: Math.min(Engine.pos, Engine.duration) / r }); } catch (e) {}
@@ -1298,11 +1313,20 @@ const Media = (() => {
     h('previoustrack', () => step(-1));
     h('nexttrack', () => step(1));
     h('seekbackward', null); h('seekforward', null);   // iOS ±10 sn yerine önceki/sonraki şarkı göstersin
+    rebindFn = () => {
+      const br = Engine.bridgeActive;
+      h('previoustrack', () => step(-1)); h('nexttrack', () => step(1));
+      // canlı ses <audio> üstünden akarken iOS ±10 tuşlarını gösterebiliyor: onlar da şarkı değiştirsin
+      h('seekbackward', br ? () => step(-1) : null); h('seekforward', br ? () => step(1) : null);
+      h('seekto', d => { if (d && isFinite(d.seekTime)) { Engine.seek(d.seekTime * (fx.rate || 1)); pos(); } });
+    };
     h('seekto', d => { if (d && isFinite(d.seekTime)) { Engine.seek(d.seekTime * (fx.rate || 1)); pos(); } });
     h('stop', () => { Engine.pause(); UI.now(); });
   }
   function setExtra(t) { if (t === extra) return; extra = t; meta(); }
-  return { meta, pos, setExtra };
+  let wasPlaying = false;
+  function state() { const p = Engine.playing; if (p && !wasPlaying) { rebindFn(); setTimeout(rebindFn, 600); } wasPlaying = p; }
+  return { meta, pos, setExtra, state };
 })();
 
 /* ================= Simgeler ================= */
@@ -1368,7 +1392,7 @@ const Tape = (() => {
   }
   return {
     label(s, url) {
-      const key = s ? s.id + '|' + s.title + '|' + s.artist + '|' + (url || '') : '';
+      const key = (s ? s.id + '|' + s.title + '|' + s.artist + '|' + (url || '') : '') + '|' + ($('cassette').dataset.font || '');
       if (key === label) return; label = key;
       const cv = $('cCover'), w = url ? 240 : 292;
       cv.innerHTML = url ? `<image href="${esc(url)}" x="318" y="30" width="48" height="48" preserveAspectRatio="xMidYMid slice"/>` : '';
@@ -1394,6 +1418,7 @@ Engine.on('decoded', (id, a, b, sr) => Wave.build(id, a, b, sr));
 const UI = {
   now() {
     const s = App.byId(App.curId), url = Img.url(s);
+    Skin.apply(s);
     Tape.label(s, url);
     $('npT').textContent = s ? s.title : 'Henüz kaset takılmadı';
     $('npA').textContent = s ? [s.artist || 'Bilinmeyen sanatçı', s.album, s.year].filter(Boolean).join(' · ') : 'Arşivden bir şarkıya dokun';
@@ -1508,7 +1533,8 @@ const UI = {
       <div class="group"><h3>Stuttgart manzarası</h3>
         <p class="msg">${(() => { const i = Scene.info(); return `Bugün Stuttgart'ta gün doğumu <strong>${i.rise}</strong>, batımı <strong>${i.set}</strong>. Ay %${i.moon} dolu.${i.wx ? ' Hava: ' + esc(i.wx) + '.' : ''}`; })()}</p>
         <div class="chips" id="sceneChips">${[['auto', 'Gerçek saat ve hava'], ...Object.entries(Scene.PICK), ['off', 'Kapalı']].map(([k, n]) => `<button class="chip${Scene.mode === k ? ' on' : ''}" data-scene="${k}">${n}</button>`).join('')}</div>
-        <div class="toggle"><div class="tl"><span>Canlı Stuttgart havası</span><span class="sub">Yağmur yağıyorsa manzarada da yağar · Hava verisi: Open-Meteo</span></div><button class="sw" id="wxOn" role="switch" aria-checked="${Scene.wxOn}" aria-label="Canlı hava"></button></div></div>
+        <div class="toggle"><div class="tl"><span>Canlı Stuttgart havası</span><span class="sub">Yağmur yağıyorsa manzarada da yağar · Hava verisi: Open-Meteo</span></div><button class="sw" id="wxOn" role="switch" aria-checked="${Scene.wxOn}" aria-label="Canlı hava"></button></div>
+        <div class="toggle"><div class="tl"><span>Fernsehturm ritme göre parlasın</span><span class="sub">Akşam ve gece sahnesinde kulenin ışığı çalan şarkının vuruşlarıyla yanıp söner</span></div><button class="sw" id="beatOn" role="switch" aria-checked="${Scene.beatOn}" aria-label="Ritme göre Fernsehturm"></button></div></div>
       ${X.acct()}
       <div class="group"><h3>Ses motoru</h3>
         <div class="seg" id="engSeg"><button data-m="live" aria-pressed="${d.mode === 'live'}">Canlı</button><button data-m="render" aria-pressed="${d.mode === 'render'}">Hazırlamalı</button></div>
@@ -2445,6 +2471,7 @@ function songMenu(id) {
   const s = App.byId(id); if (!s) return;
   menu([
     { label: 'Etiketi ve kapağı düzenle', icon: ICON.edit, run: () => openEdit(id) },
+    { label: 'Kaseti süsle', icon: ICON.tape, run: () => Skin.open(id) },
     { label: 'Dışa aktar', icon: ICON.export, run: () => openExport(id) },
     { label: 'Şarkıyı sil', icon: ICON.trash, cls: 'danger', keep: true, run: b => {
       if (!b.dataset.sure) { b.dataset.sure = 1; b.querySelector('span').textContent = 'Emin misin? Tekrar bas'; return; }
@@ -2721,6 +2748,7 @@ $('vAcct').addEventListener('click', async e => {
   }
   else if (e.target.closest('[data-scene]')) { Scene.setMode(e.target.closest('[data-scene]').dataset.scene); UI.account(); }
   else if (id === 'wxOn') { Scene.setWx(!Scene.wxOn); e.target.setAttribute('aria-checked', Scene.wxOn); }
+  else if (id === 'beatOn') { Scene.setBeat(!Scene.beatOn); e.target.setAttribute('aria-checked', Scene.beatOn); }
   else if (e.target.closest('[data-aim]')) { AI.setModel(e.target.closest('[data-aim]').dataset.aim); UI.account(); }
   else if (id === 'aiWeb') { AI.setWeb(!AI.web); e.target.setAttribute('aria-checked', AI.web); }
   else if (e.target.closest('[data-forget]')) { AI.forget(+e.target.closest('[data-forget]').dataset.forget); UI.account(); }
@@ -2818,7 +2846,20 @@ const Wave = (() => {
   const RES = 200;                          // saniyede 200 tepe değeri
   const SPANS = [0, 240, 150, 90, 60, 30, 20, 12, 7, 4, 2.5]; // Level 0 = bütün şarkı (saniye, ekran genişliği)
   let level = LS.get('gp-wave-lvl', 5), peaks = null, pid = null, dur = 0;
-  let loopA = null, loopB = null, drag = null, preview = null, raf = 0;
+  let loopA = null, loopB = null, drag = null, preview = null, raf = 0, bass = null, bassMax = 1, beatV = 0, beatT = 0;
+  // o anki ritim vuruşu (0..1): bas, son 0.8 sn ortalamasına göre ne kadar yükseldi
+  function beat() {
+    const now = performance.now(), dt = Math.min(0.2, (now - beatT) / 1000); beatT = now;
+    beatV *= Math.exp(-dt * 6);
+    if (!bass || pid !== App.curId || !Engine.playing) return beatV;
+    const i = Math.floor(Engine.pos * 100); if (i < 2 || i >= bass.length) return beatV;
+    let avg = 0; const n = Math.min(80, i); for (let j = i - n; j < i; j++) avg += bass[j]; avg /= n;
+    const e = Math.max(bass[i], bass[i - 1]), rise = (e / (avg + 1e-6) - 1.08) / 0.5, lvl = e / bassMax;
+    const v = Math.max(0, Math.min(1, rise)) * (0.45 + 0.55 * lvl);
+    if (v > beatV) beatV = v;
+    return beatV;
+  }
+  const energy = () => { if (!bass || pid !== App.curId) return 0; const i = Math.floor(Engine.pos * 100); return i >= 0 && i < bass.length ? bass[i] / bassMax : 0; };
   const cv = $('waveC'), g = cv.getContext('2d');
 
   // ---- tepe değerleri (şarkı çözülünce bir kere)
@@ -2831,6 +2872,11 @@ const Wave = (() => {
       for (let j = s0; j < s1; j += 2) { const v = Math.abs(a[j]) + Math.abs(b[j]); if (v > m) m = v; }
       out[i] = Math.min(255, m * 127.5); if (out[i] > mx) mx = out[i];
     }
+    // bas zarfı (ritim için): 150 Hz altı, saniyede 100 değer
+    { const k = 1 - Math.exp(-2 * Math.PI * 150 / sr), m = Math.ceil(a.length / sr * 100), st = sr / 100, e = new Float32Array(m); let y = 0, emax = 0;
+      for (let i = 0; i < m; i++) { const s0 = Math.floor(i * st), s1 = Math.min(a.length, Math.floor((i + 1) * st)); let acc = 0;
+        for (let j = s0; j < s1; j++) { y += ((a[j] + b[j]) * 0.5 - y) * k; acc += y < 0 ? -y : y; } e[i] = acc / Math.max(1, s1 - s0); if (e[i] > emax) emax = e[i]; }
+      bass = e; bassMax = emax || 1; }
     // sessiz kayıtlar da görünsün
     if (mx && mx < 200) { const k = 230 / mx; for (let i = 0; i < n; i++) out[i] = Math.min(255, out[i] * k); }
     peaks = out; pid = id; dur = a.length / sr;
@@ -2981,7 +3027,7 @@ const Wave = (() => {
   window.addEventListener('resize', () => draw());
   function song() { if (pid !== App.curId) { peaks = null; loopA = loopB = null; } ui(); draw(); }
   function state() { ui(); kick(); }
-  return { build, onTime, song, state, draw, kick, ui };
+  return { build, onTime, song, state, draw, kick, ui, beat, energy };
 })();
 
 /* ================= Tonart tahmini (Krumhansl-Schmuckler, kroma) ================= */
@@ -3022,6 +3068,129 @@ const Key = (() => {
   }
   const name = (k, semi = 0) => { const r = ((k.root + Math.round(semi)) % 12 + 12) % 12; return N[r] + (k.minor ? 'm' : ''); };
   return { detect, name };
+})();
+
+/* ================= Gece lambası ================= */
+const Lamp = (() => {
+  let on = false, lock = null, tick = 0, hideT = 0;
+  async function wake() { try { if ('wakeLock' in navigator) { lock = await navigator.wakeLock.request('screen'); lock.addEventListener && lock.addEventListener('release', () => { lock = null; }); } } catch (e) { lock = null; } }
+  function upd() {
+    if (!on) return;
+    const d = new Date();
+    $('lClock').textContent = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    $('lDate').textContent = d.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' });
+    const s = App.byId(App.curId);
+    $('lT').textContent = s ? s.title : 'Gönül Plak'; $('lA').textContent = s ? (s.artist || '') : 'bir şarkı çal';
+    $('lPlay').innerHTML = Engine.playing ? ICON.pause : ICON.play;
+  }
+  function ctl(show) {
+    clearTimeout(hideT); $('lCtl').hidden = !show; $('lHint').hidden = show;
+    if (show) hideT = setTimeout(() => ctl(false), 5000);
+  }
+  function open() {
+    on = true; window.scrollTo(0, 0);
+    document.documentElement.classList.add('lampon'); $('lamp').hidden = false; ctl(false); upd();
+    clearInterval(tick); tick = setInterval(upd, 5000); wake();
+    try { if (document.documentElement.requestFullscreen && !/iPhone|iPad/.test(navigator.userAgent)) document.documentElement.requestFullscreen().catch(() => {}); } catch (e) {}
+  }
+  function close() {
+    on = false; document.documentElement.classList.remove('lampon'); $('lamp').hidden = true; clearInterval(tick); clearTimeout(hideT);
+    try { lock && lock.release(); } catch (e) {} lock = null;
+    try { document.fullscreenElement && document.exitFullscreen(); } catch (e) {}
+    requestAnimationFrame(() => { Wave.draw(); UI.now(); });
+  }
+  $('lampBtn').onclick = open;
+  $('lamp').addEventListener('click', e => {
+    const t = e.target;
+    if (t.closest('#lClose')) return close();
+    if (t.closest('#lPrev')) { Engine.unlock(); step(-1); ctl(true); return setTimeout(upd, 300); }
+    if (t.closest('#lNext')) { Engine.unlock(); step(1); ctl(true); return setTimeout(upd, 300); }
+    if (t.closest('#lPlay')) { Engine.unlock(); toggle(); ctl(true); return setTimeout(upd, 200); }
+    ctl($('lCtl').hidden);
+  });
+  document.addEventListener('visibilitychange', () => { if (on && !document.hidden && !lock) wake(); });
+  return { open, close, upd, get on() { return on; } };
+})();
+
+/* ================= Kaset süsleme (şarkıya, sanatçıya ya da hepsine) ================= */
+const Skin = (() => {
+  const BODY = { bordo: ['Bordo', '#3a252c', '#21141a', '#4d333b'], siyah: ['Siyah', '#2b2b30', '#141417', '#3d3d44'], duman: ['Duman', '#545966', '#2c2f38', '#6a7080'], krem: ['Krem', '#d8cdb9', '#a99c86', '#c3b7a2'],
+    kirmizi: ['Kırmızı', '#8c1d2b', '#560e18', '#a83443'], lacivert: ['Lacivert', '#22335a', '#121c33', '#33497a'], yesil: ['Yeşil', '#22473a', '#10261d', '#335e4d'], beyaz: ['Beyaz', '#ecebe7', '#c9c7c0', '#d9d7d0'] };
+  const LABEL = { krem: ['Krem', '#efe1c4', '#2b1b14', '#6b4a3a'], beyaz: ['Beyaz', '#f8f6f1', '#1f1f22', '#5b5b63'], sari: ['Sarı', '#f2d36a', '#3a2a00', '#6b5410'], pembe: ['Pembe', '#f6cad5', '#4a1426', '#7a3a4e'],
+    mavi: ['Mavi', '#cfe3f3', '#13263a', '#3e5a74'], siyah: ['Siyah', '#1c1c1f', '#f5e7d0', '#b9a48f'] };
+  const STRIPE = { gazino: ['Gazino', '#ff3f6d', '#f4b13e'], vfb: ['Kırmızı beyaz', '#e30613', '#ffffff'], deniz: ['Deniz', '#1ba6df', '#f39a1e'], orman: ['Orman', '#5fae3b', '#f4b13e'], gece: ['Gece', '#8e63c9', '#f15bb5'], sade: ['Sade', 'transparent', 'transparent'] };
+  const FONT = { el: ['El yazısı', 'var(--hand)'], kalin: ['Kalın', 'var(--slab)'], daktilo: ['Daktilo', '"American Typewriter","Courier New",monospace'], sade: ['Sade', 'var(--body)'] };
+  const DEF = { body: 'bordo', label: 'krem', stripe: 'gazino', font: 'el' };
+  let data = LS.get('gp-skin', { def: DEF, art: {}, song: {} });
+  const ak = a => String(a || '').toLocaleLowerCase('tr').trim();
+  function of(s) {
+    const base = Object.assign({}, DEF, data.def || {});
+    if (s && s.artist && data.art[ak(s.artist)]) Object.assign(base, data.art[ak(s.artist)]);
+    if (s && data.song[s.id]) Object.assign(base, data.song[s.id]);
+    return base;
+  }
+  function paint(el, k) {
+    const b = BODY[k.body] || BODY.bordo, l = LABEL[k.label] || LABEL.krem, st = STRIPE[k.stripe] || STRIPE.gazino, f = FONT[k.font] || FONT.el;
+    const set = (n, v) => el.style.setProperty(n, v);
+    set('--cb1', b[1]); set('--cb2', b[2]); set('--cst', b[3]); set('--clab', l[1]); set('--cink', l[2]); set('--cink2', l[3]);
+    set('--cs1', st[1] === 'transparent' ? l[1] : st[1]); set('--cs2', st[2] === 'transparent' ? l[1] : st[2]); set('--cfont', f[1]);
+    el.dataset.font = k.font;
+  }
+  let last = '';
+  function apply(s) { const k = of(s), key = JSON.stringify(k); if (key === last) return; last = key; paint($('cassette'), k); }
+  // ---- düzenleme penceresi
+  let ed = null;
+  function preview() {
+    const src = $('cassette').outerHTML.replace(/id="(body|win|cov|teeth)"/g, 'id="$1P"').replace(/url\(#(body|win|cov|teeth)\)/g, 'url(#$1P)').replace(/ id="(cassette|cTitle|cArtist|cCover|tapeL|tapeR|hubL|hubR)"/g, '');
+    return src;
+  }
+  function open(id) {
+    const s = App.byId(id); if (!s) return;
+    const scope = data.song[s.id] ? 'song' : s.artist && data.art[ak(s.artist)] ? 'art' : 'song';
+    ed = { s, k: of(s), scope }; render(); openSheet('skinSheet');
+  }
+  function render() {
+    const { s, k, scope } = ed;
+    const grp = (title, key, map, sw) => `<div class="skgrp"><span>${title}</span><div class="skrow">${Object.entries(map).map(([id, v]) => `<button class="sk${k[key] === id ? ' on' : ''}${sw ? '' : ' f'}" data-sk="${key}" data-v="${id}">${sw ? `<i style="background:${sw(v)}"></i>` : ''}<span${key === 'font' ? ` style="font-family:${v[1]};font-size:1rem"` : ''}>${v[0]}</span></button>`).join('')}</div></div>`;
+    $('skinBody').innerHTML = `<h3>Kaseti süsle</h3>
+      <div class="skprev" id="skPrev">${preview()}</div>
+      ${grp('GÖVDE', 'body', BODY, v => `linear-gradient(${v[1]},${v[2]})`)}
+      ${grp('ETİKET', 'label', LABEL, v => v[1])}
+      ${grp('ŞERİT', 'stripe', STRIPE, v => v[1] === 'transparent' ? '#efe1c4' : `linear-gradient(${v[1]} 55%,${v[2]} 55%)`)}
+      ${grp('YAZI', 'font', FONT, null)}
+      <div class="field"><label>Nereye uygulansın?</label><div class="seg" id="skScope">
+        <button data-scope="song" aria-pressed="${scope === 'song'}">Bu şarkı</button>${s.artist ? `<button data-scope="art" aria-pressed="${scope === 'art'}">${esc(s.artist).slice(0, 18)}</button>` : ''}<button data-scope="def" aria-pressed="${scope === 'def'}">Bütün kasetler</button></div></div>
+      <div class="btns"><button class="btn primary" id="skSave">Kaydet</button><button class="btn" id="skReset">Özelleştirmeyi kaldır</button></div>`;
+    const pv = $('skPrev').firstElementChild; paint(pv, k);
+    const t = pv.querySelector('.lt'), a = pv.querySelector('.la'); if (t) t.textContent = s.title; if (a) a.textContent = s.artist || '';
+  }
+  $('skinSheet').addEventListener('click', e => {
+    const t = e.target, b = t.closest('[data-sk]');
+    if (b) { ed.k[b.dataset.sk] = b.dataset.v; render(); return; }
+    const sc = t.closest('[data-scope]'); if (sc) { ed.scope = sc.dataset.scope; render(); return; }
+    if (t.closest('#skSave')) {
+      const { s, k, scope } = ed;
+      if (scope === 'def') { data.def = Object.assign({}, k); }
+      else if (scope === 'art') { data.art[ak(s.artist)] = Object.assign({}, k); delete data.song[s.id]; }
+      else data.song[s.id] = Object.assign({}, k);
+      LS.set('gp-skin', data); last = ''; closeSheet('skinSheet'); UI.now(); toast('Kaset süslendi');
+      return;
+    }
+    if (t.closest('#skReset')) {
+      const { s, scope } = ed;
+      if (scope === 'def') data.def = Object.assign({}, DEF); else if (scope === 'art') delete data.art[ak(s.artist)]; else delete data.song[s.id];
+      LS.set('gp-skin', data); last = ''; closeSheet('skinSheet'); UI.now(); toast('Varsayılan kasete dönüldü');
+    }
+  });
+  return { apply, open };
+})();
+
+/* Telefon yan çevrilince yeniden çiz */
+(() => {
+  const mq = matchMedia('(orientation:landscape) and (max-height:540px)');
+  const re = () => requestAnimationFrame(() => { UI.now(); Wave.draw(); Wave.ui(); });
+  mq.addEventListener ? mq.addEventListener('change', re) : mq.addListener(re);
+  window.addEventListener('orientationchange', () => setTimeout(re, 300));
 })();
 
 /* ================= Ekstralar: damar, kader kasetleri, istatistik, yedek, yolculuk ================= */
