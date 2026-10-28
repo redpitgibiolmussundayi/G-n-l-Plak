@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 18;
+const VERSION = 21;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -229,6 +229,7 @@ const FX_DEFAULT = {
   karaokeOn: false, karaoke: 0.9,
   weatherOn: false, weatherAmt: 0.5,
   normOn: true, xfade: 4, nightOn: true,
+  crowdOn: false, crowdAmt: 0.6,
   preset: 'orijinal'
 };
 const RVB_TYPES = { oda: 'Oda', gazino: 'Gazino', hamam: 'Hamam', konser: 'Konser' };
@@ -276,6 +277,48 @@ function noiseBuf(ctx, kind) {
   }
   return b;
 }
+/* Konser kalabalığı: uğultu, alkış, ıslık ve "yuuh" coşkusu (kayıt değil, anında üretilir) */
+const CROWD_CACHE = new Map();
+function crowdBufs(ctx) {
+  const sr = ctx.sampleRate; if (CROWD_CACHE.has(sr)) return CROWD_CACHE.get(sr);
+  let rnd = 31337; const rand = () => (rnd = (rnd * 16807) % 2147483647) / 2147483647;
+  const bp = (f, q) => { const w = 2 * Math.PI * f / sr, al = Math.sin(w) / (2 * q), a0 = 1 + al; return { b0: al / a0, b2: -al / a0, a1: -2 * Math.cos(w) / a0, a2: (1 - al) / a0, x1: 0, x2: 0, y1: 0, y2: 0 }; };
+  const run = (f, x) => { const y = f.b0 * x + f.b2 * f.x2 - f.a1 * f.y1 - f.a2 * f.y2; f.x2 = f.x1; f.x1 = x; f.y2 = f.y1; f.y1 = y; return y; };
+  function clap(d, at, amp) { const w = Math.floor(sr * (0.004 + rand() * 0.01)); let hp = 0, prev = 0; for (let j = 0; j < w && at + j < d.length; j++) { const n = rand() * 2 - 1; hp = 0.9 * (hp + n - prev); prev = n; d[at + j] += hp * amp * Math.exp(-j / (w * 0.3)); } }
+  function whistle(d, at, amp) {
+    const dur = 0.35 + rand() * 0.6, n = Math.floor(sr * dur), f0 = 1800 + rand() * 1400, f1 = f0 * (rand() < 0.5 ? 1.25 : 0.8), vib = 5 + rand() * 3; let ph = 0;
+    for (let j = 0; j < n && at + j < d.length; j++) { const u = j / n, f = f0 + (f1 - f0) * Math.min(1, u * 1.6) + Math.sin(j / sr * vib * 6.28) * 40; ph += 6.2832 * f / sr;
+      const env = Math.min(1, u * 12) * Math.min(1, (1 - u) * 6); d[at + j] += Math.sin(ph) * amp * env * (0.85 + 0.15 * (rand() * 2 - 1)); }
+  }
+  function babble(len, loud) {
+    const b = ctx.createBuffer(2, len, sr);
+    for (let c = 0; c < 2; c++) {
+      const d = b.getChannelData(c), fl = [180, 320, 560, 900, 1500, 2600].map(f => ({ f: bp(f * (0.9 + rand() * 0.2), 1.4), e: 0, t: 0, g: 0.6 + rand() * 0.6 }));
+      for (let i = 0; i < len; i++) {
+        let v = 0; const n = rand() * 2 - 1;
+        for (const x of fl) { if (i % 256 === 0) x.t = Math.pow(rand(), 2) * (loud ? 1.6 : 1); x.e += (x.t - x.e) * 0.0015; v += run(x.f, n) * x.e * x.g; }
+        d[i] = v * (loud ? 0.55 : 0.42);
+      }
+      // döngü sınırı yumuşasın
+      const xf = Math.floor(sr * 0.3); for (let i = 0; i < xf; i++) { const k = i / xf; d[i] = d[i] * k + d[len - xf + i] * (1 - k); }
+    }
+    return b;
+  }
+  const bedLen = Math.floor(sr * 9), bed = babble(bedLen, false);
+  for (let c = 0; c < 2; c++) { const d = bed.getChannelData(c); for (let k = 0; k < 9 * 7; k++) clap(d, Math.floor(rand() * (bedLen - 900)), 0.08 + rand() * 0.06); if (rand() < 0.9) whistle(d, Math.floor(rand() * (bedLen - sr)), 0.025); }
+  const cheers = [];
+  for (let v = 0; v < 3; v++) {
+    const len = Math.floor(sr * (4.5 + v)), ch = babble(len, true);
+    for (let c = 0; c < 2; c++) {
+      const d = ch.getChannelData(c);
+      for (let i = 0; i < len; i++) { const u = i / len; d[i] *= Math.min(1, u * 5) * Math.pow(1 - u, 1.4) * 1.6; }
+      const claps = Math.floor(len / sr * 160); for (let k = 0; k < claps; k++) { const at = Math.floor(Math.pow(rand(), 1.3) * (len - 900)); clap(d, at, (0.18 + rand() * 0.2) * Math.pow(1 - at / len, 1.2)); }
+      for (let k = 0; k < 2 + v; k++) whistle(d, Math.floor(rand() * len * 0.6), 0.06 + rand() * 0.04);
+    }
+    cheers.push(ch);
+  }
+  const out = { bed, cheers }; CROWD_CACHE.set(sr, out); return out;
+}
 function buildGraph(ctx) {
   const n = {}, G = () => ctx.createGain(), nyq = ctx.sampleRate / 2 - 200;
   n.input = G(); n.pre = G(); n.fade = G();
@@ -287,6 +330,9 @@ function buildGraph(ctx) {
   n.kHi = ctx.createBiquadFilter(); n.kHi.type = 'highpass'; n.kHi.frequency.value = 7000;
   n.kHiG = G(); n.kHiG.gain.value = 0;
   n.rainSrc = ctx.createBufferSource(); n.rainSrc.buffer = noiseBuf(ctx, 'rain'); n.rainSrc.loop = true;
+  n.crowd = G(); n.crowd.gain.value = 0; n.crowdSwell = G(); n.crowdSwell.gain.value = 1; n.cheerG = G(); n.cheerG.gain.value = 0;
+  n.crowdHall = ctx.createConvolver(); n.crowdWet = G(); n.crowdWet.gain.value = 0.5; n.crowdPan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+  n.crowdSrc = null; n.crowdOn = false;
   n.rainLp = ctx.createBiquadFilter(); n.rainLp.type = 'lowpass'; n.rainLp.frequency.value = 5200; n.rain = G(); n.rain.gain.value = 0;
   n.eq = FREQS.map((f, i) => { const b = ctx.createBiquadFilter(); b.type = i === 0 ? 'lowshelf' : i === FREQS.length - 1 ? 'highshelf' : 'peaking'; b.frequency.value = Math.min(f, nyq); b.Q.value = 1.1; return b; });
   n.hp = ctx.createBiquadFilter(); n.hp.type = 'highpass'; n.hp.Q.value = 0.7; n.hp.frequency.value = 10;
@@ -321,6 +367,7 @@ function buildGraph(ctx) {
   n.hissSrc.connect(n.hissHp).connect(n.hiss).connect(n.master);
   n.crackSrc.connect(n.crack).connect(n.master);
   n.rainSrc.connect(n.rainLp).connect(n.rain).connect(n.master);
+  n.crowdSwell.connect(n.crowd); n.cheerG.connect(n.crowd); n.crowd.connect(n.master); n.crowd.connect(n.crowdHall); n.crowdHall.connect(n.crowdWet).connect(n.master);
   n.master.connect(n.lim); n.lim.connect(n.fade); n.fade.connect(n.output);
 
   let irType = null;
@@ -351,15 +398,27 @@ function buildGraph(ctx) {
     set(n.input.gain, norm * (k ? 1 + k * 0.35 : 1));
     if (fx._night) { set(n.lp.frequency, Math.min(lp, 8500, nyq)); }
     set(n.rain.gain, fx.weatherOn && fx._rain ? 0.09 * fx.weatherAmt * fx._rain : 0);
+    // konser coşkusu
+    if (fx.crowdOn && !n.crowdSrc) {
+      const cb = crowdBufs(ctx); n.crowdSrc = ctx.createBufferSource(); n.crowdSrc.buffer = cb.bed; n.crowdSrc.loop = true; n.crowdSrc.connect(n.crowdSwell);
+      if (!n.crowdHall.buffer) n.crowdHall.buffer = makeIR(ctx, 'konser');
+      try { n.crowdSrc.start(n.started ? ctx.currentTime : 0); } catch (e) {}
+    }
+    set(n.crowd.gain, fx.crowdOn ? 0.55 * fx.crowdAmt : 0);
+    set(n.cheerG.gain, fx.crowdOn ? 1 : 0);
     set(n.master.gain, (fx.radioOn ? 1.6 : 1) * (fx._night ? 0.82 : 1));
   };
+  // coşku dalgası: şarkı güçlendikçe kalabalık da yükselir; ara ara alkış + ıslık patlaması
+  n.swell = v => { try { n.crowdSwell.gain.setTargetAtTime(0.55 + 1.1 * Math.max(0, Math.min(1, v)), ctx.currentTime, 0.6); } catch (e) {} };
+  n.cheer = (k = 0, when = 0) => { if (!fx_crowd()) return; try { const b = crowdBufs(ctx).cheers[k % 3], s = ctx.createBufferSource(); s.buffer = b; s.connect(n.cheerG); s.start(when || ctx.currentTime); } catch (e) {} };
+  let fx_crowd = () => true; n.bindFx = f => { fx_crowd = () => f().crowdOn; };
   n.setFade = v => { try { n.fade.gain.setTargetAtTime(Math.max(0, Math.min(1, v)), ctx.currentTime, 0.06); } catch (e) {} };
-  n.start = (when = 0) => { [n.wowLfo, n.flLfo, n.panLfo, n.hissSrc, n.crackSrc, n.rainSrc].forEach(s => { try { s.start(when); } catch (e) {} }); };
-  n.stop = () => { [n.wowLfo, n.flLfo, n.panLfo, n.hissSrc, n.crackSrc, n.rainSrc].forEach(s => { try { s.stop(); } catch (e) {} }); };
+  n.start = (when = 0) => { n.started = true; [n.wowLfo, n.flLfo, n.panLfo, n.hissSrc, n.crackSrc, n.rainSrc, n.crowdSrc].forEach(s => { try { s && s.start(when); } catch (e) {} }); };
+  n.stop = () => { [n.wowLfo, n.flLfo, n.panLfo, n.hissSrc, n.crackSrc, n.rainSrc, n.crowdSrc].forEach(s => { try { s.stop(); } catch (e) {} }); };
   return n;
 }
 const fxNeedsStretch = fx => Math.abs(fx.rate - 1) > 0.001 || Math.abs(fx.semi) > 0.001;
-const fxNeutral = fx => !fxNeedsStretch(fx) && !(fx.eqOn && fx.eq.some(Boolean)) && !(fx.preOn && fx.pre) && !fx.rvbOn && !fx.echoOn && !fx.tapeOn && !fx.vinylOn && !fx.radioOn && !fx.d8On && !fx.karaokeOn && !(fx.weatherOn && fx._rain) && !fx._night;
+const fxNeutral = fx => !fxNeedsStretch(fx) && !(fx.eqOn && fx.eq.some(Boolean)) && !(fx.preOn && fx.pre) && !fx.rvbOn && !fx.echoOn && !fx.tapeOn && !fx.vinylOn && !fx.radioOn && !fx.d8On && !fx.karaokeOn && !(fx.weatherOn && fx._rain) && !fx._night && !fx.crowdOn;
 const fxTail = fx => (fx.rvbOn ? 4 : 0) + (fx.echoOn ? Math.min(6, fx.echoTime * 8) : 0);
 
 function wavBlob(buf) {
@@ -492,11 +551,11 @@ const Engine = (() => {
       await stretchLib();
       stretch = await Promise.race([window.SignalsmithStretch(ctx), new Promise((_, r) => setTimeout(() => r(new Error('motor 6 sn içinde açılmadı')), 6000))]);
       stretch.onprocessorerror = () => { log('canlı motor çöktü'); if (playing) toRender(); };
-      graph = buildGraph(ctx); graph.apply(fx, false); graph.start(0);
+      graph = buildGraph(ctx); graph.bindFx(() => fx); graph.apply(fx, false); graph.start(0);
       stretch.connect(graph.input); graph.output.connect(bridgeOut());
       stretch.setUpdateInterval(0.08, t => {
         if (mode !== 'live') return;
-        pos = t; L.time(t); fadeTick();
+        pos = t; L.time(t); fadeTick(); crowdTick();
         if (playing && duration && t >= duration - 0.04) { playing = false; stretch.schedule({ active: false }); L.end(); }
       });
       log('Canlı motor hazır');
@@ -511,7 +570,19 @@ const Engine = (() => {
     const db = 10 * Math.log10(e / Math.max(1, n) + 1e-12);
     return Math.max(-8, Math.min(7, -16 - db));
   }
-  let duck = 1;
+  let duck = 1, crowdT = 0, cheerAt = 0, lastPos = 0, endCheered = false;
+  function crowdTick() {
+    if (!graph || mode !== 'live' || !fx.crowdOn || !playing) return;
+    const now = performance.now(); if (now - crowdT < 250) return; crowdT = now;
+    const en = (typeof Wave !== 'undefined') ? Wave.energy() : 0.5, b = (typeof Wave !== 'undefined') ? Wave.beat() : 0;
+    graph.swell(en * 0.9 + b * 0.3);
+    const rem = (duration - pos) / (fx.rate || 1);
+    if (pos < lastPos - 1 || pos < 1) endCheered = false;
+    lastPos = pos;
+    if (pos > 0.6 && pos < 2.5 && now - cheerAt > 8000) { cheerAt = now; graph.cheer(0); }               // şarkı başında tezahürat
+    else if (rem < 7 && rem > 1 && !endCheered) { endCheered = true; cheerAt = now; graph.cheer(2); }    // biterken alkış
+    else if (en > 0.72 && b > 0.5 && now - cheerAt > 22000 + Math.random() * 15000) { cheerAt = now; graph.cheer(1); } // coşkulu yerde
+  }
   function fadeTick() {
     if (!graph || mode !== 'live') return;
     let f = duck;
@@ -1995,7 +2066,7 @@ const EQ_PRESETS = {
   gece: { n: 'Gece', g: [2, 2, 1, 0, 0, -1, -2, -2, -3, -4] },
   hoparlor: { n: 'Telefon hoparlörü', g: [-4, -2, 2, 3, 2, 1, 1, 2, 2, 0] }
 };
-const BASE = { rate: 1, semi: 0, rvbOn: false, echoOn: false, tapeOn: false, vinylOn: false, radioOn: false, d8On: false };
+const BASE = { rate: 1, semi: 0, rvbOn: false, echoOn: false, tapeOn: false, vinylOn: false, radioOn: false, d8On: false, crowdOn: false };
 const PRESETS = [
   { id: 'orijinal', n: 'Orijinal', d: 'Olduğu gibi, katıksız', p: {} },
   { id: 'slowed', n: 'Slowed + Reverb', d: 'Yavaş, derin, gece üç', p: { rate: 0.85, semi: -2.81, rvbOn: true, rvbType: 'gazino', rvbMix: 0.35 } },
@@ -2009,7 +2080,8 @@ const PRESETS = [
   { id: 'fernsehturm', n: 'Fernsehturm Tepesi', d: 'Şehrin üstünde, geniş ve derin', p: { rvbOn: true, rvbType: 'konser', rvbMix: 0.32, d8On: true, d8Speed: 0.06 } },
   { id: 'ubahn', n: 'U-Bahn Gecesi', d: 'Yeraltında yankılanan uzak ses', p: { rvbOn: true, rvbType: 'hamam', rvbMix: 0.36, echoOn: true, echoTime: 0.18, echoFb: 0.25, echoMix: 0.12, eqOn: true, eq: [-3, -2, 0, 1, 2, 1, 0, -2, -4, -6], eqPreset: 'custom' } },
   { id: 'neckar', n: 'Neckar Kenarı', d: 'Sakin, sudan gelen bir hüzün', p: { rate: 0.96, semi: -0.5, rvbOn: true, rvbType: 'oda', rvbMix: 0.2, tapeOn: true, tapeWow: 0.25, tapeHiss: 0.1, eqOn: true, eq: [2, 2, 1, 0, 0, -1, -2, -2, -3, -4], eqPreset: 'gece' } },
-  { id: 'nightcore', n: 'Nightcore', d: 'Hızlı ve tiz', p: { rate: 1.25, semi: 3 } }
+  { id: 'nightcore', n: 'Nightcore', d: 'Hızlı ve tiz', p: { rate: 1.25, semi: 3 } },
+  { id: 'konser', n: 'Canlı Konser', d: 'Binlerce kişi seninle söylüyor', p: { crowdOn: true, crowdAmt: 0.65, rvbOn: true, rvbType: 'konser', rvbMix: 0.28, eqOn: true, eq: [2, 2, 1, 0, 0, 0, 1, 1, 0, -1] } }
 ];
 function renderModes() {
   $('modes').innerHTML = PRESETS.map(m => `<button class="mode${fx.preset === m.id ? ' on' : ''}" data-preset="${m.id}"><b>${m.n}</b><span>${m.d}</span></button>`).join('');
@@ -2405,6 +2477,7 @@ const FXCARDS = [
   { id: 'radio', on: 'radioOn', ic: ICON.radio, n: 'Dolmuş hoparlörü', d: 'Küçük, cızırtılı teyp sesi', sl: [] },
   { id: 'd8', on: 'd8On', ic: ICON.d8, n: '8D dönen ses', d: 'Kulaklıkla dinle', sl: [['d8Speed', 'Hız', 0.04, 0.4, 0.01, v => num(v, 2) + ' Hz']] },
   { id: 'kar', on: 'karaokeOn', ic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>', n: 'Karaoke', d: 'Vokali azaltır, sen söyle', sl: [['karaoke', 'Vokal kesme', 0.5, 1, 0.01, v => '%' + Math.round(v * 100)]] },
+  { id: 'crowd', on: 'crowdOn', ic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7" cy="8" r="2.5"/><circle cx="17" cy="8" r="2.5"/><circle cx="12" cy="6" r="2.5"/><path d="M2 20c.5-3.5 2.5-5.5 5-5.5M22 20c-.5-3.5-2.5-5.5-5-5.5M7 20c.6-3.8 2.6-6 5-6s4.4 2.2 5 6"/></svg>', n: 'Konser coşkusu', d: 'Kalabalık, alkış, ıslık; şarkı coştukça coşar', sl: [['crowdAmt', 'Kalabalık', 0.1, 1, 0.01, v => '%' + Math.round(v * 100)]] },
   { id: 'hava', on: 'weatherOn', ic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 15a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 7 4 4 0 0 1 18 15z"/><path d="M8 19l-1 2M12 19l-1 2M16 19l-1 2"/></svg>', n: 'Havaya uy', d: 'Stuttgart\'ta yağmur yağıyorsa arkada yağmur sesi', sl: [['weatherAmt', 'Yağmur sesi', 0, 1, 0.01, v => '%' + Math.round(v * 100)]] }
 ];
 function buildFx() {
@@ -3083,20 +3156,21 @@ const Lamp = (() => {
     $('lT').textContent = s ? s.title : 'Gönül Plak'; $('lA').textContent = s ? (s.artist || '') : 'bir şarkı çal';
     $('lPlay').innerHTML = Engine.playing ? ICON.pause : ICON.play;
   }
+  let hintT = 0, hinted = false;
   function ctl(show) {
-    clearTimeout(hideT); $('lCtl').hidden = !show; $('lHint').hidden = show;
+    clearTimeout(hideT); $('lCtl').hidden = !show;
+    const hn = $('lHint'); hn.hidden = show || hinted; clearTimeout(hintT);
+    if (!show && !hinted) { hn.classList.remove('fade'); hintT = setTimeout(() => { hn.classList.add('fade'); hinted = true; }, 3000); }
     if (show) hideT = setTimeout(() => ctl(false), 5000);
   }
   function open() {
-    on = true; window.scrollTo(0, 0);
+    on = true; hinted = false; window.scrollTo(0, 0);
     document.documentElement.classList.add('lampon'); $('lamp').hidden = false; ctl(false); upd();
     clearInterval(tick); tick = setInterval(upd, 5000); wake();
-    try { if (document.documentElement.requestFullscreen && !/iPhone|iPad/.test(navigator.userAgent)) document.documentElement.requestFullscreen().catch(() => {}); } catch (e) {}
   }
   function close() {
     on = false; document.documentElement.classList.remove('lampon'); $('lamp').hidden = true; clearInterval(tick); clearTimeout(hideT);
     try { lock && lock.release(); } catch (e) {} lock = null;
-    try { document.fullscreenElement && document.exitFullscreen(); } catch (e) {}
     requestAnimationFrame(() => { Wave.draw(); UI.now(); });
   }
   $('lampBtn').onclick = open;
