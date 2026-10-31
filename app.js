@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 25;
+const VERSION = 26;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -56,11 +56,12 @@ const DB = (() => {
      eski kaydı silerken dosyayı da silebiliyor; etiket düzenleyince şarkının açılmaması bundan oluyordu.
      Artık etiket kaydı sadece yazıları yazar, ses dosyasına hiç dokunmaz. */
   const saved = new WeakMap(); // şarkı -> { a: kaydedilen ses, c: kaydedilen kapak }
-  const meta = s => { const m = {}; for (const k in s) if (k !== 'blob' && k !== 'cover' && k[0] !== '_') m[k] = s[k]; return m; };
+  const meta = s => { const m = {}; for (const k in s) if (k !== 'blob' && k !== 'cover' && k !== 'jcard' && k[0] !== '_') m[k] = s[k]; return m; };
   async function song(s) {
     const sv = saved.get(s) || {};
     if (s.blob && sv.a !== s.blob) { if (await run('files', 'readwrite', o => o.put({ k: s.id + ':a', b: s.blob })) === null) return null; sv.a = s.blob; }
     if (sv.c !== (s.cover || null)) { await run('files', 'readwrite', o => s.cover ? o.put({ k: s.id + ':c', b: s.cover }) : o.delete(s.id + ':c')); sv.c = s.cover || null; }
+    if ((sv.j || null) !== (s.jcard || null)) { await run('files', 'readwrite', o => s.jcard ? o.put({ k: s.id + ':j', b: s.jcard }) : o.delete(s.id + ':j')); sv.j = s.jcard || null; }
     saved.set(s, sv);
     return run('songs', 'readwrite', o => o.put(meta(s)));
   }
@@ -71,8 +72,8 @@ const DB = (() => {
     const out = [], legacy = [];
     for (const r of rows || []) {
       if (r.blob || r.cover) { legacy.push(r); out.push(r); continue; }
-      r.blob = fm.get(r.id + ':a') || null; r.cover = fm.get(r.id + ':c') || null;
-      saved.set(r, { a: r.blob, c: r.cover }); out.push(r);
+      r.blob = fm.get(r.id + ':a') || null; r.cover = fm.get(r.id + ':c') || null; r.jcard = fm.get(r.id + ':j') || null;
+      saved.set(r, { a: r.blob, c: r.cover, j: r.jcard }); out.push(r);
     }
     return { songs: out, legacy };
   }
@@ -90,7 +91,7 @@ const DB = (() => {
     open, song, loadSongs, migrate,
     getFile: k => run('files', 'readonly', o => o.get(k)).then(r => r ? r.b : null),
     putFile: (k, b) => run('files', 'readwrite', o => b ? o.put({ k, b }) : o.delete(k)),
-    delSong: id => Promise.all([run('songs', 'readwrite', o => o.delete(id)), run('files', 'readwrite', o => { o.delete(id + ':a'); return o.delete(id + ':c'); })]),
+    delSong: id => Promise.all([run('songs', 'readwrite', o => o.delete(id)), run('files', 'readwrite', o => { o.delete(id + ':a'); o.delete(id + ':j'); return o.delete(id + ':c'); })]),
     all: s => run(s, 'readonly', o => o.getAll()).then(r => r || []),
     put: (s, v) => run(s, 'readwrite', o => o.put(v)),
     del: (s, id) => run(s, 'readwrite', o => o.delete(id))
@@ -495,7 +496,8 @@ const Engine = (() => {
       await stretchLib();
       stretch = await Promise.race([window.SignalsmithStretch(ctx), new Promise((_, r) => setTimeout(() => r(new Error('motor 6 sn içinde açılmadı')), 6000))]);
       stretch.onprocessorerror = () => { log('canlı motor çöktü, yeniden başlatılıyor'); recover(); };
-      if (!graph) { graph = buildGraph(ctx); graph.apply(fx, false); graph.start(0); graph.output.connect(bridgeOut()); }
+      if (!graph) { graph = buildGraph(ctx); graph.apply(fx, false); graph.start(0); graph.output.connect(bridgeOut());
+        const sp = ctx.createChannelSplitter(2); graph.output.connect(sp); vuA = [ctx.createAnalyser(), ctx.createAnalyser()]; vuA.forEach((a, i) => { a.fftSize = 1024; sp.connect(a, i); }); }
       stretch.connect(graph.input);
       stretch.setUpdateInterval(0.08, t => {
         if (mode !== 'live') return;
@@ -514,7 +516,12 @@ const Engine = (() => {
     const db = 10 * Math.log10(e / Math.max(1, n) + 1e-12);
     return Math.max(-8, Math.min(7, -16 - db));
   }
-  let duck = 1;
+  let duck = 1, vuA = null; const vuBuf = new Float32Array(1024);
+  // sol/sağ kanal: [rms, tepe]
+  function levels() {
+    if (!vuA || !playing) return null;
+    return vuA.map(a => { a.getFloatTimeDomainData(vuBuf); let e = 0, pk = 0; for (let i = 0; i < vuBuf.length; i++) { const v = vuBuf[i]; e += v * v; const q = v < 0 ? -v : v; if (q > pk) pk = q; } return [Math.sqrt(e / vuBuf.length), pk]; });
+  }
   function fadeTick() {
     if (!graph || mode !== 'live') return;
     let f = duck;
@@ -699,7 +706,7 @@ const Engine = (() => {
       session: navigator.audioSession ? navigator.audioSession.type : 'yok', ua: navigator.userAgent.replace(/^Mozilla\/5\.0 /, ''), events: diag.slice() };
   }
   return {
-    fx, unlock, load, play, pause, seek, setFx, setMode, info, log, setDuck, refresh, get bridge() { return !!bridge; }, get bridgeActive() { return !!(bridge && mode === 'live' && el && el.srcObject); }, setBridge(v) { LS.set('gp-bridge', v); location.reload(); },
+    fx, unlock, load, play, pause, seek, setFx, setMode, info, log, setDuck, refresh, levels, get bridge() { return !!bridge; }, get bridgeActive() { return !!(bridge && mode === 'live' && el && el.srcObject); }, setBridge(v) { LS.set('gp-bridge', v); location.reload(); },
     on(ev, fn) { L[ev] = fn; },
     get mode() { return mode; }, get duration() { return duration; }, get pos() { return mode === 'render' && seg ? curPos() : pos; },
     get playing() { return playing; }, get loadedId() { return loadedId; }
@@ -1064,6 +1071,76 @@ const Scene = (() => {
     g.globalCompositeOperation = 'lighter'; glow(x, y, 56, '200,210,255', 0.18); glow(x, y, 24, '255,250,230', 0.25); g.globalCompositeOperation = 'source-over';
     g.imageSmoothingEnabled = false; g.drawImage(moonCv, x - 48, y - 48, 96, 96); g.imageSmoothingEnabled = true;
   }
+  /* Stuttgart'ın özel günleri: Weihnachtsmarkt ışıkları, Silvester havai fişeği, Wasen dönme dolabı */
+  let force = null, forceUntil = 0, sparks = [], nextBurst = 0;
+  function special() {
+    if (force && Date.now() < forceUntil) return force;
+    const d = new Date(), m = d.getMonth(), day = d.getDate(), h = d.getHours();
+    if ((m === 11 && day === 31 && h >= 18) || (m === 0 && day === 1 && h < 2)) return 'silvester';
+    if ((m === 10 && day >= 26) || (m === 11 && day <= 23)) return 'xmas';
+    if ((m === 8 && day >= 24) || (m === 9 && day <= 12) || (m === 3 && day >= 17) || (m === 4 && day <= 10)) return 'wasen';
+    return null;
+  }
+  const GARLANDS = [[880, 602, 1040, 598], [1040, 598, 1190, 590], [1190, 590, 1340, 596], [1340, 596, 1480, 604]];
+  const BULB = ['255,214,120', '255,90,90', '120,230,140', '255,180,80', '130,180,255'];
+  function xmas(t) {
+    g.globalCompositeOperation = 'lighter';
+    glow(1180, 600, 260, '255,190,110', 0.16);
+    GARLANDS.forEach(([x1, y1, x2, y2], gi) => {
+      const n = 10;
+      g.strokeStyle = 'rgba(40,30,20,.6)'; g.lineWidth = 1.5; g.beginPath(); for (let i = 0; i <= 20; i++) { const u = i / 20; g.lineTo(x1 + (x2 - x1) * u, y1 + (y2 - y1) * u + Math.sin(u * Math.PI) * 22); } g.stroke();
+      for (let i = 0; i <= n; i++) {
+        const u = i / n, x = x1 + (x2 - x1) * u, y = y1 + (y2 - y1) * u + Math.sin(u * Math.PI) * 22;
+        const c = BULB[(i + gi) % BULB.length], a = 0.45 + 0.5 * Math.max(0, Math.sin(t / 380 + i * 1.7 + gi));
+        g.fillStyle = `rgba(${c},${a.toFixed(2)})`; g.beginPath(); g.arc(x, y, 3.5, 0, 7); g.fill(); glow(x, y, 14, c, 0.18 + 0.25 * a);
+      }
+    });
+    // küçük yılbaşı ağacı
+    const tx = 1265, ty = 575, TH = 95, TW = 38;
+    g.globalCompositeOperation = 'source-over';
+    g.fillStyle = 'rgba(30,95,50,.95)'; g.beginPath(); g.moveTo(tx, ty - TH); g.lineTo(tx - TW, ty); g.lineTo(tx + TW, ty); g.fill();
+    g.fillStyle = 'rgba(70,40,25,.95)'; g.fillRect(tx - 5, ty, 10, 12);
+    g.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 22; i++) { const u = (i + 1) / 23, yy = ty - TH + u * TH, xx = tx + Math.sin(i * 2.3) * u * TW * 0.85; const c = BULB[i % BULB.length], a = 0.5 + 0.5 * Math.sin(t / 300 + i); g.fillStyle = `rgba(${c},${a.toFixed(2)})`; g.beginPath(); g.arc(xx, yy, 3, 0, 7); g.fill(); glow(xx, yy, 10, c, 0.2 * a); }
+    g.fillStyle = 'rgba(255,230,140,1)'; g.beginPath(); g.arc(tx, ty - TH - 3, 6, 0, 7); g.fill(); glow(tx, ty - TH - 3, 26, '255,220,120', 0.6);
+    g.globalCompositeOperation = 'source-over';
+  }
+  function wheel(t) {
+    const cx = 1500, cy = 470, R = 62, n = 20, rot = t / 9000;
+    g.globalCompositeOperation = 'lighter';
+    g.strokeStyle = 'rgba(255,220,180,.35)'; g.lineWidth = 2;
+    for (let i = 0; i < n; i += 2) { const a = rot + i / n * Math.PI * 2; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); g.stroke(); }
+    for (let i = 0; i < n; i++) {
+      const a = rot + i / n * Math.PI * 2, x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
+      const hue = (t / 20 + i * 22) % 360, c = `hsl(${hue},90%,65%)`;
+      g.fillStyle = c; g.beginPath(); g.arc(x, y, 4.5, 0, 7); g.fill();
+      g.strokeStyle = c; g.globalAlpha = 0.5; g.beginPath(); g.arc(cx, cy, R, a, a + Math.PI * 2 / n); g.stroke(); g.globalAlpha = 1;
+    }
+    glow(cx, cy, R + 40, '255,170,220', 0.2);
+    g.globalCompositeOperation = 'source-over';
+    g.strokeStyle = 'rgba(60,45,55,.95)'; g.lineWidth = 4; g.beginPath(); g.moveTo(cx - 34, cy + R + 30); g.lineTo(cx, cy); g.lineTo(cx + 34, cy + R + 30); g.stroke();
+    g.globalCompositeOperation = 'source-over';
+  }
+  function fireworks(t, dt) {
+    const d = new Date(), peak = (d.getMonth() === 11 && d.getHours() === 23 && d.getMinutes() >= 55) || (d.getMonth() === 0 && d.getHours() === 0 && d.getMinutes() < 40) || force === 'silvester';
+    if (t > nextBurst) {
+      nextBurst = t + (peak ? rnd(250, 900) : rnd(3000, 9000));
+      const x = rnd(650, 1600), y = rnd(120, 330), hue = Math.floor(rnd(0, 360)), cnt = Math.floor(rnd(60, 95)), sp = rnd(4.5, 7);
+      for (let i = 0; i < cnt; i++) { const a = Math.random() * Math.PI * 2, v = sp * (0.6 + Math.random() * 0.6); sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, hue: hue + rnd(-20, 20), tw: Math.random() < 0.3 }); }
+      sparks.push({ x, y, flash: 1 });
+    }
+    g.globalCompositeOperation = 'lighter';
+    const k = dt / 33;
+    sparks = sparks.filter(p => {
+      if (p.flash) { glow(p.x, p.y, 160, '255,240,220', 0.45 * p.flash); p.flash -= 0.12 * k; return p.flash > 0; }
+      p.x += p.vx * k; p.y += p.vy * k; p.vy += 0.07 * k; p.vx *= 0.965; p.vy *= 0.965; p.life -= 0.014 * k;
+      if (p.life <= 0) return false;
+      const a = p.life * (p.tw ? (0.4 + 0.6 * Math.random()) : 1);
+      g.fillStyle = `hsla(${p.hue},95%,${55 + 25 * p.life}%,${a.toFixed(2)})`; g.beginPath(); g.arc(p.x, p.y, 3.2 + 1.5 * p.life, 0, 7); g.fill();
+      return true;
+    });
+    g.globalCompositeOperation = 'source-over';
+  }
   function frame(t) {
     if (!running) return;
     requestAnimationFrame(frame);
@@ -1090,6 +1167,8 @@ const Scene = (() => {
     }
     // kuleler
     if (T && (sc.night || sc.dusk)) { if (beatOn && Engine.playing) towerBeat(t, T); else towerShow(t, T); fmtLights(t, T); }
+    const spc = special();
+    if (spc && (sc.night || sc.dusk || force)) { if (spc === 'xmas') xmas(t); else if (spc === 'wasen') wheel(t); else if (spc === 'silvester') fireworks(t, dt); }
     // sis
     if (kind === 'fog') {
       fogT += dt / 1000;
@@ -1132,7 +1211,7 @@ const Scene = (() => {
   }
   function setRun() {
     const sc = cur && SCENES[cur];
-    const need = !reduce && sc && (sc.night || sc.dusk || kind === 'rain' || kind === 'storm' || kind === 'snow' || kind === 'fog');
+    const need = !reduce && sc && (sc.night || sc.dusk || kind === 'rain' || kind === 'storm' || kind === 'snow' || kind === 'fog' || (force && Date.now() < forceUntil));
     if (need && !running) { running = true; last = 0; requestAnimationFrame(frame); }
     else if (!need && running) { running = false; g.clearRect(0, 0, IW, IH); }
     if (reduce) { g.clearRect(0, 0, IW, IH); const T = cur && META.t[cur]; if (T && sc && (sc.night || sc.dusk)) { g.fillStyle = 'rgb(255,60,60)'; g.fillRect(T[0] - 1, T[1] - 1, 2, 2); g.fillRect(T[4] - 1, T[5] - 1, 2, 2); } }
@@ -1183,7 +1262,7 @@ const Scene = (() => {
     get mode() { return mode; }, get wxOn() { return wxOn; }, get wxKind() { return wxKind(); },
     setMode(m) { mode = m; LS.set('gp-scene', m); curFile = null; apply(); },
     setWx(v) { wxOn = v; LS.set('gp-wx-on', v); if (v) fetchWx(true); apply(); },
-    get artUrl() { return curFile; }, get beatOn() { return beatOn; }, setBeat(v) { beatOn = v; LS.set('gp-beat', v); },
+    get artUrl() { return curFile; }, get beatOn() { return beatOn; }, preview(k) { force = k; forceUntil = Date.now() + 60000; sparks = []; nextBurst = 0; setRun(); setTimeout(setRun, 60500); }, get special() { return special(); }, setBeat(v) { beatOn = v; LS.set('gp-beat', v); },
     describe() { const i = info(); return `Stuttgart'ta şu an ${i.season}, ${i.scene}${i.wx ? ', hava ' + i.wx : ''}. Bugün gün doğumu ${i.rise}, batımı ${i.set}. Ay %${i.moon} dolu.`; }
   };
 })();
@@ -1283,6 +1362,7 @@ function nextId(dir) {
 function step(dir, auto) {
   if (auto && App.prefs.repeat === 'one') { Engine.seek(0); Engine.play(); UI.now(); return; }
   if (dir < 0 && Engine.pos > 3 && Engine.loadedId === App.curId) { Engine.seek(0); Media.pos(); return; }
+  if (dir > 0) { const qid = Q.next(); if (qid) return playSong(qid); }
   const q0 = App.queue.filter(id => App.byId(id));
   const q = App.prefs.shuffle && q0.length > 1 ? shuffleOrder(q0) : q0;
   if (auto && App.prefs.repeat === 'off' && q.indexOf(App.curId) === q.length - 1) { UI.now(); return; }
@@ -1461,6 +1541,7 @@ const UI = {
     let nx = '';
     if (s) {
       if (App.prefs.repeat === 'one') nx = 'Bu şarkı tekrar çalacak';
+      else if (typeof Q !== 'undefined' && Q.items.length) { const n = App.byId(Q.items[0]); if (n) nx = `Sırada: <b>${esc(n.title)}</b>${Q.items.length > 1 ? ` <span class="qn">+${Q.items.length - 1}</span>` : ''}`; }
       else if (App.prefs.shuffle) nx = 'Sırada: karışık';
       else { const n = App.byId(nextId(1)); if (n && n.id !== s.id) nx = `Sırada: <b>${esc(n.title)}</b>`; }
     }
@@ -1490,6 +1571,8 @@ const UI = {
       em.innerHTML = `${miniTape('gönül').replace('viewBox="0 0 52 52"', 'viewBox="4 10 44 32"')}<strong>Arşivin bomboş</strong><p>Telefondaki MP3, M4A veya WAV şarkılarını ekle. İçlerinde yazan ad, sanatçı, albüm ve kapak otomatik okunur.</p>
         <label class="btn primary" style="position:relative">Şarkı ekle<input type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.flac" multiple style="position:absolute;inset:0;opacity:0" data-add></label>`;
     }
+    if (typeof Rack !== 'undefined' && Rack.view !== 'liste') return Rack.render(list);
+    $('list').className = 'rows';
     $('list').innerHTML = list.map(s => {
       const st = s.cloud ? (s.blob ? ICON.cloud : ICON.cloudDown) : '';
       return `<li class="row${s.id === App.curId ? ' on' : ''}" data-id="${esc(s.id)}">${thumb(Img.url(s), s.id)}
@@ -1563,6 +1646,7 @@ const UI = {
         <p class="msg">${(() => { const i = Scene.info(); return `Bugün Stuttgart'ta gün doğumu <strong>${i.rise}</strong>, batımı <strong>${i.set}</strong>. Ay %${i.moon} dolu.${i.wx ? ' Hava: ' + esc(i.wx) + '.' : ''}`; })()}</p>
         <div class="chips" id="sceneChips">${[['auto', 'Gerçek saat ve hava'], ...Object.entries(Scene.PICK), ['off', 'Kapalı']].map(([k, n]) => `<button class="chip${Scene.mode === k ? ' on' : ''}" data-scene="${k}">${n}</button>`).join('')}</div>
         <div class="toggle"><div class="tl"><span>Canlı Stuttgart havası</span><span class="sub">Yağmur yağıyorsa manzarada da yağar · Hava verisi: Open-Meteo</span></div><button class="sw" id="wxOn" role="switch" aria-checked="${Scene.wxOn}" aria-label="Canlı hava"></button></div>
+        <div class="field"><label>Özel günler (kendiliğinden gelir; 1 dakikalık önizleme)</label><div class="chips">${[['xmas', 'Weihnachtsmarkt'], ['silvester', 'Silvester'], ['wasen', 'Wasen']].map(([k, n]) => `<button class="chip" data-spc="${k}">${n}</button>`).join('')}</div><span class="sub">Weihnachtsmarkt 26 Kasım–23 Aralık, Silvester 31 Aralık akşamı, Wasen ilkbahar ve sonbahar şenliklerinde. Akşam ve gece sahnesinde görünür.</span></div>
         <div class="toggle"><div class="tl"><span>Fernsehturm ritme göre parlasın</span><span class="sub">Akşam ve gece sahnesinde kulenin ışığı çalan şarkının vuruşlarıyla yanıp söner</span></div><button class="sw" id="beatOn" role="switch" aria-checked="${Scene.beatOn}" aria-label="Ritme göre Fernsehturm"></button></div></div>
       ${X.acct()}
       <div class="group"><h3>Ses motoru</h3>
@@ -2483,6 +2567,7 @@ function renderFx() {
   document.querySelectorAll('[data-rvbt]').forEach(b => b.classList.toggle('on', b.dataset.rvbt === fx.rvbType));
   $('eqOn').setAttribute('aria-checked', fx.eqOn); $('eqpanel').classList.toggle('off', !fx.eqOn);
   document.querySelectorAll('[data-eq]').forEach(b => b.classList.toggle('on', b.dataset.eq === fx.eqPreset));
+  if (typeof MyEq !== 'undefined') MyEq.render();
   fx.eq.forEach((v, i) => bandUI(i, v));
   $('pre').value = Math.round(fx.pre * 10); rangeFill($('pre')); $('preV').textContent = (fx.preOn ? signed(fx.pre, 1) : '0') + ' dB';
   document.querySelectorAll('.mode').forEach(b => b.classList.toggle('on', b.dataset.preset === fx.preset));
@@ -2502,6 +2587,8 @@ function songMenu(id) {
   const s = App.byId(id); if (!s) return;
   menu([
     { label: 'Etiketi ve kapağı düzenle', icon: ICON.edit, run: () => openEdit(id) },
+    { label: 'Sonra çal', icon: ICON.play, run: () => Q.playNext(id) },
+    { label: 'Sıraya ekle', icon: ICON.sort, run: () => Q.add(id) },
     { label: 'Kaseti süsle', icon: ICON.tape, run: () => Skin.open(id) },
     ...(s.fx ? [{ label: 'Bu şarkının ses ayarlarını sıfırla', icon: ICON.sort, run: () => SongFx.forget(id) }] : []),
     { label: 'Dışa aktar', icon: ICON.export, run: () => openExport(id) },
@@ -2559,15 +2646,18 @@ $('attachInput').addEventListener('change', async e => {
 /* ================= Kapak kırpma ================= */
 const Crop = (() => {
   const box = $('cropBox'), img = $('cropImg'), zoom = $('cropZoom');
-  let w = 0, h = 0, S = 0, min = 1, sc = 1, tx = 0, ty = 0, url = null, done = null;
+  let w = 0, h = 0, W = 0, H = 0, ar = 1, min = 1, sc = 1, tx = 0, ty = 0, url = null, done = null;
   const pts = new Map(); let last = null;
-  const clamp = () => { tx = Math.min(0, Math.max(S - w * sc, tx)); ty = Math.min(0, Math.max(S - h * sc, ty)); };
+  const clamp = () => { tx = Math.min(0, Math.max(W - w * sc, tx)); ty = Math.min(0, Math.max(H - h * sc, ty)); };
   const apply = () => { clamp(); img.style.transform = `translate(${tx}px,${ty}px) scale(${sc})`; zoom.value = Math.round(sc / min * 100); rangeFill(zoom); };
   const zoomAt = (px, py, ns) => { ns = Math.max(min, Math.min(min * 5, ns)); tx = px - (px - tx) * (ns / sc); ty = py - (py - ty) * (ns / sc); sc = ns; apply(); };
-  function open(file, cb) {
-    done = cb; if (url) URL.revokeObjectURL(url); url = URL.createObjectURL(file);
+  // ratio: genişlik/yükseklik (1 = kare kapak, 0.625 = kaset kapağı)
+  function open(file, cb, ratio = 1, title) {
+    done = cb; ar = ratio; if (url) URL.revokeObjectURL(url); url = URL.createObjectURL(file);
+    box.style.aspectRatio = String(ar); box.style.width = ar < 1 ? 'min(100%, 230px)' : '';
+    $('cropSheet').querySelector('h3').textContent = title || 'Kapağı ayarla';
     openSheet('cropSheet');
-    img.onload = () => { w = img.naturalWidth; h = img.naturalHeight; img.style.width = w + 'px'; img.style.height = h + 'px'; S = box.clientWidth; min = S / Math.min(w, h); sc = min; tx = (S - w * sc) / 2; ty = (S - h * sc) / 2; apply(); };
+    img.onload = () => { w = img.naturalWidth; h = img.naturalHeight; img.style.width = w + 'px'; img.style.height = h + 'px'; W = box.clientWidth; H = box.clientHeight || W / ar; min = Math.max(W / w, H / h); sc = min; tx = (W - w * sc) / 2; ty = (H - h * sc) / 2; apply(); };
     img.onerror = () => { closeSheet('cropSheet'); toast('Bu resim açılamadı'); };
     img.src = url;
   }
@@ -2586,12 +2676,12 @@ const Crop = (() => {
   const up = e => { pts.delete(e.pointerId); last = null; };
   box.addEventListener('pointerup', up); box.addEventListener('pointercancel', up);
   box.addEventListener('wheel', e => { e.preventDefault(); const p = local(e); zoomAt(p.x, p.y, sc * (e.deltaY < 0 ? 1.08 : 0.93)); }, { passive: false });
-  zoom.addEventListener('input', () => zoomAt(S / 2, S / 2, min * zoom.value / 100));
+  zoom.addEventListener('input', () => zoomAt(W / 2, H / 2, min * zoom.value / 100));
   $('cropCancel').onclick = () => closeSheet('cropSheet');
   $('cropOk').onclick = () => {
-    const c = document.createElement('canvas'); c.width = c.height = 800;
+    const c = document.createElement('canvas'); c.width = 800; c.height = Math.round(800 / ar);
     const g = c.getContext('2d'); g.imageSmoothingQuality = 'high';
-    g.drawImage(img, -tx / sc, -ty / sc, S / sc, S / sc, 0, 0, 800, 800);
+    g.drawImage(img, -tx / sc, -ty / sc, W / sc, H / sc, 0, 0, c.width, c.height);
     c.toBlob(b => { closeSheet('cropSheet'); if (b && done) done(b); }, 'image/jpeg', 0.9);
   };
   return { open };
@@ -2780,6 +2870,7 @@ $('vAcct').addEventListener('click', async e => {
   }
   else if (e.target.closest('[data-scene]')) { Scene.setMode(e.target.closest('[data-scene]').dataset.scene); UI.account(); }
   else if (id === 'wxOn') { Scene.setWx(!Scene.wxOn); e.target.setAttribute('aria-checked', Scene.wxOn); }
+  else if (e.target.closest('[data-spc]')) { Scene.preview(e.target.closest('[data-spc]').dataset.spc); setView('now'); window.scrollTo(0, 0); toast('Önizleme 1 dakika sürecek'); }
   else if (id === 'beatOn') { Scene.setBeat(!Scene.beatOn); e.target.setAttribute('aria-checked', Scene.beatOn); }
   else if (e.target.closest('[data-aim]')) { AI.setModel(e.target.closest('[data-aim]').dataset.aim); UI.account(); }
   else if (id === 'aiWeb') { AI.setWeb(!AI.web); e.target.setAttribute('aria-checked', AI.web); }
@@ -3340,6 +3431,157 @@ const SongFx = (() => {
 })();
 Engine.on('fxset', () => SongFx.changed());
 
+
+/* ================= Sıra (kuyruk) ================= */
+const Q = (() => {
+  let items = LS.get('gp-upnext', []);
+  const save = () => { items = items.filter(id => App.byId(id)); LS.set('gp-upnext', items); UI.now(); if (!$('qSheet').hidden) render(); };
+  function next() { while (items.length) { const id = items.shift(); if (App.byId(id)) { save(); return id; } } return null; }
+  function render() {
+    const s = App.byId(App.curId);
+    const auto = []; if (s && !App.prefs.shuffle) { let id = App.curId; const seen = new Set(items); for (let k = 0; k < 6; k++) { const q = App.queue.filter(x => App.byId(x)); const i = q.indexOf(id); id = q[(i + 1) % q.length]; if (!id || id === App.curId || seen.has(id)) break; seen.add(id); auto.push(id); } }
+    const row = (id, i, mine) => { const x = App.byId(id); return `<li class="row qrow">${thumb(Img.url(x), x.id)}<span class="m"><div class="t">${esc(x.title)}</div><div class="a"><span>${esc(x.artist || '')}</span></div></span>
+      ${mine ? `<span class="rt qbtns"><button data-qmv="-1" data-i="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Yukarı">▲</button><button data-qmv="1" data-i="${i}" ${i === items.length - 1 ? 'disabled' : ''} aria-label="Aşağı">▼</button><button data-qdel="${i}" aria-label="Çıkar">×</button></span>` : ''}</li>`; };
+    $('qBody').innerHTML = `<h3>Sırada</h3>
+      ${s ? `<p class="msg">Şimdi çalıyor: <strong>${esc(s.title)}</strong></p>` : ''}
+      ${items.length ? `<ul class="rows">${items.map((id, i) => row(id, i, true)).join('')}</ul><button class="btn" id="qClear">Sırayı temizle</button>` : '<p class="msg">Sıran boş. Bir şarkının ••• menüsünden "Sonra çal" ya da "Sıraya ekle" de.</p>'}
+      ${auto.length ? `<p class="msg" style="margin-top:6px">Sonra kendiliğinden:</p><ul class="rows dim">${auto.map(id => row(id, 0, false)).join('')}</ul>` : ''}`;
+  }
+  $('qSheet').addEventListener('click', e => {
+    const t = e.target, mv = t.closest('[data-qmv]');
+    if (mv) { const i = +mv.dataset.i, j = i + +mv.dataset.qmv; [items[i], items[j]] = [items[j], items[i]]; return save(); }
+    const dl = t.closest('[data-qdel]'); if (dl) { items.splice(+dl.dataset.qdel, 1); return save(); }
+    if (t.closest('#qClear')) { items = []; save(); }
+  });
+  $('upnext').addEventListener('click', () => { render(); openSheet('qSheet'); });
+  return {
+    next, get items() { return items; },
+    playNext(id) { items = [id].concat(items.filter(x => x !== id)); save(); toast('Bu şarkıdan sonra çalacak'); },
+    add(id) { items = items.filter(x => x !== id).concat(id); save(); toast('Sıraya eklendi (' + items.length + '. sırada)'); }
+  };
+})();
+
+/* ================= Analog VU metre ================= */
+const VU = (() => {
+  const cv = $('vuC'), g = cv.getContext('2d');
+  let nd = [0, 0], pk = [0, 0], pkT = [0, 0], last = 0, run = false;
+  const TBL = [[-20, 0], [-10, 0.25], [-7, 0.38], [-5, 0.49], [-3, 0.62], [-2, 0.69], [-1, 0.77], [0, 0.85], [1, 0.91], [2, 0.96], [3, 1]];
+  const pos = vu => { if (vu <= -20) return 0; if (vu >= 3) return 1; for (let i = 1; i < TBL.length; i++) if (vu <= TBL[i][0]) { const [a, pa] = TBL[i - 1], [b, pb] = TBL[i]; return pa + (pb - pa) * (vu - a) / (b - a); } return 1; };
+  function face(x, y, w, h, d, v, peak, lbl) {
+    // kadran
+    const gr = g.createLinearGradient(0, y, 0, y + h); gr.addColorStop(0, '#f7e6bf'); gr.addColorStop(1, '#e9cf98');
+    g.fillStyle = '#1a1012'; g.beginPath(); g.roundRect ? g.roundRect(x - 3 * d, y - 3 * d, w + 6 * d, h + 6 * d, 8 * d) : g.rect(x, y, w, h); g.fill();
+    g.fillStyle = gr; g.beginPath(); g.roundRect ? g.roundRect(x, y, w, h, 6 * d) : g.rect(x, y, w, h); g.fill();
+    const glo = g.createRadialGradient(x + w / 2, y + h, 0, x + w / 2, y + h, h * 1.2); glo.addColorStop(0, 'rgba(255,190,90,.35)'); glo.addColorStop(1, 'rgba(255,190,90,0)'); g.fillStyle = glo; g.fillRect(x, y, w, h);
+    const cx = x + w / 2, cy = y + h * 1.18, R = h * 0.98, A0 = -Math.PI / 2 - 0.82, A1 = -Math.PI / 2 + 0.82;
+    const ang = p => A0 + (A1 - A0) * p;
+    g.lineWidth = 1.4 * d; g.strokeStyle = '#3a2a20';
+    g.beginPath(); g.arc(cx, cy, R * 0.8, ang(0), ang(0.85)); g.stroke();
+    g.strokeStyle = '#c4161c'; g.lineWidth = 3 * d; g.beginPath(); g.arc(cx, cy, R * 0.8, ang(0.85), ang(1)); g.stroke();
+    g.fillStyle = '#3a2a20'; g.font = `600 ${8 * d}px -apple-system, sans-serif`; g.textAlign = 'center';
+    [[-20, '20'], [-10, '10'], [-7, '7'], [-5, '5'], [-3, '3'], [-1, '1'], [0, '0'], [1, ''], [3, '+3']].forEach(([vu, t]) => {
+      const a = ang(pos(vu)), r1 = R * 0.8, r2 = R * 0.88;
+      g.strokeStyle = vu >= 0 ? '#c4161c' : '#3a2a20'; g.lineWidth = 1.2 * d; g.beginPath(); g.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); g.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2); g.stroke();
+      g.fillStyle = vu >= 0 ? '#c4161c' : '#3a2a20'; g.fillText(t, cx + Math.cos(a) * R * 0.97, cy + Math.sin(a) * R * 0.97 + 3 * d);
+    });
+    g.fillStyle = '#3a2a20'; g.font = `700 ${12 * d}px "GP Slab", serif`; g.fillText('VU', cx, y + h * 0.78);
+    g.font = `600 ${7 * d}px -apple-system, sans-serif`; g.fillText(lbl, x + 10 * d, y + h - 6 * d);
+    // ibre
+    const a = ang(v);
+    g.strokeStyle = '#111'; g.lineWidth = 1.6 * d; g.beginPath(); g.moveTo(cx + Math.cos(a) * R * 0.25, cy + Math.sin(a) * R * 0.25); g.lineTo(cx + Math.cos(a) * R * 0.93, cy + Math.sin(a) * R * 0.93); g.stroke();
+    // tepe ışığı
+    g.fillStyle = peak ? '#ff2a2a' : '#5a1a1a'; g.beginPath(); g.arc(x + w - 10 * d, y + 10 * d, 3.5 * d, 0, 7); g.fill();
+    if (peak) { const pg = g.createRadialGradient(x + w - 10 * d, y + 10 * d, 0, x + w - 10 * d, y + 10 * d, 10 * d); pg.addColorStop(0, 'rgba(255,60,60,.6)'); pg.addColorStop(1, 'rgba(255,60,60,0)'); g.fillStyle = pg; g.fillRect(x + w - 20 * d, y, 20 * d, 20 * d); }
+    g.textAlign = 'left';
+  }
+  function draw(t) {
+    const r = cv.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1), W = Math.round(r.width * d), H = Math.round(r.height * d);
+    if (!W) return; if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    const dt = last ? Math.min(0.1, (t - last) / 1000) : 0.016; last = t;
+    const L = Engine.levels();
+    for (let c = 0; c < 2; c++) {
+      let target = 0;
+      if (L) { const db = 20 * Math.log10(L[c][0] + 1e-9), vu = db + 14; target = pos(vu); if (L[c][1] > 0.97) { pk[c] = 1; pkT[c] = t; } }
+      nd[c] += (target - nd[c]) * (1 - Math.exp(-dt / 0.09));        // klasik VU ataleti (~300 ms)
+      if (t - pkT[c] > 600) pk[c] = 0;
+    }
+    g.clearRect(0, 0, W, H);
+    const gap = 12 * d, w = (W - gap) / 2, h = H - 6 * d;
+    face(0 + 3 * d, 3 * d, w - 6 * d, h - 3 * d, d, nd[0], pk[0], 'L'); face(w + gap + 3 * d, 3 * d, w - 6 * d, h - 3 * d, d, nd[1], pk[1], 'R');
+  }
+  function loop(t) { if (!run) return; draw(t); requestAnimationFrame(loop); }
+  function sync() {
+    const vis = !$('vNow').hidden && cv.offsetParent !== null && !document.hidden;
+    const want = vis && (Engine.playing || nd[0] > 0.01 || nd[1] > 0.01);
+    if (want && !run) { run = true; last = 0; requestAnimationFrame(loop); } else if (!want && run) { run = false; }
+    if (!run && vis) draw(performance.now());
+  }
+  setInterval(sync, 400);
+  return { sync };
+})();
+
+/* ================= Kendi EQ ayarların ================= */
+const MyEq = (() => {
+  let list = LS.get('gp-eq-user', []);
+  function render() {
+    const box = $('eqPresets'); box.querySelectorAll('.ueq,.ueqadd').forEach(x => x.remove());
+    box.insertAdjacentHTML('beforeend', list.map((p, i) => `<button class="chip ueq${fx.eqPreset === 'u' + i ? ' on' : ''}" data-ueq="${i}">${esc(p.n)}<i data-ueqdel="${i}" aria-label="Sil">×</i></button>`).join('') + `<button class="chip ueqadd" id="ueqAdd">+ Kaydet</button>`);
+  }
+  $('eqPresets').addEventListener('click', e => {
+    const del = e.target.closest('[data-ueqdel]'); if (del) { e.stopPropagation(); const i = +del.dataset.ueqdel; if (!confirm(`"${list[i].n}" silinsin mi?`)) return; list.splice(i, 1); LS.set('gp-eq-user', list); render(); return; }
+    const u = e.target.closest('[data-ueq]'); if (u) { e.stopPropagation(); const p = list[+u.dataset.ueq]; custom({ eq: p.g.slice(), eqPreset: 'u' + u.dataset.ueq, eqOn: true, pre: p.pre || 0, preOn: Math.abs(p.pre || 0) > 0.01 }); renderFx(); toast(p.n + ' açıldı'); return; }
+    if (e.target.closest('#ueqAdd')) { e.stopPropagation(); const n = prompt('Bu ekolayzır ayarına bir isim ver', 'Benim EQ\'m ' + (list.length + 1)); if (!n || !n.trim()) return; list.push({ n: n.trim().slice(0, 20), g: fx.eq.slice(), pre: fx.preOn ? fx.pre : 0 }); LS.set('gp-eq-user', list); custom({ eqPreset: 'u' + (list.length - 1) }); render(); renderFx(); toast('Kaydedildi'); }
+  }, true);
+  return { render };
+})();
+
+/* ================= Kaset ve plak rafı ================= */
+const Rack = (() => {
+  let view = LS.get('gp-libview', 'liste');
+  const groups = list => {
+    const m = new Map();
+    for (const s of list) { const k = s.album ? 'a:' + norm(s.album) + '|' + norm(s.artist) : 's:' + s.id; if (!m.has(k)) m.set(k, { key: k, title: s.album || s.title, artist: s.artist || '', songs: [] }); m.get(k).songs.push(s); }
+    return [...m.values()].map(gp => Object.assign(gp, { jcard: (gp.songs.find(x => x.jcard) || {}).jcard || null, coverS: gp.songs.find(x => Img.url(x)) || null }));
+  };
+  const urls = new Map();
+  const blobUrl = b => { if (!b) return null; if (!urls.has(b)) urls.set(b, URL.createObjectURL(b)); return urls.get(b); };
+  let last = [];
+  function render(list) {
+    const ul = $('list'); ul.className = view === 'liste' ? 'rows' : 'rack ' + view;
+    last = groups(list);
+    ul.innerHTML = last.map((gp, i) => {
+      const cov = gp.coverS ? Img.url(gp.coverS) : null, j = blobUrl(gp.jcard), on = gp.songs.some(x => x.id === App.curId) ? ' on' : '', n = gp.songs.length > 1 ? `<span class="rn">${gp.songs.length}</span>` : '';
+      if (view === 'kaset') return `<li class="rk${on}" data-rk="${i}"><div class="case">${j ? `<img src="${esc(j)}" alt="">` : `<div class="jgen">${cov ? `<img src="${esc(cov)}" alt="">` : miniTape(gp.key)}<b>${esc(gp.title)}</b><span>${esc(gp.artist)}</span></div>`}<i class="spine">${esc(gp.artist ? gp.artist + ' · ' : '')}${esc(gp.title)}</i>${n}</div>
+        <button class="rkm" data-rkm="${i}" aria-label="Kapak">${ICON.more}</button><div class="rt2">${esc(gp.title)}</div></li>`;
+      return `<li class="rk${on}" data-rk="${i}"><div class="sleeve"><div class="disc"></div><div class="cov">${cov ? `<img src="${esc(cov)}" alt="">` : `<div class="lgen">${miniTape(gp.key)}<b>${esc(gp.title)}</b></div>`}</div>${n}</div>
+        <button class="rkm" data-rkm="${i}" aria-label="Kapak">${ICON.more}</button><div class="rt2">${esc(gp.title)}</div><div class="ra">${esc(gp.artist)}</div></li>`;
+    }).join('');
+    document.querySelectorAll('#libView [data-lv]').forEach(b => b.setAttribute('aria-pressed', b.dataset.lv === view));
+  }
+  function pickImg(cb) { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = () => inp.files[0] && cb(inp.files[0]); inp.click(); }
+  async function setAll(gp, field, blob) { for (const s of gp.songs) { s[field] = blob; if (field === 'cover') { s.coverUrl = null; Img.drop(s.id); } s.updated = Date.now(); await DB.song(s); if (field === 'cover') Cloud.pushMeta(s, true); } UI.lib(); UI.now(); Media.meta(); }
+  function open(gp) {
+    if (gp.songs.length === 1) { Engine.unlock(); playSong(gp.songs[0].id); return; }
+    const ids = gp.songs.map(s => s.id);
+    menu([{ label: 'Hepsini çal (' + ids.length + ')', icon: ICON.play, run: () => { Engine.unlock(); playSong(ids[0], ids); } }]
+      .concat(gp.songs.map(s => ({ label: s.title, icon: '', run: () => { Engine.unlock(); playSong(s.id, ids); } }))));
+  }
+  function coverMenu(gp) {
+    const kaset = view === 'kaset';
+    menu([
+      { label: kaset ? 'Gerçek kaset kapağı koy' : 'Plak kapağı koy', icon: ICON.edit, run: () => pickImg(f => Crop.open(f, b => setAll(gp, kaset ? 'jcard' : 'cover', b).then(() => toast('Kapak kondu')), kaset ? 0.625 : 1, kaset ? 'Kaset kapağını ayarla' : 'Plak kapağını ayarla')) },
+      ...(kaset && gp.jcard ? [{ label: 'Kaset kapağını kaldır', icon: ICON.trash, run: () => setAll(gp, 'jcard', null) }] : []),
+      { label: 'Çal', icon: ICON.play, run: () => open(gp) }
+    ]);
+  }
+  $('list').addEventListener('click', e => {
+    if (view === 'liste') return;
+    const m = e.target.closest('[data-rkm]'); if (m) { e.stopPropagation(); return coverMenu(last[+m.dataset.rkm]); }
+    const r = e.target.closest('[data-rk]'); if (r) { e.stopPropagation(); open(last[+r.dataset.rk]); }
+  }, true);
+  $('libView').addEventListener('click', e => { const b = e.target.closest('[data-lv]'); if (!b) return; view = b.dataset.lv; LS.set('gp-libview', view); UI.lib(); });
+  return { render, get view() { return view; } };
+})();
 /* ================= Ekstralar: damar, kader kasetleri, istatistik, yedek, yolculuk ================= */
 const X = (() => {
   const nrm = s => String(s || '').toLocaleLowerCase('tr').normalize('NFC');
@@ -3921,7 +4163,7 @@ const X = (() => {
   App.queue = App.filtered().map(s => s.id);
   renderFx(); UI.lib(); AI.render(); $('chatAv').innerHTML = TEA; Scene.start();
   setView(App.songs.length ? 'now' : 'lib');
-  X.bind(); X.nowUI(); X.importShared(); Deck.apply();
+  X.bind(); X.nowUI(); X.importShared(); Deck.apply(); MyEq.render(); UI.lib();
   if (fx.carOn || fx.preset === 'pioneer') { delete fx.carOn; delete fx.carBass; delete fx.carCabin; if (fx.preset === 'pioneer') fx.preset = 'custom'; LS.set('gp-fx2', fx); try { Engine.refresh(); } catch (e) {} }
   for (const x of App.songs) if (x.fx && (x.fx.carOn !== undefined)) { delete x.fx.carOn; delete x.fx.carBass; delete x.fx.carCabin; if (x.fx.preset === 'pioneer') x.fx.preset = 'custom'; DB.song(x); }
   if (fx.crowdOn || fx.preset === 'konser') { delete fx.crowdOn; delete fx.crowdAmt; if (fx.preset === 'konser') fx.preset = 'custom'; LS.set('gp-fx2', fx); }
