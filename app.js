@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 21;
+const VERSION = 24;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -88,6 +88,8 @@ const DB = (() => {
   }
   return {
     open, song, loadSongs, migrate,
+    getFile: k => run('files', 'readonly', o => o.get(k)).then(r => r ? r.b : null),
+    putFile: (k, b) => run('files', 'readwrite', o => b ? o.put({ k, b }) : o.delete(k)),
     delSong: id => Promise.all([run('songs', 'readwrite', o => o.delete(id)), run('files', 'readwrite', o => { o.delete(id + ':a'); return o.delete(id + ':c'); })]),
     all: s => run(s, 'readonly', o => o.getAll()).then(r => r || []),
     put: (s, v) => run(s, 'readwrite', o => o.put(v)),
@@ -227,9 +229,9 @@ const FX_DEFAULT = {
   radioOn: false,
   d8On: false, d8Speed: 0.12,
   karaokeOn: false, karaoke: 0.9,
+  carOn: false, carBass: 0.6, carCabin: 0.5,
   weatherOn: false, weatherAmt: 0.5,
   normOn: true, xfade: 4, nightOn: true,
-  crowdOn: false, crowdAmt: 0.6,
   preset: 'orijinal'
 };
 const RVB_TYPES = { oda: 'Oda', gazino: 'Gazino', hamam: 'Hamam', konser: 'Konser' };
@@ -237,7 +239,7 @@ const IR_CACHE = new Map();
 function makeIR(ctx, type) {
   const sr = ctx.sampleRate, key = type + sr;
   if (IR_CACHE.has(key)) return IR_CACHE.get(key);
-  const P = { oda: [0.8, 3.2, 0.006, 6500, 0], gazino: [2.3, 2.6, 0.022, 5200, 0], hamam: [3.0, 1.9, 0.010, 9500, 1], konser: [3.8, 2.4, 0.030, 4300, 0] }[type] || [2, 2.5, 0.02, 5000, 0];
+  const P = { araba: [0.16, 2.4, 0.0015, 3800, 1], oda: [0.8, 3.2, 0.006, 6500, 0], gazino: [2.3, 2.6, 0.022, 5200, 0], hamam: [3.0, 1.9, 0.010, 9500, 1], konser: [3.8, 2.4, 0.030, 4300, 0] }[type] || [2, 2.5, 0.02, 5000, 0];
   const [sec, decay, pre, tone, taps] = P, len = Math.round(sr * sec), buf = ctx.createBuffer(2, len, sr);
   let rnd = 12345 + type.length * 777; const rand = () => (rnd = (rnd * 16807) % 2147483647) / 2147483647 * 2 - 1;
   for (let c = 0; c < 2; c++) {
@@ -277,48 +279,6 @@ function noiseBuf(ctx, kind) {
   }
   return b;
 }
-/* Konser kalabalığı: uğultu, alkış, ıslık ve "yuuh" coşkusu (kayıt değil, anında üretilir) */
-const CROWD_CACHE = new Map();
-function crowdBufs(ctx) {
-  const sr = ctx.sampleRate; if (CROWD_CACHE.has(sr)) return CROWD_CACHE.get(sr);
-  let rnd = 31337; const rand = () => (rnd = (rnd * 16807) % 2147483647) / 2147483647;
-  const bp = (f, q) => { const w = 2 * Math.PI * f / sr, al = Math.sin(w) / (2 * q), a0 = 1 + al; return { b0: al / a0, b2: -al / a0, a1: -2 * Math.cos(w) / a0, a2: (1 - al) / a0, x1: 0, x2: 0, y1: 0, y2: 0 }; };
-  const run = (f, x) => { const y = f.b0 * x + f.b2 * f.x2 - f.a1 * f.y1 - f.a2 * f.y2; f.x2 = f.x1; f.x1 = x; f.y2 = f.y1; f.y1 = y; return y; };
-  function clap(d, at, amp) { const w = Math.floor(sr * (0.004 + rand() * 0.01)); let hp = 0, prev = 0; for (let j = 0; j < w && at + j < d.length; j++) { const n = rand() * 2 - 1; hp = 0.9 * (hp + n - prev); prev = n; d[at + j] += hp * amp * Math.exp(-j / (w * 0.3)); } }
-  function whistle(d, at, amp) {
-    const dur = 0.35 + rand() * 0.6, n = Math.floor(sr * dur), f0 = 1800 + rand() * 1400, f1 = f0 * (rand() < 0.5 ? 1.25 : 0.8), vib = 5 + rand() * 3; let ph = 0;
-    for (let j = 0; j < n && at + j < d.length; j++) { const u = j / n, f = f0 + (f1 - f0) * Math.min(1, u * 1.6) + Math.sin(j / sr * vib * 6.28) * 40; ph += 6.2832 * f / sr;
-      const env = Math.min(1, u * 12) * Math.min(1, (1 - u) * 6); d[at + j] += Math.sin(ph) * amp * env * (0.85 + 0.15 * (rand() * 2 - 1)); }
-  }
-  function babble(len, loud) {
-    const b = ctx.createBuffer(2, len, sr);
-    for (let c = 0; c < 2; c++) {
-      const d = b.getChannelData(c), fl = [180, 320, 560, 900, 1500, 2600].map(f => ({ f: bp(f * (0.9 + rand() * 0.2), 1.4), e: 0, t: 0, g: 0.6 + rand() * 0.6 }));
-      for (let i = 0; i < len; i++) {
-        let v = 0; const n = rand() * 2 - 1;
-        for (const x of fl) { if (i % 256 === 0) x.t = Math.pow(rand(), 2) * (loud ? 1.6 : 1); x.e += (x.t - x.e) * 0.0015; v += run(x.f, n) * x.e * x.g; }
-        d[i] = v * (loud ? 0.55 : 0.42);
-      }
-      // döngü sınırı yumuşasın
-      const xf = Math.floor(sr * 0.3); for (let i = 0; i < xf; i++) { const k = i / xf; d[i] = d[i] * k + d[len - xf + i] * (1 - k); }
-    }
-    return b;
-  }
-  const bedLen = Math.floor(sr * 9), bed = babble(bedLen, false);
-  for (let c = 0; c < 2; c++) { const d = bed.getChannelData(c); for (let k = 0; k < 9 * 7; k++) clap(d, Math.floor(rand() * (bedLen - 900)), 0.08 + rand() * 0.06); if (rand() < 0.9) whistle(d, Math.floor(rand() * (bedLen - sr)), 0.025); }
-  const cheers = [];
-  for (let v = 0; v < 3; v++) {
-    const len = Math.floor(sr * (4.5 + v)), ch = babble(len, true);
-    for (let c = 0; c < 2; c++) {
-      const d = ch.getChannelData(c);
-      for (let i = 0; i < len; i++) { const u = i / len; d[i] *= Math.min(1, u * 5) * Math.pow(1 - u, 1.4) * 1.6; }
-      const claps = Math.floor(len / sr * 160); for (let k = 0; k < claps; k++) { const at = Math.floor(Math.pow(rand(), 1.3) * (len - 900)); clap(d, at, (0.18 + rand() * 0.2) * Math.pow(1 - at / len, 1.2)); }
-      for (let k = 0; k < 2 + v; k++) whistle(d, Math.floor(rand() * len * 0.6), 0.06 + rand() * 0.04);
-    }
-    cheers.push(ch);
-  }
-  const out = { bed, cheers }; CROWD_CACHE.set(sr, out); return out;
-}
 function buildGraph(ctx) {
   const n = {}, G = () => ctx.createGain(), nyq = ctx.sampleRate / 2 - 200;
   n.input = G(); n.pre = G(); n.fade = G();
@@ -330,14 +290,16 @@ function buildGraph(ctx) {
   n.kHi = ctx.createBiquadFilter(); n.kHi.type = 'highpass'; n.kHi.frequency.value = 7000;
   n.kHiG = G(); n.kHiG.gain.value = 0;
   n.rainSrc = ctx.createBufferSource(); n.rainSrc.buffer = noiseBuf(ctx, 'rain'); n.rainSrc.loop = true;
-  n.crowd = G(); n.crowd.gain.value = 0; n.crowdSwell = G(); n.crowdSwell.gain.value = 1; n.cheerG = G(); n.cheerG.gain.value = 0;
-  n.crowdHall = ctx.createConvolver(); n.crowdWet = G(); n.crowdWet.gain.value = 0.5; n.crowdPan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-  n.crowdSrc = null; n.crowdOn = false;
   n.rainLp = ctx.createBiquadFilter(); n.rainLp.type = 'lowpass'; n.rainLp.frequency.value = 5200; n.rain = G(); n.rain.gain.value = 0;
   n.eq = FREQS.map((f, i) => { const b = ctx.createBiquadFilter(); b.type = i === 0 ? 'lowshelf' : i === FREQS.length - 1 ? 'highshelf' : 'peaking'; b.frequency.value = Math.min(f, nyq); b.Q.value = 1.1; return b; });
   n.hp = ctx.createBiquadFilter(); n.hp.type = 'highpass'; n.hp.Q.value = 0.7; n.hp.frequency.value = 10;
   n.lp = ctx.createBiquadFilter(); n.lp.type = 'lowpass'; n.lp.Q.value = 0.7; n.lp.frequency.value = nyq;
   n.wow = ctx.createDelay(0.1); n.wow.delayTime.value = 0.008;
+  // Pioneer + arka raf 6x9 "balina" hoparlör: kabin basları, oval kon rezonansı, dolgun orta-tiz, sıcak amfi doyumu
+  const BQ = (t, f, q, g) => { const b = ctx.createBiquadFilter(); b.type = t; b.frequency.value = f; b.Q.value = q; b.gain.value = g || 0; return b; };
+  n.carSub = BQ('lowshelf', 85, 0.7); n.carRes = BQ('peaking', 58, 1.6); n.carBox = BQ('peaking', 380, 0.9); n.carPres = BQ('peaking', 2600, 1.1); n.carAir = BQ('highshelf', 9500, 0.7);
+  n.carCut = BQ('lowpass', 16000, 0.6); n.carDrive = ctx.createWaveShaper(); n.carDrive.oversample = '2x';
+  n.carConv = ctx.createConvolver(); n.carWet = G(); n.carWet.gain.value = 0;
   n.wowLfo = ctx.createOscillator(); n.wowLfo.frequency.value = 0.55; n.wowDepth = G(); n.wowDepth.gain.value = 0;
   n.flLfo = ctx.createOscillator(); n.flLfo.frequency.value = 6.3; n.flDepth = G(); n.flDepth.gain.value = 0;
   n.wowLfo.connect(n.wowDepth).connect(n.wow.delayTime); n.flLfo.connect(n.flDepth).connect(n.wow.delayTime);
@@ -359,7 +321,9 @@ function buildGraph(ctx) {
   n.input.connect(n.kHi); n.kHi.connect(n.kHiG); n.kHiG.connect(n.pre);
   let x = n.kmg; x.connect(n.pre); x = n.pre;
   n.eq.forEach(b => { x.connect(b); x = b; });
-  x.connect(n.hp); n.hp.connect(n.lp); n.lp.connect(n.wow);
+  x.connect(n.hp); n.hp.connect(n.lp);
+  n.lp.connect(n.carSub); n.carSub.connect(n.carRes); n.carRes.connect(n.carBox); n.carBox.connect(n.carPres); n.carPres.connect(n.carAir); n.carAir.connect(n.carCut); n.carCut.connect(n.carDrive); n.carDrive.connect(n.wow);
+  n.wow.connect(n.carConv); n.carConv.connect(n.carWet); n.carWet.connect(n.mix);
   n.wow.connect(n.dry); n.dry.connect(n.mix);
   n.wow.connect(n.conv); n.conv.connect(n.rvb); n.rvb.connect(n.mix);
   n.wow.connect(n.echo); n.echo.connect(n.echoLp); n.echoLp.connect(n.echoFb); n.echoFb.connect(n.echo); n.echo.connect(n.echoWet); n.echoWet.connect(n.mix);
@@ -367,7 +331,6 @@ function buildGraph(ctx) {
   n.hissSrc.connect(n.hissHp).connect(n.hiss).connect(n.master);
   n.crackSrc.connect(n.crack).connect(n.master);
   n.rainSrc.connect(n.rainLp).connect(n.rain).connect(n.master);
-  n.crowdSwell.connect(n.crowd); n.cheerG.connect(n.crowd); n.crowd.connect(n.master); n.crowd.connect(n.crowdHall); n.crowdHall.connect(n.crowdWet).connect(n.master);
   n.master.connect(n.lim); n.lim.connect(n.fade); n.fade.connect(n.output);
 
   let irType = null;
@@ -390,6 +353,16 @@ function buildGraph(ctx) {
     set(n.dry.gain, fx.rvbOn ? 1 - fx.rvbMix * 0.35 : 1);
     set(n.echo.delayTime, fx.echoTime); set(n.echoFb.gain, fx.echoOn ? fx.echoFb : 0); set(n.echoWet.gain, fx.echoOn ? fx.echoMix : 0);
     set(n.panDepth.gain, fx.d8On && n.pan ? 0.85 : 0); set(n.panLfo.frequency, fx.d8Speed);
+    // Pioneer balina
+    const car = fx.carOn ? 1 : 0, cb = fx.carBass ?? 0.6, cc = fx.carCabin ?? 0.5;
+    set(n.carSub.gain, car * (3 + 6 * cb)); set(n.carRes.gain, car * (2 + 5 * cb)); set(n.carBox.gain, car * -3.5); set(n.carPres.gain, car * 2.5); set(n.carAir.gain, car * 2);
+    set(n.carCut.frequency, car ? 13500 : Math.min(20000, nyq));
+    if (car !== n.carState) {
+      n.carState = car;
+      if (car) { const N = 2048, c = new Float32Array(N), k2 = 1.7; for (let i = 0; i < N; i++) { const x2 = i / (N - 1) * 2 - 1; c[i] = Math.tanh(k2 * x2) / Math.tanh(k2); } n.carDrive.curve = c; if (!n.carConv.buffer) n.carConv.buffer = makeIR(ctx, 'araba'); }
+      else n.carDrive.curve = null;
+    }
+    set(n.carWet.gain, car * cc * 0.55);
     // karaoke
     const k = fx.karaokeOn ? fx.karaoke : 0;
     set(n.kLR.gain, -k); set(n.kRL.gain, -k); set(n.kBass.gain, k); set(n.kHiG.gain, k * 0.5);
@@ -398,27 +371,15 @@ function buildGraph(ctx) {
     set(n.input.gain, norm * (k ? 1 + k * 0.35 : 1));
     if (fx._night) { set(n.lp.frequency, Math.min(lp, 8500, nyq)); }
     set(n.rain.gain, fx.weatherOn && fx._rain ? 0.09 * fx.weatherAmt * fx._rain : 0);
-    // konser coşkusu
-    if (fx.crowdOn && !n.crowdSrc) {
-      const cb = crowdBufs(ctx); n.crowdSrc = ctx.createBufferSource(); n.crowdSrc.buffer = cb.bed; n.crowdSrc.loop = true; n.crowdSrc.connect(n.crowdSwell);
-      if (!n.crowdHall.buffer) n.crowdHall.buffer = makeIR(ctx, 'konser');
-      try { n.crowdSrc.start(n.started ? ctx.currentTime : 0); } catch (e) {}
-    }
-    set(n.crowd.gain, fx.crowdOn ? 0.55 * fx.crowdAmt : 0);
-    set(n.cheerG.gain, fx.crowdOn ? 1 : 0);
     set(n.master.gain, (fx.radioOn ? 1.6 : 1) * (fx._night ? 0.82 : 1));
   };
-  // coşku dalgası: şarkı güçlendikçe kalabalık da yükselir; ara ara alkış + ıslık patlaması
-  n.swell = v => { try { n.crowdSwell.gain.setTargetAtTime(0.55 + 1.1 * Math.max(0, Math.min(1, v)), ctx.currentTime, 0.6); } catch (e) {} };
-  n.cheer = (k = 0, when = 0) => { if (!fx_crowd()) return; try { const b = crowdBufs(ctx).cheers[k % 3], s = ctx.createBufferSource(); s.buffer = b; s.connect(n.cheerG); s.start(when || ctx.currentTime); } catch (e) {} };
-  let fx_crowd = () => true; n.bindFx = f => { fx_crowd = () => f().crowdOn; };
   n.setFade = v => { try { n.fade.gain.setTargetAtTime(Math.max(0, Math.min(1, v)), ctx.currentTime, 0.06); } catch (e) {} };
-  n.start = (when = 0) => { n.started = true; [n.wowLfo, n.flLfo, n.panLfo, n.hissSrc, n.crackSrc, n.rainSrc, n.crowdSrc].forEach(s => { try { s && s.start(when); } catch (e) {} }); };
-  n.stop = () => { [n.wowLfo, n.flLfo, n.panLfo, n.hissSrc, n.crackSrc, n.rainSrc, n.crowdSrc].forEach(s => { try { s.stop(); } catch (e) {} }); };
+  n.start = (when = 0) => { n.started = true; [n.wowLfo, n.flLfo, n.panLfo, n.hissSrc, n.crackSrc, n.rainSrc].forEach(s => { try { s && s.start(when); } catch (e) {} }); };
+  n.stop = () => { [n.wowLfo, n.flLfo, n.panLfo, n.hissSrc, n.crackSrc, n.rainSrc].forEach(s => { try { s.stop(); } catch (e) {} }); };
   return n;
 }
 const fxNeedsStretch = fx => Math.abs(fx.rate - 1) > 0.001 || Math.abs(fx.semi) > 0.001;
-const fxNeutral = fx => !fxNeedsStretch(fx) && !(fx.eqOn && fx.eq.some(Boolean)) && !(fx.preOn && fx.pre) && !fx.rvbOn && !fx.echoOn && !fx.tapeOn && !fx.vinylOn && !fx.radioOn && !fx.d8On && !fx.karaokeOn && !(fx.weatherOn && fx._rain) && !fx._night && !fx.crowdOn;
+const fxNeutral = fx => !fxNeedsStretch(fx) && !(fx.eqOn && fx.eq.some(Boolean)) && !(fx.preOn && fx.pre) && !fx.rvbOn && !fx.echoOn && !fx.tapeOn && !fx.vinylOn && !fx.radioOn && !fx.d8On && !fx.karaokeOn && !fx.carOn && !(fx.weatherOn && fx._rain) && !fx._night;
 const fxTail = fx => (fx.rvbOn ? 4 : 0) + (fx.echoOn ? Math.min(6, fx.echoTime * 8) : 0);
 
 function wavBlob(buf) {
@@ -476,9 +437,10 @@ async function processRange(dsp, src, fx, from, to, opts = {}) {
 const Engine = (() => {
   const fx = Object.assign({}, FX_DEFAULT, LS.get('gp-fx2', {}));
   fx.eq = (fx.eq && fx.eq.length === 10) ? fx.eq : FREQS.map(() => 0);
-  let mode = LS.get('gp-engine2', 'live') === 'render' ? 'render' : 'live';
+  // Sadece canlı motor: hazırlamalı motora artık hiç geçilmez (Eren'in isteği)
+  let mode = 'live'; LS.set('gp-engine2', 'live');
   let duration = 0, pos = 0, playing = false, loadedId = null, curBlob = null;
-  const L = { time() {}, end() {}, mode() {}, state() {}, busy() {}, decoded() {} };
+  const L = { time() {}, end() {}, mode() {}, state() {}, busy() {}, decoded() {}, fxset() {} };
   const diag = [];
   function log(m) { diag.push(new Date().toTimeString().slice(0, 8) + ' ' + m); if (diag.length > 40) diag.shift(); }
   window.addEventListener('error', e => log('JS hata: ' + (e.message || '')));
@@ -550,12 +512,12 @@ const Engine = (() => {
       if (!ctx || !ctx.audioWorklet) throw new Error('AudioWorklet yok');
       await stretchLib();
       stretch = await Promise.race([window.SignalsmithStretch(ctx), new Promise((_, r) => setTimeout(() => r(new Error('motor 6 sn içinde açılmadı')), 6000))]);
-      stretch.onprocessorerror = () => { log('canlı motor çöktü'); if (playing) toRender(); };
-      graph = buildGraph(ctx); graph.bindFx(() => fx); graph.apply(fx, false); graph.start(0);
-      stretch.connect(graph.input); graph.output.connect(bridgeOut());
+      stretch.onprocessorerror = () => { log('canlı motor çöktü, yeniden başlatılıyor'); recover(); };
+      if (!graph) { graph = buildGraph(ctx); graph.apply(fx, false); graph.start(0); graph.output.connect(bridgeOut()); }
+      stretch.connect(graph.input);
       stretch.setUpdateInterval(0.08, t => {
         if (mode !== 'live') return;
-        pos = t; L.time(t); fadeTick(); crowdTick();
+        pos = t; L.time(t); fadeTick();
         if (playing && duration && t >= duration - 0.04) { playing = false; stretch.schedule({ active: false }); L.end(); }
       });
       log('Canlı motor hazır');
@@ -570,19 +532,7 @@ const Engine = (() => {
     const db = 10 * Math.log10(e / Math.max(1, n) + 1e-12);
     return Math.max(-8, Math.min(7, -16 - db));
   }
-  let duck = 1, crowdT = 0, cheerAt = 0, lastPos = 0, endCheered = false;
-  function crowdTick() {
-    if (!graph || mode !== 'live' || !fx.crowdOn || !playing) return;
-    const now = performance.now(); if (now - crowdT < 250) return; crowdT = now;
-    const en = (typeof Wave !== 'undefined') ? Wave.energy() : 0.5, b = (typeof Wave !== 'undefined') ? Wave.beat() : 0;
-    graph.swell(en * 0.9 + b * 0.3);
-    const rem = (duration - pos) / (fx.rate || 1);
-    if (pos < lastPos - 1 || pos < 1) endCheered = false;
-    lastPos = pos;
-    if (pos > 0.6 && pos < 2.5 && now - cheerAt > 8000) { cheerAt = now; graph.cheer(0); }               // şarkı başında tezahürat
-    else if (rem < 7 && rem > 1 && !endCheered) { endCheered = true; cheerAt = now; graph.cheer(2); }    // biterken alkış
-    else if (en > 0.72 && b > 0.5 && now - cheerAt > 22000 + Math.random() * 15000) { cheerAt = now; graph.cheer(1); } // coşkulu yerde
-  }
+  let duck = 1;
   function fadeTick() {
     if (!graph || mode !== 'live') return;
     let f = duck;
@@ -671,7 +621,8 @@ const Engine = (() => {
       if (el && !el.paused) { swapping = true; el.pause(); swapping = false; }
       return loadRender(id, blob, cancelled);
     }
-    try { await initLive(); } catch (e) { mode = 'render'; LS.set('gp-engine2', 'render'); L.mode(); return loadRender(id, blob, cancelled); }
+    try { await initLive(); }
+    catch (e) { initP = null; unlockCtx(); try { await initLive(); } catch (e2) { log('Canlı motor açılamadı: ' + e2.message); throw new Error('motor'); } }
     stretch.schedule({ active: false }); await stretch.dropBuffers();
     const ab = await blob.arrayBuffer(); if (cancelled()) return false;
     let buf;
@@ -703,8 +654,31 @@ const Engine = (() => {
     if (ctx.state !== 'running') ctx.resume().catch(() => {});
     stretch.schedule(Object.assign({ active: true, output: ctx.currentTime + 0.03 }, params()));
     playing = true; bridgePlay();
+    arm();
+  }
+  // Bekçi: ses ilerlemiyorsa önce sesi uyandır, olmazsa canlı motoru yeniden kur (hazırlamalıya ASLA geçme)
+  let tries = 0;
+  function arm() {
     const p0 = pos; clearTimeout(watchdog);
-    watchdog = setTimeout(() => { if (mode === 'live' && playing && Math.abs(pos - p0) < 0.3) { log('Canlı motor ilerlemiyor (ses ' + ctx.state + ')'); toRender(); } }, 2200);
+    watchdog = setTimeout(async () => {
+      if (!playing || Math.abs(pos - p0) >= 0.3) { tries = 0; return; }
+      log('Canlı motor ilerlemiyor (ses ' + (ctx && ctx.state) + '), deneme ' + (tries + 1));
+      tries++;
+      if (tries <= 2) { try { await ctx.resume(); } catch (e) {} if (stretch) stretch.schedule(Object.assign({ input: pos, output: ctx.currentTime + 0.05, active: true }, params())); bridgePlay(); arm(); }
+      else { tries = 0; recover(); }
+    }, 2400);
+  }
+  let recovering = false;
+  async function recover() {
+    if (recovering || !curBlob || !loadedId) return; recovering = true;
+    const at = pos, id = loadedId, was = playing, blob = curBlob;
+    L.busy('Motor tazeleniyor');
+    try { if (stretch) { try { stretch.disconnect(); } catch (e) {} } stretch = null; initP = null;
+      try { if (ctx.state !== 'running') await ctx.resume(); } catch (e) {}
+      const ok = await load(id, blob, () => false);
+      if (ok) { seek(at); if (was) play(); }
+    } catch (e) { log('Yeniden kurulamadı: ' + e.message); }
+    L.busy(null); recovering = false; L.state();
   }
   function pause() {
     clearTimeout(watchdog); playing = false; waitFull = false;
@@ -721,10 +695,11 @@ const Engine = (() => {
     }
     if (stretch) stretch.schedule(Object.assign({ input: t, output: ctx.currentTime, active: playing }, params()));
   }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && playing && mode === 'live' && ctx.state !== 'running') ctx.resume().catch(() => {}); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && playing && ctx.state !== 'running') { ctx.resume().catch(() => {}); arm(); } });
 
-  function setFx(patch) {
+  function setFx(patch, quiet) {
     Object.assign(fx, patch); LS.set('gp-fx2', fx);
+    if (!quiet) try { L.fxset(); } catch (e) {}
     if (mode === 'live') {
       if (graph) graph.apply(fx, true);
       if (stretch && playing) stretch.schedule(Object.assign({ output: ctx.currentTime + 0.02 }, params()));
@@ -736,7 +711,7 @@ const Engine = (() => {
   }
   function setDuck(v) { duck = v; fadeTick(); if (mode === 'render' && el) { try { el.volume = Math.max(0, Math.min(1, v)); } catch (e) {} } }
   function refresh() { if (graph) graph.apply(fx, true); if (mode === 'render' && loadedId && (playing || seg)) { clearTimeout(dirtyT); dirtyT = setTimeout(() => prepare(curPos(), playing), 380); } }
-  function setMode(m) { if (m === mode) return; if (m === 'render') return toRender(); LS.set('gp-engine2', 'live'); location.reload(); }
+  function setMode() {}
   function info() {
     return { mode, ctx: ctx ? ctx.state + ' · ' + ctx.sampleRate + ' Hz' : 'kullanılmıyor', motor: !!stretch,
       session: navigator.audioSession ? navigator.audioSession.type : 'yok', ua: navigator.userAgent.replace(/^Mozilla\/5\.0 /, ''), events: diag.slice() };
@@ -1278,6 +1253,7 @@ async function playSong(id, queue) {
       if (tok !== loadToken) return;
       s.blob = blob; DB.song(s);
     }
+    SongFx.load(s);
     const ok = await Engine.load(id, blob, () => tok !== loadToken);
     if (!ok || tok !== loadToken) return;
     if (!s.duration) { s.duration = Engine.duration; DB.song(s); }
@@ -1287,7 +1263,7 @@ async function playSong(id, queue) {
   } catch (e) {
     if (tok !== loadToken) return;
     UI.busy(null);
-    toast(e.message === 'nofile' ? 'Bu şarkının dosyası bu cihazda yok' : 'Şarkı açılamadı. Dosya bozuk ya da desteklenmiyor.');
+    toast(e.message === 'nofile' ? 'Bu şarkının dosyası bu cihazda yok' : e.message === 'motor' ? 'Ses motoru açılamadı. Uygulamayı kapatıp yeniden aç.' : 'Şarkı açılamadı. Dosya bozuk ya da desteklenmiyor.');
   }
   if (tok !== loadToken) return;
   App.loadingId = null; UI.now(); UI.markOn(); if (App.view === 'lists') UI.lists(); Media.meta();
@@ -1489,7 +1465,7 @@ Engine.on('decoded', (id, a, b, sr) => Wave.build(id, a, b, sr));
 const UI = {
   now() {
     const s = App.byId(App.curId), url = Img.url(s);
-    Skin.apply(s);
+    Skin.apply(s); Deck.label(s); Deck.sync();
     Tape.label(s, url);
     $('npT').textContent = s ? s.title : 'Henüz kaset takılmadı';
     $('npA').textContent = s ? [s.artist || 'Bilinmeyen sanatçı', s.album, s.year].filter(Boolean).join(' · ') : 'Arşivden bir şarkıya dokun';
@@ -1608,8 +1584,8 @@ const UI = {
         <div class="toggle"><div class="tl"><span>Fernsehturm ritme göre parlasın</span><span class="sub">Akşam ve gece sahnesinde kulenin ışığı çalan şarkının vuruşlarıyla yanıp söner</span></div><button class="sw" id="beatOn" role="switch" aria-checked="${Scene.beatOn}" aria-label="Ritme göre Fernsehturm"></button></div></div>
       ${X.acct()}
       <div class="group"><h3>Ses motoru</h3>
-        <div class="seg" id="engSeg"><button data-m="live" aria-pressed="${d.mode === 'live'}">Canlı</button><button data-m="render" aria-pressed="${d.mode === 'render'}">Hazırlamalı</button></div>
-        <p class="msg">${d.mode === 'live' ? 'Canlı: ayarlar anında duyulur. Telefon desteklemezse uygulama kendiliğinden hazırlamalıya geçer.' : 'Hazırlamalı: ses arka planda işlenip çalınır. Her iPhone\'da çalışır, kilit ekranında da devam eder. Ayar değişince yaklaşık bir saniyede güncellenir.'}</p>
+        <p class="msg">Sadece canlı motor çalışır: ayarlar anında duyulur. Ses takılırsa uygulama motoru kendisi tazeler, hazırlamalı motora geçmez.</p>
+        <p class="msg" hidden>${d.mode === 'live' ? '' : 'Hazırlamalı: ses arka planda işlenip çalınır. Her iPhone\'da çalışır, kilit ekranında da devam eder. Ayar değişince yaklaşık bir saniyede güncellenir.'}</p>
         <pre class="diag" id="diagText">${esc(['motor: ' + d.mode + (d.motor ? ' (hazır)' : ''), 'ses: ' + d.ctx, 'oturum: ' + d.session, d.ua, '', ...d.events].join('\n'))}</pre>
         <button class="btn" id="diagCopy">Teknik bilgiyi kopyala</button></div>
       <div class="group"><h3>Uygulama</h3><p class="msg">Sürüm <strong>${VERSION}</strong></p><button class="btn" id="upd">Güncellemeyi kontrol et</button></div>`;
@@ -2066,7 +2042,7 @@ const EQ_PRESETS = {
   gece: { n: 'Gece', g: [2, 2, 1, 0, 0, -1, -2, -2, -3, -4] },
   hoparlor: { n: 'Telefon hoparlörü', g: [-4, -2, 2, 3, 2, 1, 1, 2, 2, 0] }
 };
-const BASE = { rate: 1, semi: 0, rvbOn: false, echoOn: false, tapeOn: false, vinylOn: false, radioOn: false, d8On: false, crowdOn: false };
+const BASE = { rate: 1, semi: 0, rvbOn: false, echoOn: false, tapeOn: false, vinylOn: false, radioOn: false, d8On: false, carOn: false };
 const PRESETS = [
   { id: 'orijinal', n: 'Orijinal', d: 'Olduğu gibi, katıksız', p: {} },
   { id: 'slowed', n: 'Slowed + Reverb', d: 'Yavaş, derin, gece üç', p: { rate: 0.85, semi: -2.81, rvbOn: true, rvbType: 'gazino', rvbMix: 0.35 } },
@@ -2081,10 +2057,11 @@ const PRESETS = [
   { id: 'ubahn', n: 'U-Bahn Gecesi', d: 'Yeraltında yankılanan uzak ses', p: { rvbOn: true, rvbType: 'hamam', rvbMix: 0.36, echoOn: true, echoTime: 0.18, echoFb: 0.25, echoMix: 0.12, eqOn: true, eq: [-3, -2, 0, 1, 2, 1, 0, -2, -4, -6], eqPreset: 'custom' } },
   { id: 'neckar', n: 'Neckar Kenarı', d: 'Sakin, sudan gelen bir hüzün', p: { rate: 0.96, semi: -0.5, rvbOn: true, rvbType: 'oda', rvbMix: 0.2, tapeOn: true, tapeWow: 0.25, tapeHiss: 0.1, eqOn: true, eq: [2, 2, 1, 0, 0, -1, -2, -2, -3, -4], eqPreset: 'gece' } },
   { id: 'nightcore', n: 'Nightcore', d: 'Hızlı ve tiz', p: { rate: 1.25, semi: 3 } },
-  { id: 'konser', n: 'Canlı Konser', d: 'Binlerce kişi seninle söylüyor', p: { crowdOn: true, crowdAmt: 0.65, rvbOn: true, rvbType: 'konser', rvbMix: 0.28, eqOn: true, eq: [2, 2, 1, 0, 0, 0, 1, 1, 0, -1] } }
+  { id: 'pioneer', n: 'Pioneer Balina', d: 'Arka rafta 6x9, cam titrer', p: { carOn: true, carBass: 0.7, carCabin: 0.55 } }
 ];
 function renderModes() {
-  $('modes').innerHTML = PRESETS.map(m => `<button class="mode${fx.preset === m.id ? ' on' : ''}" data-preset="${m.id}"><b>${m.n}</b><span>${m.d}</span></button>`).join('');
+  const list = typeof Order !== 'undefined' ? Order.sorted() : PRESETS, ed = typeof Order !== 'undefined' && Order.editing;
+  $('modes').innerHTML = list.map((m, i) => `<button class="mode${fx.preset === m.id ? ' on' : ''}" data-preset="${m.id}"><b>${m.n}</b><span>${m.d}</span>${ed ? `<span class="mmv"><i data-mmv="-1" data-id="${m.id}" ${i === 0 ? 'class="off"' : ''}>◀</i><i data-mmv="1" data-id="${m.id}" ${i === list.length - 1 ? 'class="off"' : ''}>▶</i></span>` : ''}</button>`).join('');
 }
 $('modes').addEventListener('click', e => {
   const b = e.target.closest('[data-preset]'); if (!b) return;
@@ -2476,8 +2453,8 @@ const FXCARDS = [
   { id: 'vinyl', on: 'vinylOn', ic: ICON.vinyl, n: 'Plak cızırtısı', d: 'İğnenin plakta gezinmesi', sl: [['vinyl', 'Seviye', 0, 1, 0.01, v => '%' + Math.round(v * 100)]] },
   { id: 'radio', on: 'radioOn', ic: ICON.radio, n: 'Dolmuş hoparlörü', d: 'Küçük, cızırtılı teyp sesi', sl: [] },
   { id: 'd8', on: 'd8On', ic: ICON.d8, n: '8D dönen ses', d: 'Kulaklıkla dinle', sl: [['d8Speed', 'Hız', 0.04, 0.4, 0.01, v => num(v, 2) + ' Hz']] },
+  { id: 'car', on: 'carOn', ic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="10" ry="6.5"/><ellipse cx="12" cy="12" rx="5" ry="3.2"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg>', n: 'Pioneer Balina', d: 'Eski Pioneer teyp, arka rafta 6x9 oval hoparlör', sl: [['carBass', 'Bas', 0, 1, 0.01, v => '%' + Math.round(v * 100)], ['carCabin', 'Araba içi', 0, 1, 0.01, v => '%' + Math.round(v * 100)]] },
   { id: 'kar', on: 'karaokeOn', ic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>', n: 'Karaoke', d: 'Vokali azaltır, sen söyle', sl: [['karaoke', 'Vokal kesme', 0.5, 1, 0.01, v => '%' + Math.round(v * 100)]] },
-  { id: 'crowd', on: 'crowdOn', ic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7" cy="8" r="2.5"/><circle cx="17" cy="8" r="2.5"/><circle cx="12" cy="6" r="2.5"/><path d="M2 20c.5-3.5 2.5-5.5 5-5.5M22 20c-.5-3.5-2.5-5.5-5-5.5M7 20c.6-3.8 2.6-6 5-6s4.4 2.2 5 6"/></svg>', n: 'Konser coşkusu', d: 'Kalabalık, alkış, ıslık; şarkı coştukça coşar', sl: [['crowdAmt', 'Kalabalık', 0.1, 1, 0.01, v => '%' + Math.round(v * 100)]] },
   { id: 'hava', on: 'weatherOn', ic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 15a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 7 4 4 0 0 1 18 15z"/><path d="M8 19l-1 2M12 19l-1 2M16 19l-1 2"/></svg>', n: 'Havaya uy', d: 'Stuttgart\'ta yağmur yağıyorsa arkada yağmur sesi', sl: [['weatherAmt', 'Yağmur sesi', 0, 1, 0.01, v => '%' + Math.round(v * 100)]] }
 ];
 function buildFx() {
@@ -2485,7 +2462,8 @@ function buildFx() {
     <button class="sw" data-fxon="${c.on}" role="switch" aria-label="${c.n}"></button></div>
     <div class="fxb">${c.chips ? `<div class="chips">${Object.entries(RVB_TYPES).map(([k, n]) => `<button class="chip" data-rvbt="${k}">${n}</button>`).join('')}</div>` : ''}
     ${c.sl.map(([key, l, mn, mx, st]) => `<div class="slrow"><span>${l}</span><input type="range" data-fxk="${key}" min="${mn}" max="${mx}" step="${st}" aria-label="${c.n} ${l}"><span data-fxv="${key}"></span></div>`).join('')}
-    ${c.id === 'radio' ? '<p class="msg">Bas ve tizler kesilir, ses küçük bir teypten geliyormuş gibi olur.</p>' : ''}</div></div>`).join('');
+    ${c.id === 'radio' ? '<p class="msg">Bas ve tizler kesilir, ses küçük bir teypten geliyormuş gibi olur.</p>' : ''}
+    ${c.id === 'car' ? `<div class="whales">${[0, 1].map(() => `<svg class="whale" viewBox="0 0 160 100"><ellipse cx="80" cy="50" rx="76" ry="46" fill="#151517" stroke="#3a3a3e" stroke-width="3"/><ellipse cx="80" cy="50" rx="66" ry="38" fill="#0b0b0c"/><g class="cone"><ellipse cx="80" cy="50" rx="58" ry="32" fill="#1f1f22" stroke="#444" stroke-width="2"/><ellipse cx="80" cy="50" rx="40" ry="22" fill="#2a2a2e"/><ellipse cx="80" cy="50" rx="17" ry="10" fill="#3b3b40" stroke="#666"/><circle cx="80" cy="50" r="5" fill="#9aa"/></g><text x="80" y="92" text-anchor="middle" font-size="9" fill="#9aa" font-family="var(--slab)" letter-spacing="2">6×9</text></svg>`).join('')}</div>` : ''}</div></div>`).join('');
 }
 $('fxlist').addEventListener('click', e => {
   const s = e.target.closest('[data-fxon]'); if (s) { custom({ [s.dataset.fxon]: !fx[s.dataset.fxon] }); renderFx(); return; }
@@ -2510,6 +2488,7 @@ function bandUI(i, v) { $('ec' + i).style.top = ((1 - (v + 12) / 24) * 150) + 'p
 })();
 $('eqPresets').addEventListener('click', e => { const b = e.target.closest('[data-eq]'); if (!b) return; custom({ eq: EQ_PRESETS[b.dataset.eq].g.slice(), eqPreset: b.dataset.eq, eqOn: true }); renderFx(); });
 $('eqOn').onclick = () => { custom({ eqOn: !fx.eqOn }); renderFx(); };
+$('preReset').onclick = () => { custom({ pre: 0, preOn: false }); renderFx(); toast('Ön kazanç sıfırlandı'); };
 $('pre').addEventListener('input', e => { const v = e.target.value / 10; custom({ pre: v, preOn: Math.abs(v) > 0.01 }); renderFx(); });
 $('fxReset').onclick = () => { Engine.setFx(Object.assign({}, FX_DEFAULT, { eq: FREQS.map(() => 0) })); renderFx(); UI.now(); toast('Her şey sıfırlandı'); };
 $('npExport').onclick = () => { if (App.curId) openExport(App.curId); else toast('Önce bir şarkı çal'); };
@@ -2545,6 +2524,7 @@ function songMenu(id) {
   menu([
     { label: 'Etiketi ve kapağı düzenle', icon: ICON.edit, run: () => openEdit(id) },
     { label: 'Kaseti süsle', icon: ICON.tape, run: () => Skin.open(id) },
+    ...(s.fx ? [{ label: 'Bu şarkının ses ayarlarını sıfırla', icon: ICON.sort, run: () => SongFx.forget(id) }] : []),
     { label: 'Dışa aktar', icon: ICON.export, run: () => openExport(id) },
     { label: 'Şarkıyı sil', icon: ICON.trash, cls: 'danger', keep: true, run: b => {
       if (!b.dataset.sure) { b.dataset.sure = 1; b.querySelector('span').textContent = 'Emin misin? Tekrar bas'; return; }
@@ -2914,6 +2894,93 @@ $('list').addEventListener('click', e => {
 $('search').addEventListener('input', raf(() => { App.query = $('search').value; UI.lib(); }));
 
 /* ================= Başlat ================= */
+/* ================= Kaset / Plak / Kapalı ================= */
+const Deck = (() => {
+  let kind = LS.get('gp-deck', 'kaset'), ang = 0, last = 0, run = false, lblKey = '';
+  const C = [150, 126], P = [332, 42], ARM = 162;  // plak merkezi, kol mili, kol boyu (iğne ucu)
+  // iğnenin plak merkezine uzaklığı r olacak şekilde kol açısı
+  function armAngle(r) {
+    let lo = 90, hi = 180;
+    const dist = a => { const x = P[0] + ARM * Math.cos(a * Math.PI / 180), y = P[1] + ARM * Math.sin(a * Math.PI / 180); return Math.hypot(x - C[0], y - C[1]); };
+    for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (dist(m) > r) lo = m; else hi = m; }
+    return (lo + hi) / 2;
+  }
+  // oluklar
+  (() => { const g = $('vGrooves'); let h = ''; for (let r = 42; r < 109; r += 2.2) h += `<circle r="${r.toFixed(1)}" stroke-opacity="${(0.03 + ((r * 7) % 5) * 0.012).toFixed(3)}"/>`; g.innerHTML = h; })();
+  function label(s) {
+    const url = s ? Img.url(s) : null, key = (s ? s.id + s.title + s.artist : '') + (url || '');
+    if (key === lblKey) return; lblKey = key;
+    $('vLbl').innerHTML = url ? `<image href="${esc(url)}" x="-38" y="-38" width="76" height="76" preserveAspectRatio="xMidYMid slice"/>` : '';
+    const t = s ? s.title : 'Gönül Plak', a = s ? (s.artist || '') : '45 devir';
+    $('vLblT').textContent = url ? '' : (t.length > 18 ? t.slice(0, 17) + '…' : t);
+    $('vLblA').textContent = url ? '' : (a.length > 22 ? a.slice(0, 21) + '…' : a);
+  }
+  function frame(t) {
+    const dt = last ? Math.min(0.1, (t - last) / 1000) : 0; last = t;
+    const playing = Engine.playing && Engine.loadedId === App.curId;
+    if (playing) ang = (ang + dt * 200 * (fx.rate || 1)) % 360;   // 33⅓ devir = 200°/sn
+    $('vRec').setAttribute('transform', `translate(150 126) rotate(${ang.toFixed(2)})`);
+    const p = Engine.duration && Engine.loadedId === App.curId ? Math.min(1, Engine.pos / Engine.duration) : 0;
+    const r = App.curId && (playing || Engine.pos > 0.05) ? 106 - p * 60 : 128; // dışarıda dinlenme konumu
+    $('vArm').setAttribute('transform', `translate(332 42) rotate(${armAngle(r).toFixed(2)})`);
+    $('vLed').setAttribute('fill', playing ? '#ff3f6d' : '#5a3a40');
+    if (run) requestAnimationFrame(frame);
+  }
+  function sync() {
+    const want = kind === 'plak' && Engine.playing && !$('vNow').hidden;
+    if (want && !run) { run = true; last = 0; requestAnimationFrame(frame); }
+    else if (!want) { run = false; if (kind === 'plak') frame(performance.now()); }
+  }
+  function apply() {
+    $('cassette').toggleAttribute('hidden', kind !== 'kaset'); $('vinyl').toggleAttribute('hidden', kind !== 'plak');
+    document.documentElement.classList.toggle('nodeck', kind === 'yok');
+    document.querySelectorAll('#deckPick [data-deck]').forEach(b => b.setAttribute('aria-pressed', b.dataset.deck === kind));
+    label(App.byId(App.curId)); sync();
+  }
+  $('deckPick').addEventListener('click', e => { const b = e.target.closest('[data-deck]'); if (!b) return; kind = b.dataset.deck; LS.set('gp-deck', kind); apply(); if (kind === 'kaset') UI.now(); });
+  return { apply, sync, label: s => { if (kind === 'plak') { label(s); frame(performance.now()); } }, get kind() { return kind; } };
+})();
+
+/* ================= Bölümleri ve modları sıralama ================= */
+const Order = (() => {
+  const box = $('vNow'), END = box.querySelector('.blk-end');
+  let editing = false;
+  const blocks = () => [...box.querySelectorAll(':scope > .blk')];
+  function apply() {
+    const want = LS.get('gp-order', null); if (!want) return;
+    const map = new Map(blocks().map(b => [b.dataset.blk, b]));
+    want.forEach(id => { const b = map.get(id); if (b) box.insertBefore(b, END); });
+  }
+  function save() { LS.set('gp-order', blocks().map(b => b.dataset.blk)); }
+  function decorate() {
+    blocks().forEach((b, i, arr) => {
+      let bar = b.querySelector(':scope > .ordctl');
+      if (!editing) { if (bar) bar.remove(); return; }
+      if (!bar) { bar = document.createElement('div'); bar.className = 'ordctl'; b.prepend(bar); }
+      bar.innerHTML = `<b>${esc(b.dataset.n)}</b><button data-mv="-1" ${i === 0 ? 'disabled' : ''} aria-label="Yukarı">▲</button><button data-mv="1" ${i === arr.length - 1 ? 'disabled' : ''} aria-label="Aşağı">▼</button>`;
+    });
+    box.classList.toggle('ordering', editing);
+    $('ordBar').hidden = !editing;
+    renderModes();
+  }
+  box.addEventListener('click', e => {
+    if (!editing) return;
+    const mv = e.target.closest('[data-mv]'); if (mv) { e.stopPropagation();
+      const b = mv.closest('.blk'), arr = blocks(), i = arr.indexOf(b), j = i + +mv.dataset.mv; if (j < 0 || j >= arr.length) return;
+      if (+mv.dataset.mv < 0) box.insertBefore(b, arr[j]); else box.insertBefore(arr[j], b);
+      save(); decorate(); b.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
+    const mm = e.target.closest('[data-mmv]'); if (mm) { e.stopPropagation(); e.preventDefault();
+      const ids = modeIds(), i = ids.indexOf(mm.dataset.id), j = i + +mm.dataset.mmv; if (j < 0 || j >= ids.length) return;
+      [ids[i], ids[j]] = [ids[j], ids[i]]; LS.set('gp-mode-order', ids); renderModes(); }
+  }, true);
+  $('ordEdit').onclick = () => { editing = true; decorate(); toast('Okları kullanarak bölümleri ve modları taşı'); };
+  $('ordDone').onclick = () => { editing = false; decorate(); };
+  function modeIds() { const saved = LS.get('gp-mode-order', []), all = PRESETS.map(p => p.id); return saved.filter(id => all.includes(id)).concat(all.filter(id => !saved.includes(id))); }
+  function sorted() { const ids = modeIds(); return ids.map(id => PRESETS.find(p => p.id === id)); }
+  apply();
+  return { sorted, get editing() { return editing; } };
+})();
+
 /* ================= Ses dalgası: kaydırarak sarma, Level hassasiyeti, A-B döngü, işaretler, tonart ================= */
 const Wave = (() => {
   const RES = 200;                          // saniyede 200 tepe değeri
@@ -3267,6 +3334,45 @@ const Skin = (() => {
   window.addEventListener('orientationchange', () => setTimeout(re, 300));
 })();
 
+
+/* ================= Her şarkıya özel ayar ================= */
+const SongFx = (() => {
+  const KEYS = ['rate', 'semi', 'formant', 'preOn', 'pre', 'eqOn', 'eq', 'eqPreset', 'rvbOn', 'rvbType', 'rvbMix', 'echoOn', 'echoTime', 'echoFb', 'echoMix', 'tapeOn', 'tapeWow', 'tapeHiss',
+    'vinylOn', 'vinyl', 'radioOn', 'd8On', 'd8Speed', 'karaokeOn', 'karaoke', 'carOn', 'carBass', 'carCabin', 'preset'];
+  let on = LS.get('gp-songfx', true), t = 0, applying = false;
+  const pick = () => { const o = {}; KEYS.forEach(k => { o[k] = Array.isArray(fx[k]) ? fx[k].slice() : fx[k]; }); return o; };
+  const neutral = () => Object.assign({}, ...KEYS.map(k => ({ [k]: Array.isArray(FX_DEFAULT[k]) ? FX_DEFAULT[k].slice() : FX_DEFAULT[k] })), { eq: FREQS.map(() => 0), preset: 'orijinal' });
+  // ayar değişince o an çalan şarkıya kaydet
+  function changed() {
+    if (!on || applying || !App.curId) return;
+    clearTimeout(t); const id = App.curId;
+    t = setTimeout(() => { const s = App.byId(id); if (!s) return; s.fx = pick(); DB.song(s); }, 800);
+  }
+  // şarkı başlarken: kaydı varsa onu, yoksa orijinal sesi kur
+  function load(s) {
+    if (!on || !s) return;
+    clearTimeout(t); applying = true;
+    Engine.setFx(Object.assign(neutral(), s.fx || {}), true);
+    applying = false;
+    try { renderFx(); renderModes(); UI.now(); } catch (e) {}
+  }
+  async function forget(id) { const s = App.byId(id); if (!s) return; delete s.fx; await DB.song(s); if (id === App.curId) load(s); toast('Bu şarkının ayarları silindi, orijinal sese döndü'); }
+  return { changed, load, forget, get on() { return on; }, set(v) { on = v; LS.set('gp-songfx', v); } };
+})();
+Engine.on('fxset', () => SongFx.changed());
+
+/* Balina hoparlörler basla pompalasın */
+(() => {
+  let run = false;
+  function loop() {
+    const cones = document.querySelectorAll('#fx-car .cone');
+    if (!fx.carOn || !Engine.playing || !cones.length) { run = false; cones.forEach(c => c.style.transform = ''); return; }
+    const b = Wave.beat(), en = Wave.energy(), k = 1 + b * 0.075 * (0.5 + (fx.carBass ?? 0.6)) + en * 0.02;
+    cones.forEach(c => { c.style.transform = `scale(${k.toFixed(3)})`; });
+    requestAnimationFrame(loop);
+  }
+  setInterval(() => { if (!run && fx.carOn && Engine.playing) { run = true; requestAnimationFrame(loop); } }, 500);
+})();
 /* ================= Ekstralar: damar, kader kasetleri, istatistik, yedek, yolculuk ================= */
 const X = (() => {
   const nrm = s => String(s || '').toLocaleLowerCase('tr').normalize('NFC');
@@ -3606,32 +3712,63 @@ const X = (() => {
   }
 
   // ---- VfB maç günü (OpenLigaDB, ücretsiz)
-  let vfb = LS.get('gp-vfb', null);
+  // ---- VfB: maç günü + canlı skor tabelası (OpenLigaDB, ücretsiz, anahtarsız)
+  let vfb = null, vfbT = 0, vfbGoals = -1;
+  const isVfb = t => /stuttgart/i.test((t && (t.teamName || t.shortName)) || '');
+  const short = t => { const n = (t.shortName || t.teamName || '').replace(/^(VfB|FC|SC|SV|TSG|1\. FC|1\. FSV|Borussia|Bayer|RB|VfL|Eintracht|SpVgg|Hertha|Union|Werder)\s+/i, '').replace(/\s*(04|05|1846|1899|1900|1910|09)$/, ''); return n.length > 12 ? n.slice(0, 11) + '.' : n; };
+  async function vfbFetch() {
+    for (const u of ['https://api.openligadb.de/getmatchdata/bl1', 'https://api.openligadb.de/getmatchesbyteamid/16/1/1']) {
+      try { const r = await fetch(u, { cache: 'no-store' }); if (!r.ok) continue; const ms = await r.json(); const today = new Date().toDateString();
+        const m = (ms || []).find(x => (isVfb(x.team1) || isVfb(x.team2)) && new Date(x.matchDateTimeUTC || x.matchDateTime).toDateString() === today);
+        if (m || u.includes('teamid')) return m || null; } catch (e) {}
+    }
+    return null;
+  }
   async function vfbCheck() {
-    if (vfb && Date.now() - vfb.at < 3 * 3600000 && !(vfb.today && !vfb.done)) return vfbUI();
-    try {
-      const r = await fetch('https://api.openligadb.de/getmatchesbyteamid/16/1/1'); if (!r.ok) return;
-      const ms = await r.json(), today = new Date().toDateString();
-      const m = ms.find(x => new Date(x.matchDateTimeUTC || x.matchDateTime).toDateString() === today);
-      vfb = { at: Date.now(), today: !!m };
-      if (m) {
-        const home = /stuttgart/i.test(m.team1.teamName), opp = home ? m.team2.teamName : m.team1.teamName;
-        const res = (m.matchResults || []).find(x => x.resultTypeID === 2) || (m.matchResults || [])[0];
-        Object.assign(vfb, { opp, time: new Date(m.matchDateTimeUTC || m.matchDateTime).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }), done: !!m.matchIsFinished });
-        if (res) { const us = home ? res.pointsTeam1 : res.pointsTeam2, them = home ? res.pointsTeam2 : res.pointsTeam1; vfb.score = `${us}:${them}`; vfb.res = us > them ? 'w' : us < them ? 'l' : 'd'; }
-      }
-      LS.set('gp-vfb', vfb);
-    } catch (e) {}
+    clearTimeout(vfbT);
+    const m = await vfbFetch();
+    if (!m) { vfb = null; vfbUI(); vfbT = setTimeout(vfbCheck, 30 * 60000); return; }
+    const ko = new Date(m.matchDateTimeUTC || m.matchDateTime).getTime(), home = isVfb(m.team1);
+    const goals = (m.goals || []).slice().sort((x, y) => (x.matchMinute || 0) - (y.matchMinute || 0));
+    const last = goals[goals.length - 1], fin = (m.matchResults || []).find(r => r.resultTypeID === 2);
+    const s1 = last ? last.scoreTeam1 : fin ? fin.pointsTeam1 : 0, s2 = last ? last.scoreTeam2 : fin ? fin.pointsTeam2 : 0;
+    const live = !m.matchIsFinished && Date.now() >= ko - 60000;
+    vfb = { m, ko, home, s1, s2, goals, live, done: !!m.matchIsFinished };
+    // yeni gol bildirimi
+    if (vfbGoals >= 0 && goals.length > vfbGoals && live) {
+      const g = last, prev = goals[goals.length - 2] || { scoreTeam1: 0, scoreTeam2: 0 }, ours = home ? g.scoreTeam1 > prev.scoreTeam1 : g.scoreTeam2 > prev.scoreTeam2;
+      toast(`${ours ? 'GOOOL! VfB! ' : 'Gol… '}${short(m.team1)} ${s1}:${s2} ${short(m.team2)} · ${g.goalGetterName || ''} ${g.matchMinute ? g.matchMinute + "'" : ''}`);
+    }
+    vfbGoals = goals.length;
     vfbUI();
+    const soon = ko - Date.now();
+    vfbT = setTimeout(vfbCheck, live ? 45000 : soon > 0 && soon < 3 * 3600000 ? Math.max(30000, Math.min(soon - 30000, 15 * 60000)) : 30 * 60000);
+  }
+  function minute() {
+    const e = (Date.now() - vfb.ko) / 60000;
+    if (e < 0) return 'başlıyor';
+    if (e <= 47) return Math.max(1, Math.ceil(e)) + "'";
+    if (e < 62) return 'devre arası';
+    const m2 = Math.ceil(e - 17); return m2 > 90 ? "90+'" : m2 + "'";
   }
   function vfbUI() {
     const el = $('vfb'); if (!el) return;
-    document.documentElement.classList.toggle('vfbday', !!(vfb && vfb.today));
-    if (!vfb || !vfb.today) { el.hidden = true; return; }
+    document.documentElement.classList.toggle('vfbday', !!vfb);
+    if (!vfb) { el.hidden = true; return; }
     el.hidden = false;
-    const t = !vfb.done ? `Bugün VfB maçı: ${esc(vfb.opp)} · ${vfb.time}. Kırmızı beyaz gönül!` : vfb.res === 'w' ? `VfB kazandı ${vfb.score}! Bugün damar hafif, oyun havası.` : vfb.res === 'l' ? `VfB kaybetti ${vfb.score}. Ağır damar kasetini hazırladım.` : `VfB berabere ${vfb.score}. Ne ağla ne gül.`;
-    el.innerHTML = `<span class="vfbdot"></span><span>${t}</span>${vfb.done ? `<button class="chipbtn" data-mood="${vfb.res === 'w' ? 'umut' : 'kus'}">Çal</button>` : ''}`;
+    const m = vfb.m, t1 = m.team1, t2 = m.team2;
+    const state = vfb.done ? 'maç bitti' : vfb.live ? `<span class="livedot"></span>CANLI · ${minute()}` : 'bugün ' + new Date(vfb.ko).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    const us = vfb.home ? vfb.s1 : vfb.s2, them = vfb.home ? vfb.s2 : vfb.s1;
+    const mood = vfb.done ? (us > them ? 'Kazandık! Bugün damar hafif.' : us < them ? 'Kaybettik… ağır damar günü.' : 'Berabere. Ne ağla ne gül.') : '';
+    el.className = 'vfb board' + (vfb.live ? ' live' : '');
+    el.innerHTML = `<div class="bstate">${state}</div>
+      <div class="brow"><span class="bt${isVfb(t1) ? ' us' : ''}">${t1.teamIconUrl ? `<img src="${esc(t1.teamIconUrl.replace('http:', 'https:'))}" alt="" onerror="this.remove()">` : ''}${esc(short(t1))}</span>
+        <span class="bs">${vfb.live || vfb.done ? `${vfb.s1}<i>:</i>${vfb.s2}` : '–<i>:</i>–'}</span>
+        <span class="bt r${isVfb(t2) ? ' us' : ''}">${esc(short(t2))}${t2.teamIconUrl ? `<img src="${esc(t2.teamIconUrl.replace('http:', 'https:'))}" alt="" onerror="this.remove()">` : ''}</span></div>
+      ${vfb.goals.length ? `<div class="bgoals">${vfb.goals.map(g => `<span>${g.matchMinute ? g.matchMinute + "'" : ''} ${esc(g.goalGetterName || 'Gol')}${g.isPenalty ? ' (P)' : ''}${g.isOwnGoal ? ' (k.k.)' : ''} · ${g.scoreTeam1}:${g.scoreTeam2}</span>`).join('')}</div>` : ''}
+      ${mood ? `<div class="bmood">${mood}</div>` : ''}`;
   }
+  setInterval(() => { if (vfb && vfb.live) vfbUI(); }, 30000);
 
   // ---- Yolculuk: liste, durak uyarısı, kilit ekranında tren
   let trip = LS.get('gp-trip', null), alarmT = null, tripT = null;
@@ -3733,6 +3870,7 @@ const X = (() => {
     return `<div class="group"><h3>Dinleme</h3>
         <div class="toggle"><div class="tl"><span>Ses dengeleme</span><span class="sub">Kısık ve yüksek kayıtlar aynı seviyede çalar</span></div><button class="sw" role="switch" data-xfx="normOn" aria-checked="${!!fx.normOn}" aria-label="Ses dengeleme"></button></div>
         <div class="field"><label>Şarkı geçişi</label><div class="seg" id="xfadeSeg">${[[0, 'Kapalı'], [3, '3 sn'], [6, '6 sn']].map(([v, n]) => `<button data-xfade="${v}" aria-pressed="${(fx.xfade || 0) === v}">${n}</button>`).join('')}</div><span class="sub">Şarkı sonu kısılarak biter, yenisi yumuşak başlar (canlı motorda).</span></div>
+        <div class="toggle"><div class="tl"><span>Her şarkının ayarını hatırla</span><span class="sub">Ton, tempo, ekolayzır, efektler ve mod her şarkıya ayrı kaydedilir. Ayarı olmayan şarkı orijinal sesle başlar.</span></div><button class="sw" role="switch" id="xSongFx" aria-checked="${SongFx.on}" aria-label="Şarkıya özel ayar"></button></div>
         <div class="toggle"><div class="tl"><span>Gece 3 modu</span><span class="sub">02:00 ile 05:00 arası ekran kararır, ses yumuşar, Gönül Dostu derinleşir</span></div><button class="sw" role="switch" data-xfx="nightOn" aria-checked="${!!fx.nightOn}" aria-label="Gece 3 modu"></button></div>
         <div class="toggle"><div class="tl"><span>Kilit ekranı kontrolleri</span><span class="sub">İleri, geri ve saniye kaydırma kilit ekranında çalışır. Ses kesilirse kapat.</span></div><button class="sw" role="switch" id="xBridge" aria-checked="${LS.get('gp-bridge', true)}" aria-label="Kilit ekranı kontrolleri"></button></div>
       </div>
@@ -3748,6 +3886,7 @@ const X = (() => {
     const t = e.target;
     const xf = t.closest('[data-xfx]'); if (xf) { Engine.setFx({ [xf.dataset.xfx]: !fx[xf.dataset.xfx] }); env(); Engine.refresh(); UI.account(); return true; }
     const xd = t.closest('[data-xfade]'); if (xd) { Engine.setFx({ xfade: +xd.dataset.xfade }); UI.account(); return true; }
+    if (t.closest('#xSongFx')) { SongFx.set(!SongFx.on); UI.account(); return true; }
     if (t.closest('#xBridge')) { const v = !LS.get('gp-bridge', true); toast(v ? 'Açılıyor…' : 'Kapatılıyor…'); setTimeout(() => Engine.setBridge(v), 500); return true; }
     if (t.closest('#tidyBtn')) { tidyOpen(); return true; }
     if (t.closest('#bkFull')) { backup(true); return true; }
@@ -3776,7 +3915,7 @@ const X = (() => {
       if (e.target.closest('#sozCard')) { const t = prompt('Kartta hangi söz olsun?', sozToday()); if (t && t.trim()) card(t.trim()); }
     });
     env(); setInterval(env, 60000);
-    vfbCheck(); setInterval(vfbCheck, 30 * 60000);
+    vfbCheck();
     placesWatch();
     if (trip) tripStop();
     document.addEventListener('visibilitychange', () => { if (!document.hidden) { env(); if (trip) tripTick(); } });
@@ -3794,7 +3933,9 @@ const X = (() => {
   App.queue = App.filtered().map(s => s.id);
   renderFx(); UI.lib(); AI.render(); $('chatAv').innerHTML = TEA; Scene.start();
   setView(App.songs.length ? 'now' : 'lib');
-  X.bind(); X.nowUI(); X.importShared();
+  X.bind(); X.nowUI(); X.importShared(); Deck.apply();
+  if (fx.crowdOn || fx.preset === 'konser') { delete fx.crowdOn; delete fx.crowdAmt; if (fx.preset === 'konser') fx.preset = 'custom'; LS.set('gp-fx2', fx); }
+  DB.putFile('crowd:user', null);
   if (/^#sb$|^#sbahn$/.test(location.hash) || new URLSearchParams(location.search).get('go') === 'sb') setView('sb');
   document.documentElement.classList.remove('booting');
   const back = await Spotify.handleRedirect();
