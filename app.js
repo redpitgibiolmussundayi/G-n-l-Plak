@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 24;
+const VERSION = 25;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -229,7 +229,6 @@ const FX_DEFAULT = {
   radioOn: false,
   d8On: false, d8Speed: 0.12,
   karaokeOn: false, karaoke: 0.9,
-  carOn: false, carBass: 0.6, carCabin: 0.5,
   weatherOn: false, weatherAmt: 0.5,
   normOn: true, xfade: 4, nightOn: true,
   preset: 'orijinal'
@@ -239,7 +238,7 @@ const IR_CACHE = new Map();
 function makeIR(ctx, type) {
   const sr = ctx.sampleRate, key = type + sr;
   if (IR_CACHE.has(key)) return IR_CACHE.get(key);
-  const P = { araba: [0.16, 2.4, 0.0015, 3800, 1], oda: [0.8, 3.2, 0.006, 6500, 0], gazino: [2.3, 2.6, 0.022, 5200, 0], hamam: [3.0, 1.9, 0.010, 9500, 1], konser: [3.8, 2.4, 0.030, 4300, 0] }[type] || [2, 2.5, 0.02, 5000, 0];
+  const P = { oda: [0.8, 3.2, 0.006, 6500, 0], gazino: [2.3, 2.6, 0.022, 5200, 0], hamam: [3.0, 1.9, 0.010, 9500, 1], konser: [3.8, 2.4, 0.030, 4300, 0] }[type] || [2, 2.5, 0.02, 5000, 0];
   const [sec, decay, pre, tone, taps] = P, len = Math.round(sr * sec), buf = ctx.createBuffer(2, len, sr);
   let rnd = 12345 + type.length * 777; const rand = () => (rnd = (rnd * 16807) % 2147483647) / 2147483647 * 2 - 1;
   for (let c = 0; c < 2; c++) {
@@ -295,11 +294,6 @@ function buildGraph(ctx) {
   n.hp = ctx.createBiquadFilter(); n.hp.type = 'highpass'; n.hp.Q.value = 0.7; n.hp.frequency.value = 10;
   n.lp = ctx.createBiquadFilter(); n.lp.type = 'lowpass'; n.lp.Q.value = 0.7; n.lp.frequency.value = nyq;
   n.wow = ctx.createDelay(0.1); n.wow.delayTime.value = 0.008;
-  // Pioneer + arka raf 6x9 "balina" hoparlör: kabin basları, oval kon rezonansı, dolgun orta-tiz, sıcak amfi doyumu
-  const BQ = (t, f, q, g) => { const b = ctx.createBiquadFilter(); b.type = t; b.frequency.value = f; b.Q.value = q; b.gain.value = g || 0; return b; };
-  n.carSub = BQ('lowshelf', 85, 0.7); n.carRes = BQ('peaking', 58, 1.6); n.carBox = BQ('peaking', 380, 0.9); n.carPres = BQ('peaking', 2600, 1.1); n.carAir = BQ('highshelf', 9500, 0.7);
-  n.carCut = BQ('lowpass', 16000, 0.6); n.carDrive = ctx.createWaveShaper(); n.carDrive.oversample = '2x';
-  n.carConv = ctx.createConvolver(); n.carWet = G(); n.carWet.gain.value = 0;
   n.wowLfo = ctx.createOscillator(); n.wowLfo.frequency.value = 0.55; n.wowDepth = G(); n.wowDepth.gain.value = 0;
   n.flLfo = ctx.createOscillator(); n.flLfo.frequency.value = 6.3; n.flDepth = G(); n.flDepth.gain.value = 0;
   n.wowLfo.connect(n.wowDepth).connect(n.wow.delayTime); n.flLfo.connect(n.flDepth).connect(n.wow.delayTime);
@@ -321,9 +315,7 @@ function buildGraph(ctx) {
   n.input.connect(n.kHi); n.kHi.connect(n.kHiG); n.kHiG.connect(n.pre);
   let x = n.kmg; x.connect(n.pre); x = n.pre;
   n.eq.forEach(b => { x.connect(b); x = b; });
-  x.connect(n.hp); n.hp.connect(n.lp);
-  n.lp.connect(n.carSub); n.carSub.connect(n.carRes); n.carRes.connect(n.carBox); n.carBox.connect(n.carPres); n.carPres.connect(n.carAir); n.carAir.connect(n.carCut); n.carCut.connect(n.carDrive); n.carDrive.connect(n.wow);
-  n.wow.connect(n.carConv); n.carConv.connect(n.carWet); n.carWet.connect(n.mix);
+  x.connect(n.hp); n.hp.connect(n.lp); n.lp.connect(n.wow);
   n.wow.connect(n.dry); n.dry.connect(n.mix);
   n.wow.connect(n.conv); n.conv.connect(n.rvb); n.rvb.connect(n.mix);
   n.wow.connect(n.echo); n.echo.connect(n.echoLp); n.echoLp.connect(n.echoFb); n.echoFb.connect(n.echo); n.echo.connect(n.echoWet); n.echoWet.connect(n.mix);
@@ -353,16 +345,6 @@ function buildGraph(ctx) {
     set(n.dry.gain, fx.rvbOn ? 1 - fx.rvbMix * 0.35 : 1);
     set(n.echo.delayTime, fx.echoTime); set(n.echoFb.gain, fx.echoOn ? fx.echoFb : 0); set(n.echoWet.gain, fx.echoOn ? fx.echoMix : 0);
     set(n.panDepth.gain, fx.d8On && n.pan ? 0.85 : 0); set(n.panLfo.frequency, fx.d8Speed);
-    // Pioneer balina
-    const car = fx.carOn ? 1 : 0, cb = fx.carBass ?? 0.6, cc = fx.carCabin ?? 0.5;
-    set(n.carSub.gain, car * (3 + 6 * cb)); set(n.carRes.gain, car * (2 + 5 * cb)); set(n.carBox.gain, car * -3.5); set(n.carPres.gain, car * 2.5); set(n.carAir.gain, car * 2);
-    set(n.carCut.frequency, car ? 13500 : Math.min(20000, nyq));
-    if (car !== n.carState) {
-      n.carState = car;
-      if (car) { const N = 2048, c = new Float32Array(N), k2 = 1.7; for (let i = 0; i < N; i++) { const x2 = i / (N - 1) * 2 - 1; c[i] = Math.tanh(k2 * x2) / Math.tanh(k2); } n.carDrive.curve = c; if (!n.carConv.buffer) n.carConv.buffer = makeIR(ctx, 'araba'); }
-      else n.carDrive.curve = null;
-    }
-    set(n.carWet.gain, car * cc * 0.55);
     // karaoke
     const k = fx.karaokeOn ? fx.karaoke : 0;
     set(n.kLR.gain, -k); set(n.kRL.gain, -k); set(n.kBass.gain, k); set(n.kHiG.gain, k * 0.5);
@@ -379,7 +361,7 @@ function buildGraph(ctx) {
   return n;
 }
 const fxNeedsStretch = fx => Math.abs(fx.rate - 1) > 0.001 || Math.abs(fx.semi) > 0.001;
-const fxNeutral = fx => !fxNeedsStretch(fx) && !(fx.eqOn && fx.eq.some(Boolean)) && !(fx.preOn && fx.pre) && !fx.rvbOn && !fx.echoOn && !fx.tapeOn && !fx.vinylOn && !fx.radioOn && !fx.d8On && !fx.karaokeOn && !fx.carOn && !(fx.weatherOn && fx._rain) && !fx._night;
+const fxNeutral = fx => !fxNeedsStretch(fx) && !(fx.eqOn && fx.eq.some(Boolean)) && !(fx.preOn && fx.pre) && !fx.rvbOn && !fx.echoOn && !fx.tapeOn && !fx.vinylOn && !fx.radioOn && !fx.d8On && !fx.karaokeOn && !(fx.weatherOn && fx._rain) && !fx._night;
 const fxTail = fx => (fx.rvbOn ? 4 : 0) + (fx.echoOn ? Math.min(6, fx.echoTime * 8) : 0);
 
 function wavBlob(buf) {
@@ -2042,7 +2024,7 @@ const EQ_PRESETS = {
   gece: { n: 'Gece', g: [2, 2, 1, 0, 0, -1, -2, -2, -3, -4] },
   hoparlor: { n: 'Telefon hoparlörü', g: [-4, -2, 2, 3, 2, 1, 1, 2, 2, 0] }
 };
-const BASE = { rate: 1, semi: 0, rvbOn: false, echoOn: false, tapeOn: false, vinylOn: false, radioOn: false, d8On: false, carOn: false };
+const BASE = { rate: 1, semi: 0, rvbOn: false, echoOn: false, tapeOn: false, vinylOn: false, radioOn: false, d8On: false };
 const PRESETS = [
   { id: 'orijinal', n: 'Orijinal', d: 'Olduğu gibi, katıksız', p: {} },
   { id: 'slowed', n: 'Slowed + Reverb', d: 'Yavaş, derin, gece üç', p: { rate: 0.85, semi: -2.81, rvbOn: true, rvbType: 'gazino', rvbMix: 0.35 } },
@@ -2056,8 +2038,7 @@ const PRESETS = [
   { id: 'fernsehturm', n: 'Fernsehturm Tepesi', d: 'Şehrin üstünde, geniş ve derin', p: { rvbOn: true, rvbType: 'konser', rvbMix: 0.32, d8On: true, d8Speed: 0.06 } },
   { id: 'ubahn', n: 'U-Bahn Gecesi', d: 'Yeraltında yankılanan uzak ses', p: { rvbOn: true, rvbType: 'hamam', rvbMix: 0.36, echoOn: true, echoTime: 0.18, echoFb: 0.25, echoMix: 0.12, eqOn: true, eq: [-3, -2, 0, 1, 2, 1, 0, -2, -4, -6], eqPreset: 'custom' } },
   { id: 'neckar', n: 'Neckar Kenarı', d: 'Sakin, sudan gelen bir hüzün', p: { rate: 0.96, semi: -0.5, rvbOn: true, rvbType: 'oda', rvbMix: 0.2, tapeOn: true, tapeWow: 0.25, tapeHiss: 0.1, eqOn: true, eq: [2, 2, 1, 0, 0, -1, -2, -2, -3, -4], eqPreset: 'gece' } },
-  { id: 'nightcore', n: 'Nightcore', d: 'Hızlı ve tiz', p: { rate: 1.25, semi: 3 } },
-  { id: 'pioneer', n: 'Pioneer Balina', d: 'Arka rafta 6x9, cam titrer', p: { carOn: true, carBass: 0.7, carCabin: 0.55 } }
+  { id: 'nightcore', n: 'Nightcore', d: 'Hızlı ve tiz', p: { rate: 1.25, semi: 3 } }
 ];
 function renderModes() {
   const list = typeof Order !== 'undefined' ? Order.sorted() : PRESETS, ed = typeof Order !== 'undefined' && Order.editing;
@@ -2453,7 +2434,6 @@ const FXCARDS = [
   { id: 'vinyl', on: 'vinylOn', ic: ICON.vinyl, n: 'Plak cızırtısı', d: 'İğnenin plakta gezinmesi', sl: [['vinyl', 'Seviye', 0, 1, 0.01, v => '%' + Math.round(v * 100)]] },
   { id: 'radio', on: 'radioOn', ic: ICON.radio, n: 'Dolmuş hoparlörü', d: 'Küçük, cızırtılı teyp sesi', sl: [] },
   { id: 'd8', on: 'd8On', ic: ICON.d8, n: '8D dönen ses', d: 'Kulaklıkla dinle', sl: [['d8Speed', 'Hız', 0.04, 0.4, 0.01, v => num(v, 2) + ' Hz']] },
-  { id: 'car', on: 'carOn', ic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="10" ry="6.5"/><ellipse cx="12" cy="12" rx="5" ry="3.2"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg>', n: 'Pioneer Balina', d: 'Eski Pioneer teyp, arka rafta 6x9 oval hoparlör', sl: [['carBass', 'Bas', 0, 1, 0.01, v => '%' + Math.round(v * 100)], ['carCabin', 'Araba içi', 0, 1, 0.01, v => '%' + Math.round(v * 100)]] },
   { id: 'kar', on: 'karaokeOn', ic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>', n: 'Karaoke', d: 'Vokali azaltır, sen söyle', sl: [['karaoke', 'Vokal kesme', 0.5, 1, 0.01, v => '%' + Math.round(v * 100)]] },
   { id: 'hava', on: 'weatherOn', ic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 15a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 7 4 4 0 0 1 18 15z"/><path d="M8 19l-1 2M12 19l-1 2M16 19l-1 2"/></svg>', n: 'Havaya uy', d: 'Stuttgart\'ta yağmur yağıyorsa arkada yağmur sesi', sl: [['weatherAmt', 'Yağmur sesi', 0, 1, 0.01, v => '%' + Math.round(v * 100)]] }
 ];
@@ -2462,8 +2442,7 @@ function buildFx() {
     <button class="sw" data-fxon="${c.on}" role="switch" aria-label="${c.n}"></button></div>
     <div class="fxb">${c.chips ? `<div class="chips">${Object.entries(RVB_TYPES).map(([k, n]) => `<button class="chip" data-rvbt="${k}">${n}</button>`).join('')}</div>` : ''}
     ${c.sl.map(([key, l, mn, mx, st]) => `<div class="slrow"><span>${l}</span><input type="range" data-fxk="${key}" min="${mn}" max="${mx}" step="${st}" aria-label="${c.n} ${l}"><span data-fxv="${key}"></span></div>`).join('')}
-    ${c.id === 'radio' ? '<p class="msg">Bas ve tizler kesilir, ses küçük bir teypten geliyormuş gibi olur.</p>' : ''}
-    ${c.id === 'car' ? `<div class="whales">${[0, 1].map(() => `<svg class="whale" viewBox="0 0 160 100"><ellipse cx="80" cy="50" rx="76" ry="46" fill="#151517" stroke="#3a3a3e" stroke-width="3"/><ellipse cx="80" cy="50" rx="66" ry="38" fill="#0b0b0c"/><g class="cone"><ellipse cx="80" cy="50" rx="58" ry="32" fill="#1f1f22" stroke="#444" stroke-width="2"/><ellipse cx="80" cy="50" rx="40" ry="22" fill="#2a2a2e"/><ellipse cx="80" cy="50" rx="17" ry="10" fill="#3b3b40" stroke="#666"/><circle cx="80" cy="50" r="5" fill="#9aa"/></g><text x="80" y="92" text-anchor="middle" font-size="9" fill="#9aa" font-family="var(--slab)" letter-spacing="2">6×9</text></svg>`).join('')}</div>` : ''}</div></div>`).join('');
+    ${c.id === 'radio' ? '<p class="msg">Bas ve tizler kesilir, ses küçük bir teypten geliyormuş gibi olur.</p>' : ''}</div></div>`).join('');
 }
 $('fxlist').addEventListener('click', e => {
   const s = e.target.closest('[data-fxon]'); if (s) { custom({ [s.dataset.fxon]: !fx[s.dataset.fxon] }); renderFx(); return; }
@@ -3338,7 +3317,7 @@ const Skin = (() => {
 /* ================= Her şarkıya özel ayar ================= */
 const SongFx = (() => {
   const KEYS = ['rate', 'semi', 'formant', 'preOn', 'pre', 'eqOn', 'eq', 'eqPreset', 'rvbOn', 'rvbType', 'rvbMix', 'echoOn', 'echoTime', 'echoFb', 'echoMix', 'tapeOn', 'tapeWow', 'tapeHiss',
-    'vinylOn', 'vinyl', 'radioOn', 'd8On', 'd8Speed', 'karaokeOn', 'karaoke', 'carOn', 'carBass', 'carCabin', 'preset'];
+    'vinylOn', 'vinyl', 'radioOn', 'd8On', 'd8Speed', 'karaokeOn', 'karaoke', 'preset'];
   let on = LS.get('gp-songfx', true), t = 0, applying = false;
   const pick = () => { const o = {}; KEYS.forEach(k => { o[k] = Array.isArray(fx[k]) ? fx[k].slice() : fx[k]; }); return o; };
   const neutral = () => Object.assign({}, ...KEYS.map(k => ({ [k]: Array.isArray(FX_DEFAULT[k]) ? FX_DEFAULT[k].slice() : FX_DEFAULT[k] })), { eq: FREQS.map(() => 0), preset: 'orijinal' });
@@ -3361,18 +3340,6 @@ const SongFx = (() => {
 })();
 Engine.on('fxset', () => SongFx.changed());
 
-/* Balina hoparlörler basla pompalasın */
-(() => {
-  let run = false;
-  function loop() {
-    const cones = document.querySelectorAll('#fx-car .cone');
-    if (!fx.carOn || !Engine.playing || !cones.length) { run = false; cones.forEach(c => c.style.transform = ''); return; }
-    const b = Wave.beat(), en = Wave.energy(), k = 1 + b * 0.075 * (0.5 + (fx.carBass ?? 0.6)) + en * 0.02;
-    cones.forEach(c => { c.style.transform = `scale(${k.toFixed(3)})`; });
-    requestAnimationFrame(loop);
-  }
-  setInterval(() => { if (!run && fx.carOn && Engine.playing) { run = true; requestAnimationFrame(loop); } }, 500);
-})();
 /* ================= Ekstralar: damar, kader kasetleri, istatistik, yedek, yolculuk ================= */
 const X = (() => {
   const nrm = s => String(s || '').toLocaleLowerCase('tr').normalize('NFC');
@@ -3712,43 +3679,63 @@ const X = (() => {
   }
 
   // ---- VfB maç günü (OpenLigaDB, ücretsiz)
-  // ---- VfB: maç günü + canlı skor tabelası (OpenLigaDB, ücretsiz, anahtarsız)
+  // ---- VfB: maç günü + canlı skor tabelası
+  // Birinci kaynak ESPN skor servisi (saniyelik güncel, dakika ve goller dahil). Ulaşılamazsa OpenLigaDB (gönüllüler girdiği için gecikebilir).
   let vfb = null, vfbT = 0, vfbGoals = -1;
-  const isVfb = t => /stuttgart/i.test((t && (t.teamName || t.shortName)) || '');
-  const short = t => { const n = (t.shortName || t.teamName || '').replace(/^(VfB|FC|SC|SV|TSG|1\. FC|1\. FSV|Borussia|Bayer|RB|VfL|Eintracht|SpVgg|Hertha|Union|Werder)\s+/i, '').replace(/\s*(04|05|1846|1899|1900|1910|09)$/, ''); return n.length > 12 ? n.slice(0, 11) + '.' : n; };
-  async function vfbFetch() {
-    for (const u of ['https://api.openligadb.de/getmatchdata/bl1', 'https://api.openligadb.de/getmatchesbyteamid/16/1/1']) {
-      try { const r = await fetch(u, { cache: 'no-store' }); if (!r.ok) continue; const ms = await r.json(); const today = new Date().toDateString();
-        const m = (ms || []).find(x => (isVfb(x.team1) || isVfb(x.team2)) && new Date(x.matchDateTimeUTC || x.matchDateTime).toDateString() === today);
-        if (m || u.includes('teamid')) return m || null; } catch (e) {}
+  const isVfbName = n => /stuttgart/i.test(n || '');
+  const shortN = n => { n = String(n || '').replace(/^(VfB|FC|SC|SV|TSG|1\. FC|1\. FSV|Borussia|Bayer|RB|VfL|Eintracht|SpVgg|Hertha|Union|Werder|Hamburger|FSV)\s+/i, '').replace(/\s*(04|05|1846|1899|1900|1910|09)$/, ''); return n.length > 12 ? n.slice(0, 11) + '.' : n; };
+  const ymd = d => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  async function fromEspn() {
+    const leagues = ['ger.1', 'ger.dfb_pokal', 'uefa.champions', 'uefa.europa', 'uefa.europa.conf'];
+    for (const lg of leagues) {
+      try {
+        const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/scoreboard?dates=${ymd(new Date())}`, { cache: 'no-store' }); if (!r.ok) continue;
+        const j = await r.json();
+        const ev = (j.events || []).find(e => ((e.competitions || [])[0] || {}).competitors && e.competitions[0].competitors.some(c => isVfbName(c.team && (c.team.displayName || c.team.name))));
+        if (!ev) continue;
+        const c = ev.competitions[0], home = c.competitors.find(x => x.homeAway === 'home') || c.competitors[0], away = c.competitors.find(x => x !== home);
+        const st = (ev.status || c.status || {}), state = st.type && st.type.state; // pre | in | post
+        const team = x => ({ name: x.team.displayName || x.team.name, short: shortN(x.team.shortDisplayName || x.team.displayName), logo: x.team.logo || (x.team.logos && x.team.logos[0] && x.team.logos[0].href) || '', id: x.team.id });
+        let g1 = 0, g2 = 0;
+        const goals = (c.details || []).filter(d => d.scoringPlay).map(d => { const h = d.team && d.team.id === home.team.id; if (h) g1++; else g2++;
+          return { min: (d.clock && d.clock.displayValue) || '', name: ((d.athletesInvolved || [])[0] || {}).displayName || 'Gol', s1: g1, s2: g2, pen: !!d.penaltyKick, og: !!d.ownGoal }; });
+        return { src: 'ESPN', ko: new Date(ev.date).getTime(), live: state === 'in', done: state === 'post', half: /half/i.test((st.type && (st.type.detail || st.type.shortDetail)) || ''),
+          clock: st.displayClock || '', t1: team(home), t2: team(away), s1: +home.score || 0, s2: +away.score || 0, goals, league: (j.leagues && j.leagues[0] && j.leagues[0].abbreviation) || '' };
+      } catch (e) {}
     }
-    return null;
+    return undefined; // ulaşılamadı
+  }
+  async function fromOld() {
+    try {
+      const r = await fetch('https://api.openligadb.de/getmatchdata/bl1', { cache: 'no-store' }); if (!r.ok) return null; const ms = await r.json(); const today = new Date().toDateString();
+      const m = (ms || []).find(x => (isVfbName(x.team1.teamName) || isVfbName(x.team2.teamName)) && new Date(x.matchDateTimeUTC || x.matchDateTime).toDateString() === today); if (!m) return null;
+      const goals = (m.goals || []).slice().sort((x, y) => (x.matchMinute || 0) - (y.matchMinute || 0)).map(g => ({ min: g.matchMinute ? g.matchMinute + "'" : '', name: g.goalGetterName || 'Gol', s1: g.scoreTeam1, s2: g.scoreTeam2, pen: g.isPenalty, og: g.isOwnGoal }));
+      const last = goals[goals.length - 1], fin = (m.matchResults || []).find(r => r.resultTypeID === 2), ko = new Date(m.matchDateTimeUTC || m.matchDateTime).getTime();
+      const t = x => ({ name: x.teamName, short: shortN(x.shortName || x.teamName), logo: (x.teamIconUrl || '').replace('http:', 'https:') });
+      return { src: 'OpenLigaDB', ko, live: !m.matchIsFinished && Date.now() >= ko - 60000, done: !!m.matchIsFinished, clock: '', t1: t(m.team1), t2: t(m.team2),
+        s1: last ? last.s1 : fin ? fin.pointsTeam1 : 0, s2: last ? last.s2 : fin ? fin.pointsTeam2 : 0, goals, late: true };
+    } catch (e) { return null; }
   }
   async function vfbCheck() {
     clearTimeout(vfbT);
-    const m = await vfbFetch();
+    let m = await fromEspn();
+    if (m === undefined) m = await fromOld();
     if (!m) { vfb = null; vfbUI(); vfbT = setTimeout(vfbCheck, 30 * 60000); return; }
-    const ko = new Date(m.matchDateTimeUTC || m.matchDateTime).getTime(), home = isVfb(m.team1);
-    const goals = (m.goals || []).slice().sort((x, y) => (x.matchMinute || 0) - (y.matchMinute || 0));
-    const last = goals[goals.length - 1], fin = (m.matchResults || []).find(r => r.resultTypeID === 2);
-    const s1 = last ? last.scoreTeam1 : fin ? fin.pointsTeam1 : 0, s2 = last ? last.scoreTeam2 : fin ? fin.pointsTeam2 : 0;
-    const live = !m.matchIsFinished && Date.now() >= ko - 60000;
-    vfb = { m, ko, home, s1, s2, goals, live, done: !!m.matchIsFinished };
-    // yeni gol bildirimi
-    if (vfbGoals >= 0 && goals.length > vfbGoals && live) {
-      const g = last, prev = goals[goals.length - 2] || { scoreTeam1: 0, scoreTeam2: 0 }, ours = home ? g.scoreTeam1 > prev.scoreTeam1 : g.scoreTeam2 > prev.scoreTeam2;
-      toast(`${ours ? 'GOOOL! VfB! ' : 'Gol… '}${short(m.team1)} ${s1}:${s2} ${short(m.team2)} · ${g.goalGetterName || ''} ${g.matchMinute ? g.matchMinute + "'" : ''}`);
+    const home = isVfbName(m.t1.name);
+    if (vfbGoals >= 0 && m.goals.length > vfbGoals && m.live) {
+      const g = m.goals[m.goals.length - 1], prev = m.goals[m.goals.length - 2] || { s1: 0, s2: 0 }, ours = home ? g.s1 > prev.s1 : g.s2 > prev.s2;
+      toast(`${ours ? 'GOOOL! VfB! ' : 'Gol… '}${m.t1.short} ${m.s1}:${m.s2} ${m.t2.short} · ${g.name} ${g.min}`);
     }
-    vfbGoals = goals.length;
+    vfbGoals = m.goals.length;
+    vfb = Object.assign(m, { home });
     vfbUI();
-    const soon = ko - Date.now();
-    vfbT = setTimeout(vfbCheck, live ? 45000 : soon > 0 && soon < 3 * 3600000 ? Math.max(30000, Math.min(soon - 30000, 15 * 60000)) : 30 * 60000);
+    const soon = m.ko - Date.now();
+    vfbT = setTimeout(vfbCheck, m.live ? 30000 : soon > 0 && soon < 3 * 3600000 ? Math.max(30000, Math.min(soon - 30000, 15 * 60000)) : 30 * 60000);
   }
   function minute() {
+    if (vfb.clock) return vfb.half ? 'devre arası' : vfb.clock;
     const e = (Date.now() - vfb.ko) / 60000;
-    if (e < 0) return 'başlıyor';
-    if (e <= 47) return Math.max(1, Math.ceil(e)) + "'";
-    if (e < 62) return 'devre arası';
+    if (e < 0) return 'başlıyor'; if (e <= 47) return Math.max(1, Math.ceil(e)) + "'"; if (e < 62) return 'devre arası';
     const m2 = Math.ceil(e - 17); return m2 > 90 ? "90+'" : m2 + "'";
   }
   function vfbUI() {
@@ -3756,19 +3743,20 @@ const X = (() => {
     document.documentElement.classList.toggle('vfbday', !!vfb);
     if (!vfb) { el.hidden = true; return; }
     el.hidden = false;
-    const m = vfb.m, t1 = m.team1, t2 = m.team2;
-    const state = vfb.done ? 'maç bitti' : vfb.live ? `<span class="livedot"></span>CANLI · ${minute()}` : 'bugün ' + new Date(vfb.ko).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-    const us = vfb.home ? vfb.s1 : vfb.s2, them = vfb.home ? vfb.s2 : vfb.s1;
-    const mood = vfb.done ? (us > them ? 'Kazandık! Bugün damar hafif.' : us < them ? 'Kaybettik… ağır damar günü.' : 'Berabere. Ne ağla ne gül.') : '';
-    el.className = 'vfb board' + (vfb.live ? ' live' : '');
+    const v = vfb, state = v.done ? 'maç bitti' : v.live ? `<span class="livedot"></span>CANLI · ${minute()}` : 'bugün ' + new Date(v.ko).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    const us = v.home ? v.s1 : v.s2, them = v.home ? v.s2 : v.s1;
+    const mood = v.done ? (us > them ? 'Kazandık! Bugün damar hafif.' : us < them ? 'Kaybettik… ağır damar günü.' : 'Berabere. Ne ağla ne gül.') : '';
+    const logo = t => t.logo ? `<img src="${esc(t.logo)}" alt="" onerror="this.remove()">` : '';
+    el.className = 'vfb board' + (v.live ? ' live' : '');
     el.innerHTML = `<div class="bstate">${state}</div>
-      <div class="brow"><span class="bt${isVfb(t1) ? ' us' : ''}">${t1.teamIconUrl ? `<img src="${esc(t1.teamIconUrl.replace('http:', 'https:'))}" alt="" onerror="this.remove()">` : ''}${esc(short(t1))}</span>
-        <span class="bs">${vfb.live || vfb.done ? `${vfb.s1}<i>:</i>${vfb.s2}` : '–<i>:</i>–'}</span>
-        <span class="bt r${isVfb(t2) ? ' us' : ''}">${esc(short(t2))}${t2.teamIconUrl ? `<img src="${esc(t2.teamIconUrl.replace('http:', 'https:'))}" alt="" onerror="this.remove()">` : ''}</span></div>
-      ${vfb.goals.length ? `<div class="bgoals">${vfb.goals.map(g => `<span>${g.matchMinute ? g.matchMinute + "'" : ''} ${esc(g.goalGetterName || 'Gol')}${g.isPenalty ? ' (P)' : ''}${g.isOwnGoal ? ' (k.k.)' : ''} · ${g.scoreTeam1}:${g.scoreTeam2}</span>`).join('')}</div>` : ''}
-      ${mood ? `<div class="bmood">${mood}</div>` : ''}`;
+      <div class="brow"><span class="bt${isVfbName(v.t1.name) ? ' us' : ''}">${logo(v.t1)}${esc(v.t1.short)}</span>
+        <span class="bs">${v.live || v.done ? `${v.s1}<i>:</i>${v.s2}` : '–<i>:</i>–'}</span>
+        <span class="bt r${isVfbName(v.t2.name) ? ' us' : ''}">${esc(v.t2.short)}${logo(v.t2)}</span></div>
+      ${v.goals.length ? `<div class="bgoals">${v.goals.map(g => `<span>${esc(g.min)} ${esc(g.name)}${g.pen ? ' (P)' : ''}${g.og ? ' (k.k.)' : ''} · ${g.s1}:${g.s2}</span>`).join('')}</div>` : ''}
+      ${mood ? `<div class="bmood">${mood}</div>` : ''}
+      ${v.late && v.live ? '<div class="bsrc">Skor gecikmeli olabilir</div>' : ''}`;
   }
-  setInterval(() => { if (vfb && vfb.live) vfbUI(); }, 30000);
+  setInterval(() => { if (vfb && vfb.live && !vfb.clock) vfbUI(); }, 30000);
 
   // ---- Yolculuk: liste, durak uyarısı, kilit ekranında tren
   let trip = LS.get('gp-trip', null), alarmT = null, tripT = null;
@@ -3934,6 +3922,8 @@ const X = (() => {
   renderFx(); UI.lib(); AI.render(); $('chatAv').innerHTML = TEA; Scene.start();
   setView(App.songs.length ? 'now' : 'lib');
   X.bind(); X.nowUI(); X.importShared(); Deck.apply();
+  if (fx.carOn || fx.preset === 'pioneer') { delete fx.carOn; delete fx.carBass; delete fx.carCabin; if (fx.preset === 'pioneer') fx.preset = 'custom'; LS.set('gp-fx2', fx); try { Engine.refresh(); } catch (e) {} }
+  for (const x of App.songs) if (x.fx && (x.fx.carOn !== undefined)) { delete x.fx.carOn; delete x.fx.carBass; delete x.fx.carCabin; if (x.fx.preset === 'pioneer') x.fx.preset = 'custom'; DB.song(x); }
   if (fx.crowdOn || fx.preset === 'konser') { delete fx.crowdOn; delete fx.crowdAmt; if (fx.preset === 'konser') fx.preset = 'custom'; LS.set('gp-fx2', fx); }
   DB.putFile('crowd:user', null);
   if (/^#sb$|^#sbahn$/.test(location.hash) || new URLSearchParams(location.search).get('go') === 'sb') setView('sb');
