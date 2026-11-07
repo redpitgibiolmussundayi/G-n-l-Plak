@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 26;
+const VERSION = 27;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -1646,6 +1646,7 @@ const UI = {
         <p class="msg">${(() => { const i = Scene.info(); return `Bugün Stuttgart'ta gün doğumu <strong>${i.rise}</strong>, batımı <strong>${i.set}</strong>. Ay %${i.moon} dolu.${i.wx ? ' Hava: ' + esc(i.wx) + '.' : ''}`; })()}</p>
         <div class="chips" id="sceneChips">${[['auto', 'Gerçek saat ve hava'], ...Object.entries(Scene.PICK), ['off', 'Kapalı']].map(([k, n]) => `<button class="chip${Scene.mode === k ? ' on' : ''}" data-scene="${k}">${n}</button>`).join('')}</div>
         <div class="toggle"><div class="tl"><span>Canlı Stuttgart havası</span><span class="sub">Yağmur yağıyorsa manzarada da yağar · Hava verisi: Open-Meteo</span></div><button class="sw" id="wxOn" role="switch" aria-checked="${Scene.wxOn}" aria-label="Canlı hava"></button></div>
+        <div class="field"><label>Kaset ekranında</label><div class="seg">${[['kaset', 'Kaset'], ['plak', 'Plak'], ['yok', 'Kapalı']].map(([k, n]) => `<button data-deck="${k}" aria-pressed="${Deck.kind === k}">${n}</button>`).join('')}</div></div>
         <div class="field"><label>Özel günler (kendiliğinden gelir; 1 dakikalık önizleme)</label><div class="chips">${[['xmas', 'Weihnachtsmarkt'], ['silvester', 'Silvester'], ['wasen', 'Wasen']].map(([k, n]) => `<button class="chip" data-spc="${k}">${n}</button>`).join('')}</div><span class="sub">Weihnachtsmarkt 26 Kasım–23 Aralık, Silvester 31 Aralık akşamı, Wasen ilkbahar ve sonbahar şenliklerinde. Akşam ve gece sahnesinde görünür.</span></div>
         <div class="toggle"><div class="tl"><span>Fernsehturm ritme göre parlasın</span><span class="sub">Akşam ve gece sahnesinde kulenin ışığı çalan şarkının vuruşlarıyla yanıp söner</span></div><button class="sw" id="beatOn" role="switch" aria-checked="${Scene.beatOn}" aria-label="Ritme göre Fernsehturm"></button></div></div>
       ${X.acct()}
@@ -3004,10 +3005,11 @@ const Deck = (() => {
   function apply() {
     $('cassette').toggleAttribute('hidden', kind !== 'kaset'); $('vinyl').toggleAttribute('hidden', kind !== 'plak');
     document.documentElement.classList.toggle('nodeck', kind === 'yok');
-    document.querySelectorAll('#deckPick [data-deck]').forEach(b => b.setAttribute('aria-pressed', b.dataset.deck === kind));
+    document.querySelectorAll('[data-deck]').forEach(b => b.setAttribute('aria-pressed', b.dataset.deck === kind));
     label(App.byId(App.curId)); sync();
   }
-  $('deckPick').addEventListener('click', e => { const b = e.target.closest('[data-deck]'); if (!b) return; kind = b.dataset.deck; LS.set('gp-deck', kind); apply(); if (kind === 'kaset') UI.now(); });
+  // seçim artık Ben > Görünüm'de (manzaranın üstünde hiçbir düğme kalmasın)
+  document.addEventListener('click', e => { const b = e.target.closest('[data-deck]'); if (!b) return; kind = b.dataset.deck; LS.set('gp-deck', kind); apply(); if (kind === 'kaset') UI.now(); });
   return { apply, sync, label: s => { if (kind === 'plak') { label(s); frame(performance.now()); } }, get kind() { return kind; } };
 })();
 
