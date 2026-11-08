@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 29;
+const VERSION = 30;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -3708,22 +3708,30 @@ const Rack = (() => {
   return { render, get view() { return view; } };
 })();
 
-/* ================= Bilardo sekmesi (oyun ayrı dosyada, ilk açılışta yüklenir) ================= */
+/* ================= Bilardo sekmesi: gerçek fizik motoru (tailuge/billiards, GPL-3.0) iframe içinde ================= */
 const Pool = (() => {
-  let p = null;
-  function load() {
-    if (window.Bilardo) return Promise.resolve();
-    if (p) return p;
-    p = new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'bilardo.js'; sc.onload = res; sc.onerror = () => { p = null; rej(); }; document.head.appendChild(sc); });
-    return p;
+  let fr = null, bar = null;
+  const BOTS = { kolay: 'ClawBreak', zor: 'TheFarJaw' };
+  const lvl = () => { try { return localStorage.getItem('gp_pool_lvl') || 'zor'; } catch (e) { return 'zor'; } };
+  const name = () => { try { return (localStorage.getItem('gp_name') || 'Eren').slice(0, 14); } catch (e) { return 'Eren'; } };
+  function src() { return 'bilardo.html?ruletype=eightball&locale=tr&bot=' + BOTS[lvl()] + '&userName=' + encodeURIComponent(name()) + '&t=' + Date.now(); }
+  function paint() { bar.querySelector('.plvl').innerHTML = '🤖 <b>' + (lvl() === 'zor' ? 'Zor' : 'Kolay') + '</b>'; }
+  function start() { $('vPool').classList.add('loading'); fr.style.opacity = 0; fr.src = src(); }
+  function build() {
+    const v = $('vPool'); v.innerHTML = '';
+    bar = document.createElement('div'); bar.className = 'pbar';
+    bar.innerHTML = '<button class="plvl" data-a="lvl" aria-label="Rakip seviyesi"></button><button class="pib" data-a="new" aria-label="Yeni oyun">↻</button><button class="pib pexit" data-a="exit" aria-label="Kapat">✕</button>';
+    bar.onclick = e => { const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.a === 'lvl') { try { localStorage.setItem('gp_pool_lvl', lvl() === 'zor' ? 'kolay' : 'zor'); } catch (_) {} paint(); start(); toast('Rakip: ' + (lvl() === 'zor' ? 'Zor' : 'Kolay') + ' — yeni oyun'); }
+      else if (b.dataset.a === 'new') start();
+      else if (b.dataset.a === 'exit') setView(isWide() ? 'lib' : 'now'); };
+    fr = document.createElement('iframe'); fr.className = 'pframe'; fr.title = 'Bilardo';
+    fr.setAttribute('allow', 'autoplay; fullscreen');
+    fr.onload = () => { $('vPool').classList.remove('loading'); fr.style.opacity = 1; };
+    v.append(fr, bar); paint();
   }
-  async function open() {
-    $('vPool').classList.add('loading');
-    try { await load(); Bilardo.mount($('vPool')); $('vPool').classList.remove('loading'); Bilardo.show(); }
-    catch (e) { toast('Bilardo yüklenemedi, internetini kontrol et'); }
-  }
-  function close() { if (window.Bilardo) Bilardo.hide(); }
-  window.addEventListener('pool-exit', () => setView(isWide() ? 'lib' : 'now'));
+  function open() { if (!fr) { build(); start(); } }
+  function close() { /* oyun arka planda bekler, geri gelince kaldığın yerden */ }
   return { open, close };
 })();
 /* ================= Ekstralar: damar, kader kasetleri, istatistik, yedek, yolculuk ================= */

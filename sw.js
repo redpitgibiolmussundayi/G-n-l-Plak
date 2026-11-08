@@ -1,8 +1,8 @@
 /* Gönül Plak — offline önbellek.
    Kod dosyaları önce internetten (güncel sürüm hemen gelsin), internet yoksa önbellekten.
    Resimler ve kütüphaneler önce önbellekten. */
-const CACHE = 'gonulplak-v31';
-const CORE = ['./', 'index.html', 'app.js', 'config.js', 'stretch.js', 'dsp-worker.js', 'bilardo.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
+const CACHE = 'gonulplak-v32';
+const CORE = ['./', 'index.html', 'app.js', 'config.js', 'stretch.js', 'dsp-worker.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
   ...['sabah', 'gunduz', 'gunbatimi', 'aksam', 'gece', 'kapali-sabah', 'kapali-gunduz', 'kapali-aksam', 'kapali-gece'].map(n => `stg-sonbahar-${n}.webp`)];
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
@@ -21,10 +21,11 @@ self.addEventListener('fetch', e => {
   if (same && url.pathname.endsWith('version.json')) return; // hep canlı
   const isCode = same && (req.mode === 'navigate' || /\.(js|html|webmanifest)$/.test(url.pathname) || url.pathname.endsWith('/'));
   if (isCode) {
-    const key = req.mode === 'navigate' ? 'index.html' : req;
+    const top = req.mode === 'navigate' && !url.pathname.endsWith('/bilardo.html');
+    const key = top ? 'index.html' : url.origin + url.pathname; // bilardo iframe'i ana sayfanın yerine geçmesin
     e.respondWith(
       fetch(req, { cache: 'no-cache' }).then(r => { if (r.ok) { const cp = r.clone(); e.waitUntil(caches.open(CACHE).then(c => c.put(key, cp))); } return r; })
-        .catch(() => caches.match(key, { ignoreSearch: true }).then(h => h || caches.match('index.html')))
+        .catch(() => caches.match(key, { ignoreSearch: true }).then(h => h || (top ? caches.match('index.html') : Response.error())))
     );
     return;
   }

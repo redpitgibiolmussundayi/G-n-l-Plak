@@ -1,0 +1,3953 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Bilardo</title>
+    <!-- Billiards engine by tailuge (https://github.com/tailuge/billiards), GPL-3.0. Lightly modified for Gönül Plak: green cloth, Turkish strings, AAC sounds. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover" />
+    <style>
+      @font-face {
+        font-family: Exo;
+        font-style: normal;
+        font-weight: 200;
+        font-display: swap;
+        src: url("https://fonts.gstatic.com/s/exo/v25/4UaZrEtFpBI4f1ZSIK9d4LjJ4tM3CwM.ttf")
+          format("truetype");
+      }
+
+      @font-face {
+        font-family: Exo;
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url("https://fonts.gstatic.com/s/exo/v25/4UaZrEtFpBI4f1ZSIK9d4LjJ4o0wCwM.ttf")
+          format("truetype");
+      }
+    </style>
+    <style>
+/* Global Font Configuration */
+
+/*
+ * Exo font is loaded directly in index.html and plot.html using <link rel="preconnect"> and <link rel="stylesheet">.
+ * This avoids the render-blocking @import CSS network waterfall and improves Time-to-First-Paint.
+ */
+
+/* Central font custom property - change --font-family-primary to update fonts globally */
+:root {
+  --font-family-primary: "Exo", sans-serif;
+  --font-family-mono: "Exo", monospace;
+}
+
+/* Apply primary font to body and common elements */
+body,
+html,
+button,
+input,
+select,
+textarea {
+  font-family: var(--font-family-primary);
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: auto;
+  text-rendering: optimizespeed;
+  font-smooth: never;
+}
+
+</style>
+    <style>
+body,
+html {
+  margin: 0;
+  background-color: #000;
+  color: #444;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  display: contents;
+}
+
+::selection {
+  color: white;
+}
+
+div {
+  color: antiquewhite;
+  touch-action: none;
+}
+
+h1,
+p {
+  margin: 0 0 1em;
+}
+
+#snookerScore {
+  font-family: var(--font-family-primary);
+  font-size: 32px;
+  color: yellow;
+  text-align: center;
+  filter: drop-shadow(0.08em 0.08em black);
+  display: flex;
+  flex-flow: row wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+}
+
+#snookerScoreOverlay {
+  position: absolute;
+  bottom: 10px;
+  right: 80px;
+}
+
+.p1Score,
+.p2Score,
+.hudMiddle {
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.p1Score.is-active,
+.p2Score.is-active {
+  font-weight: 800;
+  filter: brightness(1.2);
+}
+
+.breakScore {
+  font-size: 32px;
+  font-style: italic;
+  color: yellow;
+  text-align: center;
+  margin-top: 0.2em;
+}
+
+.view3d {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  cursor: none;
+  caret-color: transparent;
+  -webkit-user-drag: none;
+  user-select: none;
+  position: relative;
+}
+
+.view3d:focus {
+  outline: none;
+}
+
+canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border-radius: 5px;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.panel {
+  width: 100%;
+  height: 70px;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 0;
+  padding: 0;
+  background: linear-gradient(rgb(0 64 94), #000214);
+  border-radius: 0;
+  border-top: 1px solid #2d1e16;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.aimControlColumn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 4px;
+  position: relative;
+}
+
+.toggleButton {
+  height: 100%;
+  width: 20%;
+  margin-right: 4px;
+  aspect-ratio: 0.4;
+  border-radius: 10px;
+  border-width: 4px;
+  padding: 0;
+  max-width: 80px;
+}
+
+.toggleButton:active,
+.menuButton:active {
+  transform: scale(0.97);
+}
+
+a.pill {
+  outline: none;
+  background: rgb(0 0 0 / 40%);
+  border-radius: 8px;
+  text-decoration: none;
+  border: 1px solid rgb(255 255 255 / 15%);
+  margin: 0;
+  padding: 0 8px;
+  font-size: 12px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+a {
+  color: lightblue;
+}
+
+.constants {
+  background: linear-gradient(#495155, #0b0b0e);
+  border-radius: 5px;
+  position: fixed;
+  right: 0;
+  top: 0;
+  visibility: hidden;
+  padding: 5px;
+  border: double;
+  max-width: 50%;
+  font-size: 12px;
+}
+
+label {
+  display: inline-block;
+  width: 9ch;
+}
+
+/* Bot Debug Overlay */
+#botDebugOverlay {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 320px;
+  min-height: 30px;
+  max-height: 400px;
+  background: rgb(0 0 0 / 40%);
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 8px;
+  padding: 0 8px;
+  font-family: var(--font-family-mono);
+  font-size: 16px;
+  color: #ccc;
+  z-index: 2000;
+  overflow: hidden;
+  display: none;
+  box-sizing: border-box;
+  align-items: center;
+  flex-direction: column;
+}
+
+#botDebugOverlay header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+  min-height: 30px;
+}
+
+#botDebugOverlay header button {
+  background: transparent;
+  border: 1px solid #666;
+  color: #aaa;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 12px;
+  border-radius: 4px;
+  height: 22px;
+}
+
+#analysisPanel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+#botDebugOverlay header button:hover {
+  background: #333;
+  color: #fff;
+}
+
+#botDebugOverlay header div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#botDebugLog {
+  margin: 4px 0 0;
+  padding: 0;
+  max-height: 340px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+#botDebugLog::-webkit-scrollbar {
+  width: 8px;
+}
+
+#botDebugLog::-webkit-scrollbar-track {
+  background: #222;
+}
+
+#botDebugLog::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 4px;
+}
+
+/* Compact mode */
+#botDebugOverlay.compact {
+  width: 50px;
+  height: 30px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+#botDebugOverlay.compact #botDebugLog {
+  max-height: 0;
+  overflow: hidden;
+}
+
+#botDebugOverlay.compact #botDebugClear {
+  display: none;
+}
+
+/* Lobster emoji in header. Addressed by class rather than by the #botDebugToggle
+   id so this early rule stays low in the cascade order. */
+.bot-debug-emoji {
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  position: relative;
+  top: -2px;
+}
+
+.lobby-btn {
+  padding: 6px;
+  background: rgb(255 255 255 / 10%);
+  color: white;
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.lobby-btn:hover {
+  background: rgb(255 255 255 / 20%);
+  border-color: rgb(255 255 255 / 40%);
+}
+
+#botDebugLog::-webkit-scrollbar-thumb:hover {
+  background: #777;
+}
+
+.drill-panel {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+  pointer-events: auto;
+}
+
+.drill-panel-top {
+  top: 10px;
+  transform: none;
+}
+
+.drill-panel-right {
+  inset: auto 10px 49px auto;
+
+  /* .outerMenu (hamburger/camera buttons) overflows 39px above #panel's top
+     edge, i.e. above #viewP1's bottom edge; clear that plus a small gap. */
+  transform: none;
+}
+
+/* When the elevation panel is open the Hit button shifts up; the drill buttons
+   are lifted above it. DrillPanel sets `bottom` inline at runtime by measuring
+   the Hit button's actual top; here we just switch to bottom-anchoring. */
+.drill-panel.elevation-open {
+  top: auto;
+  transform: none;
+}
+
+/* The 44px spacer aligns Preview with the Hit button when centered; it is not
+   needed once the stack is lifted above the elevation panel. */
+.drill-gap {
+  height: 44px;
+}
+
+.drill-panel.elevation-open .drill-gap {
+  height: 0;
+}
+
+.drill-btn {
+  width: 90px;
+  height: 44px;
+  border-radius: 8px;
+  border: 2px solid rgb(255 255 255 / 25%);
+  background: rgb(0 30 60 / 75%);
+  color: antiquewhite;
+  font-size: 13px;
+  font-family: var(--font-family-primary, sans-serif);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    opacity 0.15s,
+    background 0.15s;
+}
+
+.drill-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.drill-btn:not(:disabled):hover {
+  background: rgb(0 60 110 / 85%);
+  border-color: rgb(255 255 255 / 50%);
+}
+
+.drill-btn:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+/* ===========================================================================
+   Shot analysis split-screen mode (?ruletype=threecushion&practice&analysis)
+   Left: live 3D table (#viewP1). Right: results panel (#analysisPanel). The
+   table pane is responsively sized so CameraTop orients it (upright in a
+   narrow pane, horizontal in a wide one) automatically.
+   =========================================================================== */
+
+/* Grid: table top-left, the game's control panel bottom-left, analysis panel
+   down the right. Using grid (not flex) keeps #panel's own internal layout
+   (cue-ball spin widget, hit button, power slider) intact — we just hand it the
+   bottom-left cell and hide the menu buttons. */
+body.analysis-mode {
+  display: grid;
+  grid-template: "table panel" 1fr "controls panel" auto / 72% 28%;
+}
+
+body.analysis-mode #viewP1 {
+  grid-area: table;
+  width: auto;
+  height: 100%;
+
+  /* Let the table cell shrink: the WebGL canvas carries an explicit pixel size,
+     which would otherwise become the cell's min-content size and overflow. */
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The renderer sets an explicit pixel size on its canvas; cap it to the cell. */
+.analysis-content canvas {
+  background: #0d0d10;
+  border-radius: 6px;
+  display: block;
+  max-width: 100%;
+  height: auto;
+  image-rendering: auto;
+}
+
+body.analysis-mode #viewP1 > canvas {
+  max-width: 100%;
+}
+
+/* Keep the control panel, but show only the aim controls the analysis view
+   wants (cue-ball spin + elevation, hit button, speed slider). Hide the game
+   menu/share/concede/comment buttons; the camera toggle is the floating button. */
+body.analysis-mode #panel {
+  grid-area: controls;
+  background: transparent;
+  border-top: 0;
+}
+
+body.analysis-mode .outerMenu,
+body.analysis-mode #commentMenu {
+  display: none;
+}
+
+#analysisPanel {
+  grid-area: panel;
+  min-width: 0;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background: #15151a;
+  border-left: 1px solid #2a2a30;
+  color: #eee;
+  font-family: system-ui, sans-serif;
+  overflow-y: auto;
+}
+
+.analysis-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2a30;
+}
+
+.analysis-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.analysis-content {
+  padding: 14px;
+}
+
+/* Floating camera-toggle, lower-right of the table pane (only active control). */
+.analysis-camera-btn {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  border: 1px solid rgb(255 255 255 / 25%);
+  background: rgb(0 30 60 / 75%);
+  color: antiquewhite;
+  font-size: 22px;
+  cursor: pointer;
+  z-index: 5;
+}
+
+.analysis-camera-btn:hover {
+  background: rgb(0 60 110 / 85%);
+}
+
+/* Camera state classes set dynamically via JS */
+.menuButton.aim {
+  /* default aim view - no extra styling needed */
+}
+
+.menuButton.aimz {
+  /* zoomed-out aim view - slightly larger emoji */
+  font-size: 28px;
+}
+
+.menuButton.topview {
+  /* top-down view */
+}
+
+/* Stack table / controls / analysis vertically on portrait/narrow screens. */
+@media (orientation: portrait) {
+  body.analysis-mode {
+    grid-template: "table" 1fr "controls" auto "panel" 45% / 100%;
+  }
+
+  #analysisPanel {
+    border-left: 0;
+    border-top: 1px solid #2a2a30;
+  }
+}
+
+/* Chromeless mode (L key toggles body.chromeless): collapse the lower control
+   panel while keeping the right-hand menu column (hamburger/submenu + camera
+   button) visible. .outerMenu is taller than #panel and overflows above its
+   top edge, so overflow must stay visible; the panel's visibility:hidden and
+   pointer-events:none are re-asserted on .outerMenu to bring it back. */
+body.chromeless #panel {
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body.chromeless #panel .outerMenu {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* AimInputs sets an inline visibility:visible on the spin-area overlap ball,
+   which would override #panel's inherited visibility:hidden and leak the spin
+   widget back onto the table. display:none hides it (and the hit button,
+   tilt/elevation and power slider) regardless of inline styles. */
+body.chromeless #panel .aimControlColumn,
+body.chromeless #panel .powerSliderContainer {
+  display: none;
+}
+
+/* --- analysis results (ported from the former standalone page) --- */
+.analysis-content h2 {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #9aa0a6;
+  margin: 16px 0 8px;
+}
+
+.analysis-status {
+  color: #9aa0a6;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.analysis-results .legend {
+  display: flex;
+  gap: 14px;
+  font-size: 13px;
+  color: #9aa0a6;
+  margin: 8px 0;
+}
+
+.analysis-results .legend span::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.analysis-results .legend .ok::before {
+  background: #2ec27e;
+}
+
+.analysis-results .legend .fail::before {
+  background: #e0556b;
+}
+
+.analysis-results .legend .original::before {
+  background: transparent;
+  border: 2px solid #fff;
+}
+
+.plot-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.bars {
+  margin-top: 14px;
+}
+
+.bar-row {
+  margin: 16px 0;
+}
+
+.bar-label {
+  font-size: 14px;
+  color: #9aa0a6;
+  margin-bottom: 2px;
+}
+
+/* Header row of a 1-D bar: the on-demand "Show" button left of the label. */
+.bar-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.bar-head .bar-label {
+  margin-bottom: 0;
+}
+
+.bar-show {
+  flex: none;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: #fff;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  background: #2f7d6e;
+}
+
+.bar-show:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.bar-show:hover:not(:disabled) {
+  background: #3a988e;
+}
+
+/* The bar whose 1-D sweep is currently shown (blue = the live/active accent). */
+.bar-row.active .bar-show {
+  background: #4aa3ff;
+}
+
+.bar-row.active .bar-label {
+  color: #cfd3d8;
+}
+
+.bar-shiftrow {
+  position: relative;
+  height: 16px;
+  font-size: 13px;
+  color: #9aa0a6;
+  margin-bottom: 2px;
+}
+
+.bar-shift-label {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+
+.bar-shift-label--left {
+  padding-right: calc(6px + 3ch);
+}
+
+.bar-shift-label--right {
+  padding-left: calc(6px + 3ch);
+}
+
+/* Row containing the track+ruler column flanked by the two step buttons.
+   flex-start (not center) — .bar-trackcol holds the track AND the taller
+   ruler below it, so centering against the whole column would push the
+   buttons below the track; flex-start aligns them with the track itself,
+   the column's first/top child. */
+.bar-trackrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.bar-trackcol {
+  flex: 1;
+  min-width: 0;
+}
+
+.bar-track {
+  position: relative;
+  display: flex;
+  height: 16px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #0d0d10;
+}
+
+.bar-cell {
+  flex: 1;
+}
+
+/* A small colored patch under the marker, showing the live point's result
+   (red/green, matching the scatter dot colors) even when the bar hasn't been
+   Shown — also doubles as a visual cue for the size of one grid step.
+   Positioned/sized by positionMarkers; colored via .scored/.missed by
+   updateBarLiveCellFill, always on, independent of which bar is "active". */
+.bar-live-cell {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  background: transparent;
+  pointer-events: none;
+}
+
+.bar-live-cell.scored {
+  background: #2ec27e;
+}
+
+.bar-live-cell.missed {
+  background: #e0556b;
+}
+
+/* The bowtie marker = the current shot's value on that bar (two triangles
+   meeting at the marker's position). Always plain white — coloring it
+   directly used to camouflage it against an identically-colored cell once
+   the bar was Shown (the live-cell patch above now carries the color
+   instead). Positioned by AnalysisPanel via left %. */
+.bar-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  margin-left: -6px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.bar-marker::before,
+.bar-marker::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+}
+
+.bar-marker::before {
+  left: 0;
+  border-width: 8px 6px 8px 0;
+  border-color: transparent #fff transparent transparent;
+}
+
+.bar-marker::after {
+  right: 0;
+  border-width: 8px 0 8px 6px;
+  border-color: transparent transparent transparent #fff;
+}
+
+/* Step buttons: move the marker exactly one grid step left/right. Solid CSS
+   triangles (same construction as the marker) so the two read as one visual
+   language; muted grey by default, white on hover, dimmed once the studied
+   window's edge is reached (no further step possible). */
+.bar-step {
+  flex: none;
+  width: 14px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+}
+
+.bar-step::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+}
+
+.bar-step--left::before {
+  right: 1px;
+  border-width: 6px 7px 6px 0;
+  border-color: transparent #cdd1d6 transparent transparent;
+}
+
+.bar-step--right::before {
+  left: 1px;
+  border-width: 6px 0 6px 7px;
+  border-color: transparent transparent transparent #cdd1d6;
+}
+
+.bar-step:disabled {
+  cursor: default;
+}
+
+.bar-step--left:disabled::before {
+  border-right-color: #3a3a40;
+}
+
+.bar-step--right:disabled::before {
+  border-left-color: #3a3a40;
+}
+
+.bar-step--left:hover:not(:disabled)::before {
+  border-right-color: #fff;
+}
+
+.bar-step--right:hover:not(:disabled)::before {
+  border-left-color: #fff;
+}
+
+/* The single white ring = the current shot's spin on the scatter. Positioned by
+   AnalysisPanel via left/top %. */
+.spin-marker {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 3;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 50%);
+}
+
+/* Filled with the live point's simulated result (green/red, matching the
+   scatter dot colors) once known; hollow/white while pending or while a 1-D
+   bar is the active display. */
+.spin-marker.scored {
+  background: #2ec27e;
+}
+
+.spin-marker.missed {
+  background: #e0556b;
+}
+
+.bar-ruler {
+  position: relative;
+  height: 22px;
+  margin-top: 2px;
+}
+
+.bar-tick {
+  position: absolute;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
+}
+
+.bar-tick--start {
+  align-items: flex-start;
+  transform: none;
+}
+
+.bar-tick--end {
+  align-items: flex-end;
+  transform: translateX(-100%);
+}
+
+.bar-tick-mark {
+  width: 1px;
+  height: 4px;
+  background: #51515a;
+}
+
+.bar-tick-label {
+  font-size: 12px;
+  color: #9aa0a6;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.analysis-results .error {
+  color: #e0556b;
+  font-size: 15px;
+}
+
+.spin-show {
+  position: absolute;
+  left: 10px;
+  bottom: 14px;
+  width: auto;
+  padding: 8px 14px;
+  font-size: 14px;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #2f7d6e;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 40%);
+}
+
+.spin-show:hover:not(:disabled) {
+  background: #3a988e;
+}
+
+/* The spin scatter is currently the live display (blue = the live/active
+ * accent, matching .bar-row.active .bar-show). Needs an explicit :hover
+ * override too — otherwise .spin-show:hover (2 selectors) outranks
+ * .spin-show.active (also 2) on hover and the green flashes back. */
+.spin-show.active,
+.spin-show.active:hover {
+  background: #4aa3ff;
+}
+
+.analysis-toolbar {
+  display: none;
+}
+
+.analysis-toolbar button.secondary {
+  background: #34343c;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* ===========================================================================
+   About Panel Overlay Styles
+   =========================================================================== */
+
+.about-more {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(3px);
+}
+
+.about-more[hidden] {
+  display: none !important;
+}
+
+.about-more .about-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(38rem, calc(100vw - 5rem));
+  max-height: 80dvh;
+  overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    rgb(43 43 43) 0%,
+    rgb(29 29 29) 55%,
+    rgb(17 17 17) 100%
+  );
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 30%);
+  color: #e0e0e0;
+  font-family: Exo, sans-serif;
+  font-weight: 200;
+}
+
+/* Scrolling sits on an inner element so the close button can stay pinned
+   to the panel corner instead of scrolling away with the content. */
+.about-scroll {
+  overflow-y: auto;
+  scrollbar-width: none;
+  touch-action: pan-y;
+  min-height: 0;
+
+  /* index.css sets `div { color: antiquewhite }`; keep the panel's text
+     colour instead of inheriting that one. */
+  color: inherit;
+
+  /* No top padding: the first section's 2px top margin provides it, so
+     the gap above Play matches the 2px between the panels. */
+  padding: 0 2px 2px;
+}
+
+.about-panel a {
+  color: #8ab6f8;
+}
+
+.about-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+
+  /* The × ink in Exo sits above the line box centre; flex centring then
+     leaves it looking high. Padding the top pushes the centred line down by
+     half the padding, so 2px nudges the glyph down 1px. */
+  padding: 2px 0 0;
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 16%) 0%,
+    rgb(255 255 255 / 6%) 100%
+  );
+  border: 1px solid rgb(255 255 255 / 25%);
+  border-radius: 6px;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 40%),
+    inset 0 1px 0 rgb(255 255 255 / 20%);
+  color: #eee;
+  font-family: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    transform 0.1s,
+    box-shadow 0.15s;
+}
+
+.about-close:hover {
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 24%) 0%,
+    rgb(255 255 255 / 12%) 100%
+  );
+  border-color: rgb(255 255 255 / 40%);
+  box-shadow:
+    0 2px 4px rgb(0 0 0 / 50%),
+    inset 0 1px 0 rgb(255 255 255 / 30%);
+}
+
+.about-close:active {
+  transform: translateY(1px);
+  box-shadow:
+    0 1px 1px rgb(0 0 0 / 60%),
+    inset 0 1px 2px rgb(0 0 0 / 40%);
+}
+
+.about-panel section,
+.about-section {
+  margin-top: 2px;
+  padding: 2px 10px;
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 4%) 0%,
+    rgb(255 255 255 / 1%) 100%
+  );
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 6px;
+}
+
+.about-panel summary {
+  cursor: pointer;
+  font-weight: 400;
+  font-size: 0.95rem;
+  margin: 10px 0 4px;
+  text-align: center;
+}
+
+.about-panel h2 {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.about-panel h3 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin: 10px 0 4px;
+}
+
+/* The keyword list is a footnote, not reading copy. */
+.about-panel h2.keywords {
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin: 12px 0 4px;
+}
+
+.about-panel p.keywords {
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: #9a9a9a;
+}
+
+.about-panel .help-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+  font-size: 0.75rem;
+  color: #eee;
+}
+
+.about-panel .phone {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  aspect-ratio: 16 / 9;
+  margin: 6px auto 10px;
+  border: 2px solid #666;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(to bottom, #1b2d44 0%, #13212f 50%, #1a1611 100%);
+}
+
+.about-panel .top,
+.about-panel .bottom {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.about-panel .top {
+  top: 0;
+  height: 42%;
+}
+
+.about-panel .bottom {
+  bottom: 0;
+  height: 42%;
+}
+
+.about-panel .divider {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  border-top: 2px dashed rgb(255 255 255 / 25%);
+  transform: translateY(-50%);
+}
+
+.about-panel .zoom {
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.9;
+}
+
+.about-panel .zoom-arrow {
+  width: 2px;
+  height: 90px;
+  background: white;
+  border-radius: 999px;
+  position: relative;
+}
+
+.about-panel .zoom-arrow::before,
+.about-panel .zoom-arrow::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border-top: 3px solid white;
+  border-right: 3px solid white;
+}
+
+.about-panel .zoom-arrow::before {
+  top: -2px;
+  transform: translateX(-50%) rotate(-45deg);
+}
+
+.about-panel .zoom-arrow::after {
+  bottom: -2px;
+  transform: translateX(-50%) rotate(135deg);
+}
+
+.about-panel .zoom-label {
+  font-size: 0.72rem;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+}
+
+.about-panel .balls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.about-panel .ball {
+  width: 1px;
+  height: 1px;
+  border-radius: 50%;
+  background: white;
+  opacity: 0.9;
+}
+
+.about-panel .arrow {
+  position: relative;
+  height: 2px;
+  background: white;
+  border-radius: 999px;
+}
+
+.about-panel .arrow::before,
+.about-panel .arrow::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-top: 3px solid white;
+  border-right: 3px solid white;
+}
+
+.about-panel .arrow::before {
+  left: -2px;
+  transform: translateY(-50%) rotate(-135deg);
+}
+
+.about-panel .arrow::after {
+  right: -2px;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.about-panel .fine {
+  width: 110px;
+}
+
+.about-panel .coarse {
+  width: 240px;
+}
+
+.about-panel .label {
+  margin-top: 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.about-panel .sub {
+  margin-top: 4px;
+  font-size: 0.78rem;
+  opacity: 0.7;
+}
+
+.about-panel .input-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    2,
+    minmax(0, max-content) minmax(0, max-content)
+  );
+  justify-content: center;
+  align-items: center;
+  gap: 3px 6px;
+  margin: 0 auto 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.about-panel .input-grid .help-row {
+  display: contents;
+}
+
+.about-panel kbd {
+  background: #333;
+  color: #fff;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-family: Exo, monospace;
+  border-bottom: 2px solid #555;
+  font-size: 0.72rem;
+  text-align: center;
+  display: inline-block;
+  justify-self: start;
+  white-space: nowrap;
+}
+
+.about-panel .input-grid span {
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Fixed-size buttons, at most four per row. The max-width is four buttons
+   (4 x 5rem, below) plus their three gaps, so a fifth can never fit on a
+   wide panel; narrower panels wrap to fewer per row and every row is centred. */
+.mode-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  max-width: calc(20rem + 12px);
+  margin: 4px auto;
+}
+
+/* Play and Controls are UI labels, not content headings: keeping them
+   out of the heading outline leaves the About h1 as the first heading
+   on the page. */
+.play-section .panel-title,
+#controls .panel-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.mode-nav a {
+  position: relative;
+  box-sizing: border-box;
+  width: 5rem;
+  height: 2rem;
+  padding: 0 2px;
+
+  /* One line centred in the fixed height (the 2px accounts for the top and
+     bottom border), so the label stays a block box and can still ellipsis. */
+  line-height: calc(2rem - 2px);
+  text-align: center;
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 15%) 0%,
+    rgb(255 255 255 / 5%) 100%
+  );
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-bottom-color: rgb(0 0 0 / 40%);
+  border-radius: 5px;
+  color: white;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 400;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 30%),
+    inset 0 1px 0 rgb(255 255 255 / 15%);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.1s,
+    box-shadow 0.15s;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mode-nav a:hover {
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 25%) 0%,
+    rgb(255 255 255 / 10%) 100%
+  );
+  border-color: rgb(255 255 255 / 40%);
+  border-bottom-color: rgb(0 0 0 / 50%);
+  box-shadow:
+    0 2px 4px rgb(0 0 0 / 40%),
+    inset 0 1px 0 rgb(255 255 255 / 25%);
+}
+
+.mode-nav a:active {
+  transform: translateY(1px);
+  box-shadow:
+    0 1px 1px rgb(0 0 0 / 50%),
+    inset 0 1px 2px rgb(0 0 0 / 40%);
+}
+
+/* The rim glint of an incoming challenge (.challenge-pill::after in
+   lobby.css), swept along the border of the panel's buttons on hover.
+   A plain hover background alone would not read as the same effect, so
+   the ring is painted by a pseudo-element and masked to its 1px border
+   (mask-composite hides the content box). The element is pulled out by
+   1px because an absolutely positioned box is laid out against the
+   padding box. Applying the animation only while hovering restarts it
+   on every fresh hover; the keyframes are lobby.css's, so both glints
+   stay identical. */
+.about-close::after,
+.mode-nav a::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    rgb(255 255 255 / 0%) 46%,
+    rgb(255 255 255 / 90%) 50%,
+    rgb(255 255 255 / 0%) 54%
+  );
+  background-size: 200% 200%;
+  background-position: 100% 100%;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.about-close:hover::after,
+.mode-nav a:hover::after {
+  animation: challenge-glint 0.5s ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .about-close:hover::after,
+  .mode-nav a:hover::after {
+    animation: none;
+  }
+}
+
+</style>
+    <style>
+:root {
+  --ball-size-base: 140px;
+  --ball-size-small: 70px;
+}
+
+.aimingArea {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: auto;
+  width: var(--ball-size-base);
+}
+
+.tiltSliderContainer {
+  width: var(--ball-size-base);
+  height: var(--ball-size-base);
+  padding: 0;
+
+  /* The right rim must sit inside the 140px like .ballContainer's, or this box
+     renders 1px wider than the spin input below it. */
+  box-sizing: border-box;
+  border: 1px solid #2d1e16;
+  border-left: none;
+  border-radius: 0 12px 12px 0;
+  background-color: var(--wood-dark);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Cfilter id='n' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.005 0.05' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.4 0 0 0 0 0.25 0 0 0 0 0.15 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: translateY(160px);
+  pointer-events: none;
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+  margin-bottom: 0;
+  z-index: 19;
+}
+
+.tiltSliderContainer[hidden] {
+  display: none !important;
+}
+
+.tiltSliderContainer.is-open {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.tiltSliderContainer.is-disabled {
+  filter: grayscale(0.7) brightness(0.6);
+}
+
+angle-input {
+  display: block;
+  position: relative;
+  aspect-ratio: 1;
+  touch-action: none;
+  width: 100%;
+  height: 100%;
+}
+
+angle-input .area {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  cursor: grab;
+  box-sizing: border-box;
+}
+
+angle-input .area:active {
+  cursor: grabbing;
+}
+
+angle-input .ball {
+  position: absolute;
+  bottom: 12%;
+  left: 12%;
+  width: 8%;
+  height: 8%;
+  background: radial-gradient(circle at 35% 35%, #fff 0%, #ddd 70%, #999 100%);
+  border-radius: 50%;
+  transform: translate(-50%, 50%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+angle-input .rotator {
+  position: absolute;
+  bottom: 12%;
+  left: 12%;
+  width: 80%;
+  height: 6%;
+  transform-origin: 0% 50%;
+  transform: translate(0, 50%) rotate(calc(-1deg * var(--angle, 0)));
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  z-index: 1;
+}
+
+angle-input .stick {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  margin-left: 12%;
+  clip-path: polygon(0% 40%, 100% 20%, 100% 80%, 0% 60%);
+}
+
+angle-input .tip {
+  width: 3%;
+  background: #256bb4;
+  border-radius: 4px 0 0 4px;
+}
+
+angle-input .ferrule {
+  width: 6%;
+  background: #e4e4e4;
+}
+
+angle-input .shaft {
+  flex: 1;
+  background: #f6c386;
+}
+
+angle-input .butt {
+  width: 25%;
+  background: #000;
+}
+
+.ballContainerWrapper {
+  flex: 0 0 var(--ball-size-base);
+  width: var(--ball-size-base);
+  height: 70px;
+  position: relative;
+  z-index: 20;
+  transition: flex 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ballContainerWrapper.is-disabled {
+  flex: 0 0 var(--ball-size-small);
+  width: var(--ball-size-small);
+}
+
+.ballContainer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: var(--ball-size-base);
+  height: var(--ball-size-base);
+  border-radius: 0 12px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid #2d1e16;
+  border-bottom: none;
+  border-left: none;
+  z-index: 20;
+  background-color: var(--wood-dark);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Cfilter id='n' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.005 0.05' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.4 0 0 0 0 0.25 0 0 0 0 0.15 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.ballContainer.is-disabled {
+  width: var(--ball-size-small);
+  height: var(--ball-size-small);
+  border-radius: 0;
+  border-width: 0;
+  box-shadow: none;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+.cueBall {
+  height: 90%;
+  width: 90%;
+  margin: auto;
+  opacity: 1;
+  background: radial-gradient(
+    circle at 35% 35%,
+    #fff 0%,
+    rgb(255 255 255) 10%,
+    rgb(220 220 220) 30%,
+    #a0a0a0 65%,
+    #606060 90%,
+    #404040 100%
+  );
+  border-radius: 50%;
+  position: absolute;
+  top: 5%;
+  left: 5%;
+  z-index: 5;
+  box-shadow:
+    6px 12px 24px rgb(0 0 0 / 70%),
+    inset -4px -6px 12px rgb(0 0 0 / 40%),
+    inset 8px 10px 15px rgb(255 255 255 / 20%);
+  transition: all 0.1s ease;
+}
+
+.cueBall::before {
+  content: "";
+  position: absolute;
+  top: 18%;
+  left: 18%;
+  width: 25%;
+  height: 25%;
+  background: radial-gradient(
+    circle,
+    rgb(255 255 255 / 90%) 0%,
+    transparent 80%
+  );
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.cueBall.is-disabled {
+  filter: grayscale(0.65) brightness(0.55);
+  box-shadow: inset 0 0 0 2px rgb(220 220 220 / 25%);
+}
+
+.objectBall {
+  height: 88%;
+  width: 88%;
+  border: 0.5px solid rgb(0 44 64);
+  border-radius: 50%;
+  z-index: 3;
+  position: absolute;
+  top: 6%;
+  left: 6%;
+  pointer-events: none;
+  transition: all 0.1s ease;
+}
+
+.cueTip {
+  height: 24px;
+  width: 24px;
+  background-color: #357abd;
+  border-radius: 50%;
+  z-index: 10;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  box-shadow:
+    0 0 2px rgb(0 0 0 / 60%),
+    inset 0 1px 1px rgb(255 255 255 / 30%);
+  transition: all 0.1s ease;
+}
+
+.ballContainer.is-disabled .cueTip {
+  width: 12px;
+  height: 12px;
+}
+
+.hitButton {
+  position: relative;
+  z-index: 1;
+  width: 120px;
+  height: 70px;
+  aspect-ratio: auto;
+  border-radius: 6px;
+  border-width: 4px;
+  font-size: 22px;
+  user-select: none;
+  box-sizing: border-box;
+  padding: 0;
+  box-shadow: 1px 1px 0 rgb(0 0 0 / 40%);
+}
+
+.hitButton:disabled {
+  visibility: hidden;
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.hitButton:active {
+  transform: scale(0.97);
+}
+
+.timeout-btn {
+  --sweep: 360deg;
+  --timer-color: #10b981;
+
+  background:
+    linear-gradient(#f4f4f5, #f4f4f5) padding-box,
+    conic-gradient(var(--timer-color) var(--sweep), #e4e4e7 0deg) border-box;
+  border: 4px solid transparent;
+  border-radius: 14px;
+  color: #18181b;
+}
+
+.timeout-btn:not(:disabled):hover {
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    conic-gradient(var(--timer-color) var(--sweep), #e4e4e7 0deg) border-box;
+}
+
+.openElevation {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid #2d1e16;
+  background: var(--wood-dark);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  border-radius: 4px;
+  z-index: 21;
+}
+
+.ballContainerWrapper.is-disabled .openElevation {
+  display: none;
+}
+
+</style>
+    <style>
+.powerSliderContainer {
+  height: 60%;
+  width: 100%;
+  max-width: 812px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  padding: 0;
+  margin: 6px auto;
+  background: #25180a;
+  border: 2px solid #4c2f15;
+  border-radius: 2px;
+  overflow: hidden;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  align-self: center;
+}
+
+.powerPercent {
+  position: absolute;
+  left: 5%;
+  font-family: var(--font-family-primary), sans-serif;
+  font-size: 14px;
+  font-weight: bold;
+  color: #b0b0b0;
+  text-shadow: 1px 1px 2px rgb(0 0 0 / 80%);
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Flat Power Triangle (Sits behind the cue) */
+.power-track {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  clip-path: polygon(0 100%, 100% 100%, 100% 0);
+  background: linear-gradient(to right, rgb(255 0 0 / 90%) 0%, #ff0 100%);
+}
+
+input[type="range"].powerSlider {
+  appearance: none;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  cursor: pointer;
+  margin: 0;
+  outline: none;
+  position: relative;
+  z-index: 2;
+
+  --p: 65%;
+  --p-inv: calc(100% - var(--p));
+}
+
+.powerSliderContainer.is-disabled .power-track,
+input[type="range"].powerSlider.is-disabled,
+input[type="range"].powerSlider:disabled {
+  filter: brightness(0.5);
+  cursor: not-allowed;
+}
+
+/* Track - Webkit (Chrome/Safari) */
+input[type="range"].powerSlider::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 100%;
+  background:
+    linear-gradient(
+        to bottom,
+        rgb(0 0 0 / 80%) 0%,
+        rgb(0 0 0 / 20%) 15%,
+        rgb(255 230 200 / 30%) 40%,
+        rgb(255 230 200 / 30%) 60%,
+        rgb(0 0 0 / 20%) 85%,
+        rgb(0 0 0 / 80%) 100%
+      )
+      no-repeat 100% 0 / var(--p-inv) 100%,
+    linear-gradient(to right, transparent var(--p), #c19a6b var(--p));
+}
+
+/* Track - Firefox */
+input[type="range"].powerSlider::-moz-range-track {
+  width: 100%;
+  height: 100%;
+  background:
+    linear-gradient(
+        to bottom,
+        rgb(0 0 0 / 80%) 0%,
+        rgb(0 0 0 / 20%) 15%,
+        rgb(255 230 200 / 30%) 40%,
+        rgb(255 230 200 / 30%) 60%,
+        rgb(0 0 0 / 20%) 85%,
+        rgb(0 0 0 / 80%) 100%
+      )
+      no-repeat 100% 0 / var(--p-inv) 100%,
+    linear-gradient(to right, transparent var(--p), #c19a6b var(--p));
+}
+
+/* Thumb - Webkit (Cue Tip) */
+input[type="range"].powerSlider::-webkit-slider-thumb {
+  appearance: none;
+  height: 100%;
+  width: 36px;
+  background:
+    linear-gradient(
+      to bottom,
+      rgb(0 0 0 / 80%) 0%,
+      rgb(0 0 0 / 20%) 15%,
+      rgb(255 230 200 / 30%) 40%,
+      rgb(255 230 200 / 30%) 60%,
+      rgb(0 0 0 / 20%) 85%,
+      rgb(0 0 0 / 80%) 100%
+    ),
+    linear-gradient(to right, #357abd 25%, #fff 0);
+  border: none;
+  border-left: 2px solid #000;
+  cursor: grab;
+}
+
+/* Thumb - Firefox (Cue Tip) */
+input[type="range"].powerSlider::-moz-range-thumb {
+  height: 100%;
+  width: 36px;
+  background:
+    linear-gradient(
+      to bottom,
+      rgb(0 0 0 / 80%) 0%,
+      rgb(0 0 0 / 20%) 15%,
+      rgb(255 230 200 / 30%) 40%,
+      rgb(255 230 200 / 30%) 60%,
+      rgb(0 0 0 / 20%) 85%,
+      rgb(0 0 0 / 80%) 100%
+    ),
+    linear-gradient(to right, #357abd 25%, #fff 0);
+  border: none;
+  border-left: 2px solid #000;
+  border-radius: 0;
+  cursor: grab;
+}
+
+input[type="range"].powerSlider:active::-webkit-slider-thumb,
+input[type="range"].powerSlider:active::-moz-range-thumb {
+  cursor: grabbing;
+}
+
+</style>
+    <style>
+/* ==========================================================================
+   NOTIFICATION SYSTEM
+   Refactored CSS for better maintainability and coherence.
+   Sections:
+   1. Design Tokens (Variables)
+   2. Layout & Keyframes
+   3. Base Components
+   4. Theme Variants (States)
+   5. Interaction & Extras
+   ========================================================================== */
+
+:root {
+  /* --- Colors --- */
+  --notification-clr-primary: #1464c8;
+  --notification-clr-secondary: #00b4a0;
+  --notification-clr-winner-start: #ffd700;
+  --notification-clr-winner-end: #daa520;
+  --notification-clr-loser-start: #e0e0e0;
+  --notification-clr-loser-end: #a0a0a0;
+  --notification-clr-upload-ok: #1f9d55;
+  --notification-clr-upload-fail: #c0392b;
+
+  /* Neutrals & Opacity Layers */
+  --notification-white: #fff;
+  --notification-black: #000;
+  --notification-white-10: rgb(255 255 255 / 10%);
+  --notification-white-15: rgb(255 255 255 / 15%);
+  --notification-white-20: rgb(255 255 255 / 20%);
+  --notification-white-25: rgb(255 255 255 / 25%);
+  --notification-white-30: rgb(255 255 255 / 30%);
+  --notification-white-40: rgb(255 255 255 / 40%);
+  --notification-white-50: rgb(255 255 255 / 50%);
+  --notification-white-60: rgb(255 255 255 / 60%);
+  --notification-white-90: rgb(255 255 255 / 90%);
+  --notification-black-05: rgb(0 0 0 / 5%);
+  --notification-black-10: rgb(0 0 0 / 10%);
+  --notification-black-15: rgb(0 0 0 / 15%);
+  --notification-black-20: rgb(0 0 0 / 20%);
+  --notification-black-30: rgb(0 0 0 / 30%);
+  --notification-black-40: rgb(0 0 0 / 40%);
+
+  /* --- Spacing (4px based) --- */
+  --notification-space-1: 4px;
+  --notification-space-2: 8px;
+  --notification-space-3: 12px;
+  --notification-space-4: 16px;
+  --notification-space-5: 20px;
+  --notification-space-6: 24px;
+  --notification-space-8: 32px;
+  --notification-space-10: 40px;
+  --notification-space-12: 48px;
+
+  /* --- Typography --- */
+  --notification-font-family: var(--font-family-primary);
+  --notification-size-xs: 12px;
+  --notification-size-s: 16px;
+  --notification-size-m: 16px;
+  --notification-size-l: 16px;
+  --notification-size-xl: 16px;
+  --notification-weight-normal: 400;
+  --notification-weight-semi: 600;
+  --notification-weight-bold: 700;
+  --notification-weight-heavy: 800;
+
+  /* --- Radii --- */
+  --notification-radius-s: 4px;
+  --notification-radius-m: 8px;
+  --notification-radius-l: 12px;
+  --notification-radius-full: 9999px;
+
+  /* --- Shadows --- */
+  --notification-shadow-sm: 0 2px 8px var(--notification-black-15);
+  --notification-shadow-md: 0 8px 24px var(--notification-black-20);
+  --notification-shadow-lg: 0 15px 40px var(--notification-black-30);
+  --notification-shadow-glow: 0 0 16px var(--notification-white-20);
+
+  /* --- Animations --- */
+  --notification-dur-fast: 0.2s;
+  --notification-dur-main: 0.3s;
+  --notification-ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --notification-ease-elastic: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+
+  /* --- Semantic Tokens (Default) --- */
+  --notification-bg: var(--notification-clr-primary);
+  --notification-bg-gradient: linear-gradient(
+    135deg,
+    var(--notification-clr-primary) 0%,
+    var(--notification-clr-secondary) 100%
+  );
+  --notification-border-clr: var(--notification-white-40);
+  --notification-text-clr-main: var(--notification-white);
+  --notification-text-clr-sub: var(--notification-white-90);
+  --notification-text-clr-inv: var(--notification-black);
+  --notification-score-bg: var(--notification-black-15);
+  --notification-score-border: var(--notification-white-10);
+  --notification-score-label-clr: var(--notification-white-60);
+  --notification-score-value-clr: var(--notification-white);
+}
+
+/* ==========================================================================
+   2. Layout & Keyframes
+   ========================================================================== */
+
+#notificationOverlay {
+  position: absolute;
+  top: 66px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2000;
+}
+
+#notification {
+  font-family: var(--notification-font-family);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--notification-space-3); /* Exactly half of previous 24px */
+  user-select: none;
+  filter: drop-shadow(var(--notification-shadow-lg));
+  pointer-events: auto;
+}
+
+@keyframes notificationFoldDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    max-height: 40px;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   3. Base Components
+   ========================================================================== */
+
+/* 3.1 Banner */
+.notification-banner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 300px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--notification-radius-m);
+  background: var(--notification-bg-gradient);
+  border: 1px solid var(--notification-border-clr);
+  box-shadow: var(--notification-shadow-md);
+}
+
+/* 3.3 Content Structure */
+.notification-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.notification-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--notification-space-2); /* Reduced gap */
+  width: 100%;
+  padding: var(--notification-space-1) var(--notification-space-4); /* Tight padding */
+}
+
+.notification-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem; /* Slightly smaller icon */
+}
+
+.notification-text-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.notification-title {
+  margin: 0;
+  color: var(--notification-text-clr-main);
+  font-size: var(--notification-size-l);
+  font-weight: var(--notification-weight-heavy);
+  letter-spacing: 2px;
+  text-transform: capitalize;
+}
+
+.notification-subtext {
+  margin: 0;
+  color: var(--notification-text-clr-sub);
+  font-size: var(--notification-size-m);
+  font-weight: var(--notification-weight-semi);
+  white-space: pre-wrap;
+}
+
+.notification-subtext-light {
+  font-weight: var(--notification-weight-normal);
+  opacity: 0.85;
+}
+
+/* 3.4 Match Score */
+.notification-match-score {
+  width: 100%;
+  padding: var(--notification-space-1) var(--notification-space-6); /* Extremely tight vertical padding */
+  background: var(--notification-score-bg);
+  border-top: 1px solid var(--notification-score-border);
+}
+
+.notification-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--notification-space-1);
+  width: 100%;
+  padding: var(--notification-space-2) var(--notification-space-4)
+    var(--notification-space-1);
+  border-top: 1px solid var(--notification-score-border);
+  background: rgb(0 0 0 / 9%);
+}
+
+.match-score-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.match-score-label {
+  color: var(--notification-score-label-clr);
+  font-size: var(--notification-size-xs);
+  font-weight: var(--notification-weight-heavy);
+  text-transform: uppercase;
+}
+
+.match-score-value {
+  color: var(--notification-score-value-clr);
+  font-size: var(--notification-size-m);
+  font-weight: var(--notification-weight-bold);
+  letter-spacing: 0.5px;
+}
+
+/* ==========================================================================
+   4. Theme Variants (States)
+   ========================================================================== */
+
+/* 4.1 Winner State */
+#notification.is-winner {
+  --notification-bg: var(--notification-clr-winner-start);
+  --notification-bg-gradient: linear-gradient(
+    135deg,
+    var(--notification-clr-winner-start) 0%,
+    var(--notification-clr-winner-end) 100%
+  );
+  --notification-border-clr: var(--notification-white-60);
+  --notification-text-clr-main: var(--notification-text-clr-inv);
+  --notification-text-clr-sub: var(--notification-text-clr-inv);
+  --notification-score-bg: var(--notification-black-05);
+  --notification-score-border: var(--notification-black-10);
+  --notification-score-label-clr: rgb(0 0 0 / 50%);
+  --notification-score-value-clr: var(--notification-text-clr-inv);
+}
+
+/* 4.2 Loser State */
+#notification.is-loser {
+  --notification-bg: var(--notification-clr-loser-start);
+  --notification-bg-gradient: linear-gradient(
+    135deg,
+    var(--notification-clr-loser-start) 0%,
+    var(--notification-clr-loser-end) 100%
+  );
+  --notification-border-clr: var(--notification-white-60);
+  --notification-text-clr-main: var(--notification-text-clr-inv);
+  --notification-text-clr-sub: var(--notification-text-clr-inv);
+  --notification-score-bg: var(--notification-black-05);
+  --notification-score-border: var(--notification-black-10);
+  --notification-score-label-clr: rgb(0 0 0 / 50%);
+  --notification-score-value-clr: var(--notification-text-clr-inv);
+}
+
+/* ==========================================================================
+   5. Interaction & Extras
+   ========================================================================== */
+
+/* 5.1 Badge Style (Simple extra info) */
+.notification-badge {
+  display: inline-block;
+  padding: var(--notification-space-1) var(--notification-space-4);
+  color: var(--notification-white);
+  font-size: var(--notification-size-xs);
+  font-weight: var(--notification-weight-heavy);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  background: var(--notification-white-25);
+  border: 1px solid var(--notification-white-30);
+  border-radius: var(--notification-radius-s);
+  box-shadow: var(--notification-shadow-sm);
+}
+
+/* 5.2 High Breaks */
+.notification-high-breaks {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  max-width: 220px;
+}
+
+.notification-high-break {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 2px 0;
+  color: var(--notification-white);
+  font-size: 12px;
+  font-weight: var(--notification-weight-normal);
+  font-family: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  animation: notificationFoldDown 1s ease-out forwards;
+}
+
+.notification-high-break:hover,
+.notification-high-break:focus-visible {
+  text-decoration: underline;
+}
+
+.notification-high-break-label {
+  letter-spacing: 0.5px;
+}
+
+.notification-high-break-icon,
+.notification-high-break-upload {
+  color: var(--notification-white);
+}
+
+/* 5.3 Action Buttons */
+.notification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--notification-space-2);
+  width: 100%;
+}
+
+.notification-actions button,
+.notification-actions .button {
+  display: inline-block;
+  padding: var(--notification-space-1) var(--notification-space-2); /* 4px 8px */
+  cursor: pointer;
+  color: var(--notification-white);
+  text-decoration: none;
+  font-family: inherit;
+  font-size: var(--notification-size-m);
+  font-weight: var(--notification-weight-bold);
+  background: var(--notification-white-15);
+  border: 1px solid var(--notification-white-30);
+  border-radius: var(--notification-radius-s);
+  box-shadow: var(--notification-shadow-sm);
+  transition:
+    transform var(--notification-dur-fast) var(--notification-ease-elastic),
+    box-shadow var(--notification-dur-fast) var(--notification-ease-out),
+    background var(--notification-dur-fast) var(--notification-ease-out);
+}
+
+.notification-actions button:hover,
+.notification-actions .button:hover {
+  background: var(--notification-white-25);
+  border-color: var(--notification-white-50);
+  box-shadow: var(--notification-shadow-md);
+  transform: translateY(-1px) scale(1.1);
+}
+
+.notification-actions button:focus-visible,
+.notification-actions .button:focus-visible {
+  outline: 2px solid var(--notification-white);
+  outline-offset: 4px;
+  background: var(--notification-white-25);
+}
+
+#notification.is-winner .notification-actions button,
+#notification.is-winner .notification-actions .button,
+#notification.is-loser .notification-actions button,
+#notification.is-loser .notification-actions .button {
+  background: var(--notification-black-15);
+  border-color: var(--notification-black-30);
+}
+
+/* Arena result upload outcome on the "Back to Arena" button. Scoped with
+   #notification so it outranks the is-winner/is-loser button background. */
+#notification #arenabutton.is-upload-ok,
+#notification #arenabutton.is-upload-ok:hover {
+  background: var(--notification-clr-upload-ok);
+  border-color: var(--notification-clr-upload-ok);
+}
+
+#notification #arenabutton.is-upload-fail,
+#notification #arenabutton.is-upload-fail:hover {
+  background: var(--notification-clr-upload-fail);
+  border-color: var(--notification-clr-upload-fail);
+}
+
+/* Inert while the arena result upload is in flight. */
+#notification #arenabutton:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* The losing player in a 2-player match never uploads the arena result, so
+   their "Back to Arena" button keeps the success colour instead of the muted
+   default that reads as disabled. Upload outcome classes still take over. */
+#notification.is-loser #arenabutton:not(.is-upload-ok, .is-upload-fail) {
+  background: var(--notification-clr-upload-ok);
+  border-color: var(--notification-clr-upload-ok);
+}
+
+/* 5.4 Share Button (GameOver banner, top-right corner) */
+.notification-share {
+  position: absolute;
+  right: var(--notification-space-2);
+  top: var(--notification-space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  cursor: pointer;
+  color: var(--notification-text-clr-main);
+  background: var(--notification-white-15);
+  border: 1px solid var(--notification-white-30);
+  border-radius: var(--notification-radius-s);
+  box-shadow: var(--notification-shadow-sm);
+  transition:
+    transform var(--notification-dur-fast) var(--notification-ease-elastic),
+    box-shadow var(--notification-dur-fast) var(--notification-ease-out),
+    background var(--notification-dur-fast) var(--notification-ease-out);
+}
+
+.notification-share svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* Spent after the first press: same look, no longer interactive. */
+.notification-share:disabled {
+  cursor: default;
+}
+
+.notification-share:focus-visible {
+  outline: 2px solid var(--notification-white);
+  outline-offset: 2px;
+  background: var(--notification-white-25);
+}
+
+.notification-share:not(:disabled):hover {
+  background: var(--notification-white-25);
+  border-color: var(--notification-white-50);
+  box-shadow: var(--notification-shadow-md);
+  transform: translateY(-1px) scale(1.08);
+}
+
+#notification.is-winner .notification-share,
+#notification.is-loser .notification-share {
+  background: var(--notification-black-10);
+  border-color: var(--notification-black-30);
+}
+
+#notification.is-winner .notification-share:focus-visible,
+#notification.is-loser .notification-share:focus-visible {
+  outline-color: var(--notification-black-40);
+}
+
+#notification.is-winner .notification-share:not(:disabled):hover,
+#notification.is-loser .notification-share:not(:disabled):hover {
+  background: var(--notification-black-15);
+  border-color: var(--notification-black-40);
+}
+
+</style>
+    <style>
+/* Minimalist Ball Tray Style */
+.tray-container {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 160px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  background: rgb(0 0 0 / 40%);
+  border-radius: 0 0 8px 8px;
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-top: none;
+  z-index: 1500;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.tray-container[hidden] {
+  display: none;
+}
+
+.tray-timer {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 160px;
+  height: 3px;
+  background: linear-gradient(
+    to right,
+    var(--timer-color, #10b981) var(--progress, 0%),
+    transparent var(--progress, 0%)
+  );
+  border-radius: 0 0 2px 2px;
+  z-index: 1502;
+  pointer-events: none;
+}
+
+.tray-score-container {
+  position: absolute;
+  top: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-family: var(--font-family-mono);
+  font-size: 16px;
+  letter-spacing: 0.5px;
+  line-height: 1.2;
+  color: white;
+  text-shadow: 1px 1px 0 rgb(0 0 0 / 100%);
+  pointer-events: none;
+  gap: 12px;
+  z-index: 1501;
+}
+
+.p1Score,
+.p2Score,
+.hudMiddle {
+  font-size: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.hud-name,
+.hud-value {
+  line-height: 1;
+}
+
+.ball-tray-list {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 15%,
+    black 90%,
+    transparent
+  );
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-behavior: smooth;
+  gap: 3px;
+}
+
+.ball-tray-list::-webkit-scrollbar {
+  display: none;
+}
+
+.break-group {
+  display: flex;
+  align-items: center;
+  background: rgb(255 255 255 / 10%);
+  padding: 0 3px;
+  border-radius: 12px;
+  height: 22px;
+  gap: 1px;
+}
+
+.nav-btn {
+  width: 20px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgb(255 255 255 / 50%);
+  font-size: 12px;
+  transition:
+    opacity 0.3s ease,
+    background 0.2s;
+  user-select: none;
+  z-index: 10;
+  opacity: 0;
+  background: rgb(255 255 255 / 5%);
+}
+
+.nav-btn:hover {
+  background: rgb(255 255 255 / 20%);
+  color: white;
+}
+
+.tray-container:hover .nav-btn {
+  opacity: 1;
+}
+
+.ball-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  margin: 0;
+  text-decoration: none;
+  transition: transform 0.1s ease;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.ball-item:hover {
+  transform: scale(1.25);
+}
+
+.hi-score-pill {
+  color: #ffd700;
+  font-size: 12px;
+  text-decoration: none;
+  margin-left: 2px;
+  position: relative;
+  top: -2px;
+}
+
+.hi-score-pill:hover {
+  transform: scale(1.1);
+}
+
+.ball-item.break-score {
+  font-size: 16px;
+  font-weight: 100;
+  font-family: var(--font-family-primary);
+  vertical-align: middle;
+  line-height: normal;
+  position: relative;
+  top: -2px;
+}
+
+</style>
+    <style>
+/* Chat Overlay */
+.chatarea {
+  position: absolute;
+  top: 44px;
+  right: 10px;
+  max-width: 280px;
+  max-height: 400px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 0;
+  z-index: 900;
+  overflow: hidden;
+}
+
+.chatoutput {
+  max-height: 360px;
+  overflow: hidden auto;
+  padding: 2px;
+  font-size: 16px;
+  color: #eee;
+  text-shadow: 1px 1px 0 black;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.chatoutput a {
+  overflow-wrap: anywhere;
+}
+
+/* Set by shareReplayLink() once the replay link is posted. The end-of-game /
+   replay banner keeps #notificationOverlay (pointer-events: auto, z-index 2000)
+   across the top of the chat column, which would swallow clicks on the link;
+   lifting the chat above it also restores the text selection and cursor that
+   .view3d disables. */
+.chatarea.is-link {
+  z-index: 2500;
+  cursor: auto;
+  user-select: text;
+}
+
+.chatarea.is-link .chatoutput a {
+  cursor: pointer;
+}
+
+.chatoutput::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chatoutput::-webkit-scrollbar-track {
+  background: #222;
+}
+
+.chatoutput::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 4px;
+}
+
+.chatoutput::-webkit-scrollbar-thumb:hover {
+  background: #777;
+}
+
+#inputTextDiv {
+  /* Corridor shell: defines the safe zone between aim inputs (left) and
+     menu buttons (right). The inner div is centered within this corridor. */
+  position: absolute;
+  width: auto;
+  inset: auto 78px 4px 148px; /* 3px up from original 1px */ /* tightened to preserve emoji width */ /* button column */
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+#inputTextDiv[open] {
+  display: flex;
+}
+
+#inputTextDivInner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 360px;
+  pointer-events: auto;
+  background: #333;
+  border: 1px solid #555;
+  border-radius: 999px;
+  padding: 2px 3px;
+  box-shadow: none;
+  filter: drop-shadow(0 2px 2px rgb(0 0 0 / 60%));
+}
+
+#chatEmojiList {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 0;
+}
+
+@media (width <= 500px) {
+  #chatEmojiList {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+#inputText {
+  /* Fill the available space between the spin column and the buttons */
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  padding: 1px 4px;
+  caret-color: white;
+  color: white;
+  background: transparent;
+  border: none;
+  outline: none;
+
+  /* .view3d sets cursor: none, which would hide the text caret over the input */
+  cursor: text;
+}
+
+#inputSend {
+  background: #2e8b57;
+}
+
+#inputSend:hover {
+  background: #3da066;
+}
+
+#inputTextDiv .chat-emoji {
+  all: unset;
+  display: block;
+  min-width: 0;
+  font-size: 18px;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+#inputTextDiv .chat-emoji:hover {
+  background: rgb(255 255 255 / 12%);
+}
+
+#inputTextDiv.emoji-mode #inputText,
+#inputTextDiv.emoji-mode #inputSend {
+  display: none;
+}
+
+#inputTextDiv.emoji-mode #chatEmojiList {
+  display: grid;
+}
+
+#inputTextDiv.emoji-mode .chat-text-mode-icon {
+  display: none;
+}
+
+#inputTextDiv:not(.emoji-mode) .chat-emoji-mode-icon {
+  display: none;
+}
+
+#inputText::placeholder {
+  color: #999;
+}
+
+#inputText::selection {
+  background: #555;
+  color: white;
+}
+
+#inputTextDiv button {
+  font-size: 15px;
+  padding: 2px 4px;
+  min-width: 24px;
+  border: none;
+  border-radius: 999px;
+  color: white;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+#inputTextDiv button:active {
+  transform: scale(0.95);
+}
+
+#toggleChatMode {
+  background: #555;
+}
+
+#toggleChatMode:hover {
+  background: #666;
+}
+
+#inputClose {
+  background: #555;
+}
+
+#inputClose:hover {
+  background: #d64545;
+}
+
+</style>
+    <style>
+/* Lobby Overlay */
+#lobbyContainer {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  pointer-events: auto;
+}
+
+#lobbyOverlay {
+  display: flex;
+  align-items: center;
+}
+
+.challenge-row {
+  display: flex;
+  align-items: center;
+}
+
+/* Decorative crossed swords sitting between the incoming challenge pill and the
+   username pill. A real element (see dist/index.html) rather than generated
+   content, so it can be hidden from assistive tech, and it has no background:
+   it reads directly over the table. A hard 2px drop shadow (zero blur) keeps
+   the light glyph legible over bright cloth. The sibling rule keeps it out of
+   the way whenever no challenge is pending. */
+.challenge-vs {
+  margin-right: 3px;
+  font-size: 20px;
+  line-height: 1;
+  color: #e6e6e6;
+  text-shadow: 0 2px 0 rgb(0 0 0 / 60%);
+}
+
+.challenge-pill[hidden] ~ .challenge-vs {
+  display: none;
+}
+
+.lobby-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 16px;
+}
+
+.status-emoji {
+  font-size: 0.5em;
+}
+
+.lobby-icon {
+  /* The color emoji glyph is drawn low inside its em box, so flex centring of
+     the line box still leaves it a couple of pixels below the text. Optical
+     nudge; transform avoids shifting the rest of the row. */
+  transform: translateY(-2px);
+}
+
+.lobby-rule {
+  /* The game mark left of the name: its own flex item, so the row centres it
+     against the name instead of sharing the name's line box, and a size of its
+     own -- smaller than the name -- with no line box of its own to add. A
+     circled digit is a symbol-font glyph whose metrics are taller than the
+     text's, which is what would push the name down with it. */
+  font-size: 0.8em;
+  line-height: 1;
+
+  /* Optical nudge down: flex centring leaves the mark a pixel high against
+     the name. transform keeps it off the rest of the row's layout. */
+  transform: translateY(1px);
+}
+
+.lobby-count.is-hidden {
+  display: none;
+}
+
+.challenge-pill {
+  /* Matches the adjacent username pill (a.pill in index.css) on height (30px),
+     radius (8px), fill (rgb(0 0 0 / 40%)) and rim (rgb(255 255 255 / 15%)),
+     so an incoming challenge reads as the same neutral chip rather than a
+     coloured badge. Horizontal padding is intentionally tighter than that
+     pill's 8px, keeping the content 4px from the rim. margin-right lifts the
+     pill 4px clear of its separator and the username pill. */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgb(0 0 0 / 40%);
+  color: #fff;
+  padding: 0 4px;
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 8px;
+  margin-right: 4px;
+  font-size: 16px;
+  line-height: 1.25;
+  height: 30px;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.challenge-pill[hidden] {
+  display: none;
+}
+
+/* One-off diagonal glint along the pill's rim when a challenge arrives.
+   A second copy of the border is painted by the pseudo-element and masked to
+   leave only the 1px ring (mask-composite hides its content box), so the
+   highlight never washes over the fill or the accept/decline buttons. The
+   pseudo-element is pulled out by 1px, since an absolutely positioned box is
+   laid out against the padding box and would otherwise sit inside the rim.
+   The animation runs once and has no fill mode: removing `hidden` takes the
+   pill from display:none, which restarts it for the next challenger, and the
+   base opacity leaves nothing behind after the 2s sweep. Shifting the
+   oversized gradient from 100% to 0% drags the highlight from the top-left
+   corner of the rim to the bottom-right. */
+.challenge-pill::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    rgb(255 255 255 / 0%) 46%,
+    rgb(255 255 255 / 90%) 50%,
+    rgb(255 255 255 / 0%) 54%
+  );
+  background-size: 200% 200%;
+  background-position: 100% 100%;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  animation: challenge-glint 0.5s ease-out 1;
+}
+
+@keyframes challenge-glint {
+  0% {
+    opacity: 0;
+    background-position: 100% 100%;
+  }
+
+  12% {
+    opacity: 1;
+  }
+
+  85% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    background-position: 0% 0%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .challenge-pill::after {
+    animation: none;
+  }
+}
+
+.challenge-pill button {
+  /* Inline-flex centres the ✅/❌ glyphs in their own box, which keeps them
+     aligned with the text despite the uneven metrics of Unicode symbols. Dark
+     green/red fills keep the accept/decline meaning without the old glare. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: #fff;
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 5px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+#challengeAccept {
+  /* Sampled from the installed colour-emoji font (Noto Color Emoji, U+2705):
+     the tick's flat green is #7cb342, so the button disappears into the glyph
+     and only the tick reads. The dark green `color` is the monochrome-fallback
+     ink and keeps text/background contrast (~5.5:1) above AA if a platform
+     draws the tick from the font colour instead of its colour bitmap. */
+  background: #7cb342;
+  color: #15330b;
+}
+
+#challengeDecline {
+  background: #7f1d1d;
+}
+
+</style>
+    <style>
+/* Static top-down minimap (D key), pinned to the top-left of the screen. */
+#minimap {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  display: block;
+  pointer-events: none;
+}
+
+#minimap[hidden] {
+  display: none;
+}
+
+/* Outer Menu */
+.outerMenu {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  align-items: stretch;
+  height: auto;
+  width: 70px;
+  gap: 2px;
+  padding: 1px;
+  box-sizing: border-box;
+  pointer-events: auto;
+  background: transparent;
+  border-top-left-radius: 10px;
+  border-bottom-left-radius: 10px;
+  z-index: 2000;
+  flex: 0 0 auto;
+  margin-left: auto;
+  position: relative;
+}
+
+.menuButton {
+  width: 100%;
+  height: 68px;
+  border-radius: 6px;
+  border-width: 3px;
+  border-color: #c4c4c4;
+  background: #ebebeb;
+  padding: 0;
+  font-size: 16px;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 1px 1px 0 rgb(0 0 0 / 40%);
+}
+
+.menuButton svg {
+  width: 45%;
+  height: auto;
+}
+
+.menuDropdown {
+  position: relative;
+  width: 100%;
+}
+
+.menuDropdown > summary {
+  list-style: none;
+  cursor: pointer;
+  margin: 0;
+  border-style: outset;
+  box-sizing: border-box;
+}
+
+.menuDropdown > summary::-webkit-details-marker {
+  display: none;
+}
+
+.menuDropdown > summary::marker {
+  content: "";
+}
+
+.menuItems {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 1px);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+  width: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  background: transparent;
+  border-radius: 8px;
+  box-shadow: none;
+  z-index: 3000;
+}
+
+.menuItems .menuButton {
+  flex: 0 0 35px;
+}
+
+.menuButton[hidden] {
+  display: none;
+}
+
+.menuItems .menuButton[hidden] {
+  display: none;
+}
+
+.menuDropdown:not([open]) .menuItems {
+  display: none;
+}
+
+.menuButton:active {
+  transform: scale(0.97);
+}
+
+/* Same subtle lightening the hit button gets from .timeout-btn:hover, so the
+   menu items and the view button answer the pointer before a press. Fill only:
+   the rim and the press scale stay as they are. */
+.menuButton:not(:disabled):hover {
+  background: #f5f5f5;
+}
+
+.menuDropdown > summary:focus-visible,
+.menuItems .menuButton:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.menuButton.half-height {
+  height: 35px;
+}
+
+</style>
+    <style>
+:root {
+  --wood-dark: #3d2b1f;
+  --wood-light: #5d4037;
+}
+
+.wood-texture {
+  background-color: var(--wood-dark);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Cfilter id='n' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.005 0.05' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.4 0 0 0 0 0.25 0 0 0 0 0.15 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}
+
+</style>
+    <style>
+      #lobbyContainer, #fullscreen, #botDebugOverlay, #about-more { display: none !important; }
+      html, body { background: #0b0b0b; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    </style>
+  </head>
+  <body>
+    <div class="about-more" id="about-more" hidden>
+      <div class="about-panel">
+        <button
+          class="about-close"
+          type="button"
+          id="aboutClose"
+          aria-label="Close"
+        >
+          ×
+        </button>
+        <div class="about-scroll">
+          <section class="play-section" aria-labelledby="playLabel">
+            <p class="panel-title" id="playLabel">Play</p>
+            <nav class="mode-nav" id="playNav">
+              <a
+                class="game-mode"
+                href="https://billiards.tailuge.workers.dev/eightball"
+                >8-ball</a
+              >
+              <a
+                class="game-mode"
+                href="https://billiards.tailuge.workers.dev/nineball"
+                >9-ball</a
+              >
+              <a
+                class="game-mode"
+                href="https://billiards.tailuge.workers.dev?ruletype=threecushion"
+                >3-cushion</a
+              >
+              <a
+                class="game-mode"
+                href="https://billiards.tailuge.workers.dev/snooker"
+                >Snooker</a
+              >
+              <a
+                class="game-mode"
+                href="https://billiards.tailuge.workers.dev?ruletype=sagu"
+                >Sagu</a
+              >
+              <a
+                class="game-mode"
+                href="https://billiards.tailuge.workers.dev?ruletype=libre"
+                >Libre</a
+              >
+              <a href="https://billiards.tailuge.workers.dev/challenge/">Eat</a>
+              <a href="https://billiards.tailuge.workers.dev/map/">Map</a>
+              <a href="https://billiards.tailuge.workers.dev/reveal/">Reveal</a>
+              <a href="https://billiards.tailuge.workers.dev/lobby">Lobby</a>
+            </nav>
+          </section>
+          <section id="controls" aria-labelledby="controlsLabel">
+            <p class="panel-title" id="controlsLabel">Controls</p>
+            <div class="phone">
+              <div class="top">
+                <div class="balls">
+                  <div class="ball"></div>
+                  <div class="ball"></div>
+                  <div class="ball"></div>
+                </div>
+                <div class="arrow fine"></div>
+                <div class="label">Fine Aim</div>
+                <div class="sub">near top = precise adjustment</div>
+              </div>
+              <div class="divider"></div>
+              <div class="zoom">
+                <div class="zoom-arrow"></div>
+                <div class="zoom-label">ZOOM</div>
+              </div>
+              <div class="bottom">
+                <div class="balls">
+                  <div class="ball"></div>
+                  <div class="ball"></div>
+                  <div class="ball"></div>
+                  <div class="ball"></div>
+                  <div class="ball"></div>
+                </div>
+                <div class="arrow coarse"></div>
+                <div class="label">Coarse Aim</div>
+                <div class="sub">near bottom = faster turning</div>
+              </div>
+            </div>
+            <div class="input-grid">
+              <div class="help-row">
+                <kbd>🖱️ scroll</kbd><span>Shot power</span>
+              </div>
+              <div class="help-row">
+                <kbd>🖱️ dbl click</kbd><span>Hit</span>
+              </div>
+              <div class="help-row">
+                <kbd>🖱️ right click</kbd><span>Draw lines</span>
+              </div>
+              <div class="help-row">
+                <kbd>Ctrl ⇦ ⇨</kbd><span>Fine aim</span>
+              </div>
+              <div class="help-row">
+                <kbd>⇧ ⇩</kbd><span>Topspin &amp; backspin</span>
+              </div>
+              <div class="help-row">
+                <kbd>Shift ⇦ ⇨</kbd><span>Side spin</span>
+              </div>
+              <div class="help-row">
+                <kbd>Space</kbd><span>Hit, hold for power</span>
+              </div>
+              <div class="help-row"><kbd>M</kbd><span>Masse angle</span></div>
+              <div class="help-row"><kbd>O</kbd><span>Camera view</span></div>
+              <div class="help-row"><kbd>F</kbd><span>Full screen</span></div>
+              <div class="help-row"><kbd>C</kbd><span>Chat</span></div>
+              <div class="help-row"><kbd>H</kbd><span>Help</span></div>
+              <div class="help-row">
+                <kbd>L</kbd><span>Chromeless, drag cue</span>
+              </div>
+            </div>
+          </section>
+
+          <details class="about-section">
+            <summary>About</summary>
+            <h1>Free Online Pool, Snooker &amp; Billiards Game</h1>
+            <p>
+              Play free online pool, snooker and carom billiards with
+              <a
+                href="https://github.com/tailuge/billiards"
+                target="_blank"
+                rel="noopener"
+                >Tailuge Billiards</a
+              >, an open-source 3D cue sports simulator. Play 8-ball, 9-ball,
+              snooker and three-cushion billiards directly in your browser on
+              desktop or mobile. No download, installation or account required.
+              Practise shots, challenge other players or explore realistic ball
+              motion, spin and cushion rebounds.
+            </p>
+            <p>
+              The game uses a physics engine based on published research into
+              billiard-ball motion, collisions and cushion impacts. Adjust your
+              aim, spin and shot power, experiment with different positions, and
+              study how the cue ball moves around the table.
+            </p>
+
+            <h2>Pool, Snooker and Carom Games</h2>
+            <ul>
+              <li>
+                <a >8-ball pool</a> — play the classic
+                solids-and-stripes pool game with realistic ball physics and a
+                high-resolution rendering mode.
+              </li>
+              <li>
+                <a >9-ball pool</a> — play the fast-paced
+                rotation game, practise custom table layouts, and share replay
+                links to review interesting shots.
+              </li>
+              <li>
+                <a >Snooker</a> — play snooker on a full-size
+                12-foot table with 15 reds, or practise on a smaller 6-foot
+                table. Practise potting, cue-ball positioning and
+                break-building.
+              </li>
+              <li>
+                <a 
+                  >Three-cushion billiards</a
+                >
+                — play 3-cushion carom, where the cue ball must contact both
+                object balls, reaching at least three cushions before contacting
+                the second object ball. Explore spin, rebound angles and
+                cue-ball paths with a physics model developed for realistic
+                cushion behaviour.
+              </li>
+              <li>
+                <a >Sagu (Korean four-ball)</a> —
+                play the Korean four-ball carom game on a standard or smaller
+                5-foot table.
+              </li>
+            </ul>
+            <p>
+              Two practice bots, ClawBreak and TheFarJaw, play when nobody else
+              is around; the
+              <a >speedrun challenge</a> races you
+              against the clock, and the
+              <a >reveal game</a> uncovers pictures with
+              straight-pool potting.
+            </p>
+
+            <h2>Realistic billiards physics</h2>
+            <p>
+              This online billiards simulator models how balls roll, collide,
+              spin and rebound from the cushions. Its physics are based on
+              published research rather than purely visual approximations.
+              Explore ball-to-ball collisions, throw, spin and cushion rebounds,
+              and see how these effects change the path of a shot. Ball motion
+              follows
+              <a
+                href="https://billiards.colostate.edu/physics_articles/Han_paper.pdf"
+                target="_blank"
+                rel="noopener"
+                >Han (2005)</a
+              >
+              with corrections noted by
+              <a
+                href="https://ekiefl.github.io/2020/04/24/pooltool-theory/#3-han-2005"
+                target="_blank"
+                rel="noopener"
+                >Kiefl</a
+              >; ball-to-ball collisions follow
+              <a
+                href="https://billiards.colostate.edu/technical_proofs/new/TP_A-14.pdf"
+                target="_blank"
+                rel="noopener"
+                >Alciatore</a
+              >, including the throw effect; and cushion impacts use
+              <a
+                href="https://billiards.colostate.edu/physics_articles/Mathavan_IMechE_2010.pdf"
+                target="_blank"
+                rel="noopener"
+                >Mathavan (2010)</a
+              >, with Stronge's compliant-cushion model available as an
+              alternative. Spin, throw and cushion rebound can all be inspected
+              and re-tuned on the
+              <a >three-cushion physics page</a>.
+            </p>
+
+            <h2>Pool, Snooker and Billiards Practice</h2>
+            <ul>
+              <li>
+                <a >Billiards practice table</a> — set up
+                custom shots and ball positions, then repeat them to practise
+                aim, spin and cue-ball control without an opponent or a time
+                limit.
+              </li>
+              <li>
+                <a >Billiards skill tests</a> — work
+                through a graded series of shots and receive an assessment
+                level, completion status and score.
+              </li>
+              <li>
+                <a >Snooker practice and assessment</a>
+                — work through a graded course of snooker shots, from basic pots
+                to difficult positions.
+              </li>
+              <li>
+                <a 
+                  >Three-cushion practice and assessment</a
+                >
+                — practise carom shots across a graded series, from basic
+                positions to advanced cushion routes.
+              </li>
+              <li>
+                <a >Shot sensitivity analysis</a> — see
+                how aim, spin, power and elevation change the result.
+              </li>
+              <li>
+                <a >The diamond system</a> for
+                three-cushion cue-ball paths.
+              </li>
+            </ul>
+
+            <h2>Online Multiplayer Pool and Billiards</h2>
+            <p>
+              Play online billiards against other players. The
+              <a >multiplayer lobby</a> shows who is online and
+              lets you challenge available opponents. Use
+              <a >two-tab mode</a> to play across two windows on
+              one device, or join <a >scheduled arenas</a> for
+              timed tournaments. High breaks appear on the
+              <a
+                href="https://scoreboard-tailuge.vercel.app/leaderboard"
+                target="_blank"
+                rel="noopener"
+                >leaderboard</a
+              >
+              and rated games contribute to your
+              <a
+                href="https://scoreboard-tailuge.vercel.app/elo"
+                target="_blank"
+                rel="noopener"
+                >Glicko-2 rating</a
+              >.
+            </p>
+
+            <h2>Guides and Billiards Research</h2>
+            <ul>
+              <li>
+                <a >Why most pool games feel wrong</a> — what
+                makes a physics engine read as real, and where the cheap ones
+                cheat.
+              </li>
+              <li>
+                <a >Clearing the line-up</a> — a practice log
+                on running the balls, and how to drill it on the practice table.
+              </li>
+              <li>
+                <a >Implementing Mathavan cushion physics</a> —
+                the maths behind the cushion model, written up in the open.
+              </li>
+            </ul>
+
+            <h2>Open-Source Billiards Simulator</h2>
+            <p>
+              Plain TypeScript with
+              <a href="https://threejs.org/">three.js</a> for rendering, open
+              source under the GNU GPL. The code is on
+              <a
+                href="https://github.com/tailuge/billiards"
+                target="_blank"
+                rel="noopener"
+                >GitHub</a
+              >, and contributions — bugs, physics tweaks, translations, new
+              rule sets — are welcome. Read more on the
+              <a >about page</a>.
+            </p>
+
+            <h2>Play Billiards in Your Language</h2>
+            <ul>
+              <li>
+                <a  lang="ko"
+                  >무료 당구 게임 — 온라인 당구</a
+                >
+                — 3쿠션, 4구(사구), 포켓볼을 브라우저에서 무료로 즐기세요.
+                설치나 회원가입 없이 바로 플레이할 수 있습니다.
+                <a href="https://blog.naver.com/jasuil/224416229214"
+                  >네이버 블로그</a
+                >,
+                <a href="https://news11213.tistory.com/1">티스토리 블로그</a>.
+              </li>
+              <li>
+                <a  lang="ja"
+                  >無料ビリヤードゲーム・オンラインビリヤード</a
+                >
+                —
+                ブラウザで無料のビリヤードゲームをプレイ。3クッション（スリークッション）や
+                9ボールなどを、ダウンロード・会員登録なしで楽しめます。
+                <a
+                  href="https://ameblo.jp/tailuge/entry-12981511558.html"
+                  lang="ja"
+                  >日本でのビリヤードの思い出</a
+                >
+                もご覧ください。
+              </li>
+              <li>
+                <a  lang="zh">免費線上斯諾克</a> —
+                免安裝、免註冊，手機也能玩。
+              </li>
+              <li>
+                <a  lang="tr">Ücretsiz online bilardo</a> —
+                3 bant karambol, gerçekçi fizik, kayıt gerekmez.
+              </li>
+              <li>
+                <a  lang="de">Kostenloses 3-Band-Billard</a>
+                — ohne Download und Anmeldung im Browser.
+              </li>
+              <li>
+                <a  lang="es"
+                  >Billar a tres bandas gratis</a
+                >
+                — sin descargas ni registro, también en el móvil.
+              </li>
+              <li>
+                <a  lang="nl">Online driebanden spelen</a> —
+                gratis carambole in je browser.
+              </li>
+              <li>
+                <a  lang="vi">Game bi-a 3 băng</a> —
+                miễn phí, không cần cài đặt hay đăng ký.
+              </li>
+              <li lang="fr">
+                Entraînez-vous au libre avec
+                <a >l'examen</a>.
+              </li>
+            </ul>
+            <h3>Mentions</h3>
+            <p>
+              <a href="https://pbc-molbergen.de/Simulator.html">Molbergen</a>,
+              <a href="https://www.bored.com/link/tailuge-github-io-billiards/"
+                >Bored</a
+              >,
+              <a
+                href="https://forums.azbilliards.com/threads/open-source-three-cushion-simulator.587516/"
+                >AZBilliards</a
+              >, <a href="https://tailuge.itch.io/">itch.io</a>,
+              <a
+                href="https://www.thesnookerforum.co.uk/board/forum/other-cuesports/billiards/1045334-3-cushion-billiards"
+                >SnookerForum</a
+              >,
+              <a href="https://gamejolt.com/games/billiards/1083832">GameJolt</a
+              >,
+              <a href="https://billard-aktuell.de/forum/viewtopic.php?t=59609"
+                >Billard-aktuell</a
+              >, <a href="https://blog.naver.com/jasuil/224416229214">Naver</a>,
+              <a href="https://news11213.tistory.com/1">Tistory</a>,
+              <a href="https://ameblo.jp/tailuge/entry-12981511558.html"
+                >Ameblo</a
+              >,
+              <a
+                href="https://www.reddit.com/r/billiards/comments/1upm8vu/speedrun/"
+                >r/billiards</a
+              >, <a href="https://github.com/fmhy/FMHY/wiki/Gaming">FMHY</a>,
+              <a href="https://www.appimagehub.com/p/2365428/">AppImageHub</a>,
+              <a href="https://webgames.me/play/billards-by-tailuge">WebGames</a
+              >,
+              <a href="https://iogame.io/games/billards-by-tailuge">IOGame</a>,
+              <a
+                href="https://reporank.net/en/repo/tailuge-billiards.html#repo-feedback"
+                >RepoRank</a
+              >,
+              <a href="https://indexpage.org/search?q=billiards">IndexPage</a>,
+              <a href="https://slowden.com/games/tailuge-billiards/">Slowden</a
+              >,
+              <a href="https://foundplay.io/games/billiards?utm_source=creator"
+                >Foundplay</a
+              >,
+              <a href="https://playpixelsprout.com/games/billiards.html"
+                >Pixelsprout</a
+              >, <a href="https://4388.fun/g/631">4388</a>,
+              <a href="https://4388.fun/g/2294">Idol</a>,
+              <a href="https://4388.fun/g/2295">Tokyo</a>,
+              <a href="https://popshof.com/practice">Popshof</a>
+            </p>
+            <h2 class="keywords">Keywords</h2>
+            <p class="keywords">
+              billiards, billiards simulator, online billiards, free billiards
+              game, pool game, snooker game, 8-ball, 9-ball, three-cushion
+              billiards, three cushion carom, carom billiards, 4-ball billiards,
+              open source billiards, ビリヤード, ビリヤードゲーム,
+              無料ビリヤード, 3クッション, スリークッション, 9ボール, 당구, 무료
+              당구, 온라인 당구, 당구 게임, 3쿠션, 사구, 스누커, Bida 3 băng,
+              bi-a 3 băng, Biliar 3 bandas, billar a tres bandas, billar de
+              carambolas, jugar billar carambolas, billar online gratis, Üç bant
+              bilardo, üç bant, driebanden, biljart, gratis biljart, biljart
+              spel, Carom3D, ShootersPool
+            </p>
+          </details>
+        </div>
+      </div>
+    </div>
+
+    <main>
+      <div id="viewP1" class="view3d">
+        <div id="snookerScoreOverlay">
+          <div id="snookerScore" aria-live="polite">
+            <div id="breakScore" class="breakScore"></div>
+          </div>
+        </div>
+        <div id="notificationOverlay">
+          <div id="notification" aria-live="assertive" role="alert"></div>
+        </div>
+        <div id="botDebugOverlay">
+          <header>
+            <span id="botDebugToggle" class="bot-debug-emoji">🦞</span>
+            <div>
+              <button
+                id="botDebugClear"
+                type="button"
+                aria-label="Clear debug log"
+              >
+                Clear
+              </button>
+            </div>
+          </header>
+          <pre id="botDebugLog" aria-live="polite">
+          <img
+            src="images/billiards.png"
+            loading="lazy"
+            alt="Billiards Pool Game Promo - Realistic Physics Simulation"
+          />
+          Find it on <a href="https://github.com/tailuge/billiards">github</a>
+        </pre>
+        </div>
+        <div class="chatarea">
+          <div id="chatoutput" class="chatoutput"></div>
+        </div>
+        <dialog id="inputTextDiv" contenteditable="false">
+          <div id="inputTextDivInner">
+            <input
+              id="inputText"
+              type="text"
+              placeholder="Enter text here..."
+              maxlength="64"
+              autofocus
+              autocomplete="off"
+              aria-label="Chat message input"
+            />
+            <div
+              id="chatEmojiList"
+              role="group"
+              aria-label="Emoji messages"
+            ></div>
+            <button id="inputSend" type="button" aria-label="Send chat message">
+              ➤
+            </button>
+            <button
+              id="toggleChatMode"
+              type="button"
+              aria-label="Switch to emoji mode"
+            >
+              <span class="chat-text-mode-icon">👾</span>
+              <span class="chat-emoji-mode-icon">⌨️</span>
+            </button>
+            <button id="inputClose" type="button" aria-label="Close chat input">
+              ✖
+            </button>
+          </div>
+        </dialog>
+      </div>
+      <div id="panel" class="panel wood-texture">
+        <div class="aimControlColumn">
+          <div class="aimingArea">
+            <button
+              class="hitButton timeout-btn"
+              id="cueHit"
+              type="button"
+              aria-label="Hit cue ball"
+            >
+              hit
+            </button>
+          </div>
+          <div id="tiltSliderContainer" class="tiltSliderContainer" hidden>
+            <angle-input
+              id="cueTilt"
+              role="slider"
+              aria-label="tilt angle"
+              aria-valuemin="0"
+              aria-valuemax="72"
+              aria-valuenow="0"
+            ></angle-input>
+          </div>
+          <template id="angle-input-template">
+            <div class="area" id="area">
+              <div class="ball"></div>
+              <div class="rotator" id="rot">
+                <div class="stick">
+                  <div class="tip"></div>
+                  <div class="ferrule"></div>
+                  <div class="shaft"></div>
+                  <div class="butt"></div>
+                </div>
+              </div>
+            </div>
+          </template>
+          <div id="ballContainerWrapper" class="ballContainerWrapper">
+            <button id="openElevation" type="button" class="openElevation">
+              +
+            </button>
+            <div id="ballContainer" class="ballContainer">
+              <div id="objectBall" class="objectBall"></div>
+              <div id="cueBall" class="cueBall">
+                <div id="cueTip" class="cueTip"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="powerSliderContainer" class="powerSliderContainer">
+          <div class="power-track"></div>
+          <input
+            class="powerSlider"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value="0.65"
+            id="cuePower"
+            aria-label="power slider"
+          />
+          <span id="powerPercent" class="powerPercent">65%</span>
+        </div>
+        <div class="outerMenu">
+          <details id="menuDropdown" class="menuDropdown">
+            <summary
+              class="menuButton half-height"
+              title="menu"
+              id="menu"
+              aria-label="Menu"
+            >
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#000"
+                stroke-width="2"
+              >
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </summary>
+            <div id="menuItems" class="menuItems">
+              <button
+                class="menuButton half-height"
+                title="comment"
+                id="comment"
+                type="button"
+                aria-label="Comment"
+                hidden
+              >
+                🗨
+              </button>
+              <button
+                class="menuButton half-height"
+                title="diagram"
+                id="diagram"
+                type="button"
+                aria-label="Diagram"
+                hidden
+              >
+                📸
+              </button>
+              <button
+                class="menuButton half-height"
+                title="fullscreen"
+                id="fullscreen"
+                type="button"
+                aria-label="Fullscreen"
+              >
+                ⛶
+              </button>
+              <button
+                class="menuButton half-height"
+                title="fast forward"
+                id="ffwd"
+                type="button"
+                aria-label="Fast forward"
+                hidden
+              >
+                ⏩︎
+              </button>
+              <button
+                class="menuButton half-height"
+                title="share"
+                id="share"
+                type="button"
+                aria-label="Share replay link"
+                hidden
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <circle cx="18" cy="5" r="3"></circle>
+                  <circle cx="6" cy="12" r="3"></circle>
+                  <circle cx="18" cy="19" r="3"></circle>
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                </svg>
+              </button>
+              <button
+                class="menuButton half-height"
+                title="concede"
+                id="concede"
+                type="button"
+                aria-label="Concede"
+                hidden
+              >
+                🏳️
+              </button>
+              <button
+                class="menuButton half-height"
+                title="shot analysis"
+                id="analysis"
+                type="button"
+                aria-label="Shot analysis"
+                hidden
+              >
+                🔍
+              </button>
+              <button
+                class="menuButton half-height"
+                title="chromeless (L)"
+                id="chromeless"
+                type="button"
+                aria-label="Toggle chromeless mode"
+              >
+                👁︎
+              </button>
+              <button
+                class="menuButton half-height"
+                title="help
+도움말
+說明"
+                id="help"
+                type="button"
+                aria-label="Help"
+              >
+                ⓘ
+              </button>
+            </div>
+          </details>
+          <canvas id="minimap" width="252" height="136" hidden>
+            Table minimap
+          </canvas>
+          <button
+            class="menuButton aim"
+            title="view"
+            id="camera"
+            type="button"
+            aria-label="Toggle camera view"
+          >
+            🎥
+          </button>
+        </div>
+      </div>
+
+      <div
+        id="ballTray"
+        class="tray-container"
+        aria-live="polite"
+        role="log"
+        hidden
+      >
+        <div class="nav-btn btn-left" id="trayLeft">❮</div>
+        <div class="ball-tray-list" id="ballTrayList"></div>
+        <div class="nav-btn btn-right" id="trayRight">❯</div>
+      </div>
+      <div id="trayTimer" class="tray-timer" hidden></div>
+      <div class="tray-score-container">
+        <div id="p1Score" class="p1Score"></div>
+        <div id="p2Score" class="p2Score"></div>
+      </div>
+      <div id="lobbyContainer">
+        <div class="challenge-row">
+          <span id="challengePill" class="challenge-pill" hidden>
+            <button
+              id="challengeAccept"
+              type="button"
+              aria-label="Accept challenge"
+            >
+              ✅
+            </button>
+            <button
+              id="challengeDecline"
+              type="button"
+              aria-label="Decline challenge"
+            >
+              ❌
+            </button>
+          </span>
+          <span class="challenge-vs" aria-hidden="true">⚔</span>
+        </div>
+        <a
+          href="https://billiards.tailuge.workers.dev/lobby.html"
+          class="pill"
+          title="Lobby"
+          id="lobbyOverlay"
+          aria-label="Multiplayer Lobby"
+          ><span class="lobby-count"></span
+        ></a>
+      </div>
+    </main>
+    <script defer src="bl-three-core.js"></script>
+    <script defer src="bl-three-module.js"></script>
+    <script defer src="bl-three-examples.js"></script>
+    <script defer src="bl-messaging.js"></script>
+    <script defer src="bl-engine.js"></script>
+  </body>
+</html>
