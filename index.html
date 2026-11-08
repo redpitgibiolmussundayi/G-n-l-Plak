@@ -230,7 +230,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .mini button{width:44px;height:44px;display:grid;place-items:center}
 .mini button svg{width:26px;height:26px}
 .nav{position:fixed;left:0;right:0;bottom:0;z-index:31;background:#150c10f5;-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
-.nav .in{max-width:520px;margin:0 auto;height:var(--navh);display:grid;grid-template-columns:repeat(5,1fr);padding:0 max(4px,env(safe-area-inset-right,0px)) 0 max(8px,env(safe-area-inset-left,0px))}
+.nav .in{max-width:520px;margin:0 auto;height:var(--navh);display:grid;grid-template-columns:repeat(6,1fr);padding:0 max(4px,env(safe-area-inset-right,0px)) 0 max(8px,env(safe-area-inset-left,0px))}
 .nav button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--dim);font-size:.7rem;font-weight:600;letter-spacing:.04em;position:relative}
 .nav button svg{width:26px;height:26px}
 .nav button[aria-selected=true]{color:var(--neon)}
@@ -362,7 +362,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .sbdeps li.can .t,.sbdeps li.can .a{text-decoration:line-through;color:var(--dim)}.sbdeps em{color:#ff6b6b;font-style:normal;font-weight:700}
 .sbsrc{margin-top:14px;font-size:.76rem}
 .spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-.nav button{font-size:.66rem}
+.nav button{font-size:.6rem;letter-spacing:.02em}
 #sbChips{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) 40px;overflow:visible;margin:14px 0 0;padding:0}#sbChips .chip{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:8px 10px;text-align:center}
 .sbstops .chip.plus{display:grid;place-items:center;width:40px;padding:0;background:var(--neon);color:#fff;box-shadow:0 0 12px rgba(255,63,109,.35)}.sbstops .chip.plus svg{width:18px;height:18px}
 #sbMap{height:min(380px,62vh);border-radius:12px;overflow:hidden;position:relative;z-index:0;isolation:isolate;background:#0d0d10}
@@ -550,6 +550,49 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .sleeve .cov::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,rgba(255,255,255,.14),rgba(255,255,255,0) 40%)}
 .lgen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:linear-gradient(135deg,#3b0f22,#1e1217);padding:10%;text-align:center}.lgen svg{width:55%}.lgen b{font-family:var(--hand);font-size:1rem;line-height:1.05}
 
+/* Bilardo */
+.pool{position:fixed;left:0;right:0;top:0;bottom:calc(var(--navh) + env(safe-area-inset-bottom,0px));z-index:30;display:flex;flex-direction:column;
+  padding:calc(env(safe-area-inset-top,0px) + 6px) max(8px,env(safe-area-inset-right,0px)) 6px max(8px,env(safe-area-inset-left,0px));
+  background:radial-gradient(120% 80% at 50% 45%,#2c1d16 0,#160d09 60%,#0b0604 100%);-webkit-user-select:none;user-select:none;touch-action:none}
+.pool[hidden]{display:none}.pool.loading::after{content:"Bilardo masası kuruluyor…";margin:auto;color:var(--muted)}
+.pool-on body{overflow:hidden}.pool-on .scene{visibility:hidden}
+.phud{display:flex;align-items:center;gap:8px;min-height:50px}
+.pplayers{flex:1;display:flex;gap:6px;min-width:0}
+.pp{flex:1;min-width:0;padding:5px 8px;border-radius:12px;background:#ffffff0d;border:1px solid #ffffff14;opacity:.6;transition:opacity .2s}
+.pp.on{opacity:1;border-color:#ffd25a88;box-shadow:0 0 12px #ffd25a33}
+.pp b{font-size:.78rem;display:inline-block;max-width:70%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}.pp .pw{float:right;font-family:var(--slab);color:var(--amber);font-size:.9rem}
+.pg{display:flex;gap:2px;margin-top:3px;min-height:14px;flex-wrap:wrap}.pg em{font-size:.66rem;color:var(--muted);font-style:normal}
+.mb{width:13px;height:13px;border-radius:50%;background:var(--c);display:grid;place-items:center;font-style:normal;font-size:7px;font-weight:800;color:#111;box-shadow:inset -2px -2px 3px #0006;position:relative;overflow:hidden}
+.mb::before{content:"";position:absolute;width:7px;height:7px;border-radius:50%;background:#fff;opacity:.85}.mb{color:#111}.mb.st{background:linear-gradient(#f5f2ea 25%,var(--c) 25% 75%,#f5f2ea 75%)}
+.mb.gone{opacity:.18}.mb{font-size:0}
+.pbtns{display:flex;gap:4px}.pexit{display:none!important}
+@media (orientation:landscape) and (max-height:540px){.pexit{display:grid!important}}@media (min-width:920px){.pexit{display:grid!important}}
+.pib{width:36px;height:36px;border-radius:10px;background:#ffffff12;color:#f5e7d0;font-size:1.2rem;display:grid;place-items:center}
+.pspinb i{width:16px;height:16px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff,#d9d4c8);position:relative;display:block}
+.pspinb i::after{content:"";position:absolute;left:50%;top:50%;width:5px;height:5px;margin:-2.5px;border-radius:50%;background:#e33}
+.pmain{flex:1;display:flex;gap:8px;min-height:0;align-items:center;justify-content:center}
+.pwrap{position:relative;flex:0 0 auto}
+.pcv{display:block;border-radius:14px;box-shadow:0 20px 50px #000c;touch-action:none}
+.ppow{position:relative;flex:0 0 46px;width:46px;height:min(78%,520px);border-radius:23px;background:linear-gradient(#1a100c,#2a1a12);border:1px solid #ffffff1a;overflow:hidden;touch-action:none}
+.pfill{position:absolute;left:0;right:0;top:0;height:0;background:linear-gradient(#ffd25a,#ff3f6d)}
+.pcue{position:absolute;left:50%;top:6%;width:10px;height:88%;margin-left:-5px;border-radius:5px;background:linear-gradient(#f2e3c0 0 58%,#2a1208 58% 64%,#5a2410 64%);box-shadow:0 2px 6px #0009;transition:transform .05s}
+.ppow span{position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:.58rem;color:#ffffffaa;line-height:1.15;pointer-events:none}
+.pmsg{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);max-width:88%;padding:7px 14px;border-radius:999px;background:#000b;color:#fff;font-size:.8rem;text-align:center;opacity:0;pointer-events:none;transition:opacity .4s}
+.pmsg.show{opacity:1;animation:pmsg 3.4s forwards}@keyframes pmsg{0%,80%{opacity:1}100%{opacity:0}}
+.pover{position:absolute;inset:0;display:grid;place-items:center;background:#000a;border-radius:14px}.pover[hidden]{display:none}
+.pover div{display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px;text-align:center}.pover b{font-family:var(--slab);font-size:1.6rem;color:#ffd25a}.pover span{color:#ddd;font-size:.9rem}
+.pbtn{height:42px;padding:0 18px;border-radius:12px;background:#ffffff14;color:#fff;font-weight:700}.pbtn.primary{background:var(--neon)}
+.pmenu{position:absolute;right:10px;top:calc(env(safe-area-inset-top,0px) + 58px);z-index:5;display:flex;flex-direction:column;gap:4px;padding:10px;min-width:220px;border-radius:16px;background:#241519f7;border:1px solid var(--line);box-shadow:0 14px 40px #000c}
+.pmenu[hidden]{display:none}.pmenu>b{font-size:.75rem;color:var(--muted);padding:2px 6px}
+.pmenu button{text-align:left;padding:9px 10px;border-radius:10px;color:#f5e7d0;font-size:.92rem}.pmenu button.on{background:#ffffff14;color:#ffd25a}.pmenu hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+.plv{display:flex;gap:4px;padding-left:10px}.plv button{flex:1;text-align:center;font-size:.8rem;padding:6px}
+.pspin{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#000c;color:#ddd;font-size:.85rem;text-align:center;padding:20px}.pspin[hidden]{display:none}
+.pball{width:170px;height:170px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#e9e4d8 45%,#a9a396);position:relative;touch-action:none;box-shadow:0 10px 30px #000a}
+.pball::before,.pball::after{content:"";position:absolute;background:#0002}.pball::before{left:50%;top:10%;bottom:10%;width:1px}.pball::after{top:50%;left:10%;right:10%;height:1px}
+.pdot{position:absolute;width:22px;height:22px;margin:-11px;border-radius:50%;background:#e33;box-shadow:0 0 0 3px #fff8;left:50%;top:50%}
+@media (orientation:landscape) and (max-height:540px){ html.pool-on .pool{bottom:0!important} }
+@media (min-width:920px){ .pool{bottom:0;z-index:60} }
+
 
 /* Geniş ekran: kaset solda sabit, sağda arşiv */
 @media (min-width:920px){
@@ -559,7 +602,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   #vNow{grid-column:1;grid-row:2/span 3;position:sticky;top:12px;display:block!important}
   .side{grid-column:2}
   .nav{position:sticky;top:0;bottom:auto;background:transparent;border:0;padding:0;-webkit-backdrop-filter:none;backdrop-filter:none;margin-bottom:6px}
-  .nav .in{max-width:none;grid-template-columns:repeat(4,max-content);gap:26px;height:48px;padding:0}
+  .nav .in{max-width:none;grid-template-columns:repeat(5,max-content);gap:26px;height:48px;padding:0}
   .nav button{flex-direction:row;font-size:1rem;gap:8px}
   .nav button[aria-selected=true]::before{top:auto;bottom:4px;left:50%}
   #tNow,.mini{display:none!important}
@@ -575,6 +618,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 </head>
 <body>
 <div class="scene" id="scene" aria-hidden="true"><div class="frame"><img id="sceneA" alt=""><img id="sceneB" alt=""><canvas id="sky"></canvas><span class="rainveil"></span></div><div class="veil"></div></div>
+<section id="vPool" class="pool" hidden></section>
 <div class="layout">
   <header class="brand">
     <div class="logo">Gönül Plak<small>kaderimin kaseti</small></div>
@@ -717,6 +761,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       <button role="tab" id="tLib" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4v16M9 4v16M14 5l5 15"/></svg>Arşiv</button>
       <button role="tab" id="tLists" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h11M3 11h11M3 16h7"/><path d="M17 17.5V5l4-1"/><circle cx="15" cy="17.5" r="2.5"/></svg>Listeler</button>
       <button role="tab" id="tSb" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="14" rx="3.5"/><path d="M5 11h14M9 14h.01M15 14h.01M8 21l2-4M16 21l-2-4"/></svg>S-Bahn</button>
+      <button role="tab" id="tPool" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="11" r="3.6"/><path d="M11.2 9.7c.9-.6 1.8-.3 1.8.6 0 .8-1.4 1-1.4 2.2"/></svg>Bilardo</button>
       <button role="tab" id="tAcct" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>Ben</button>
     </div></nav>
 

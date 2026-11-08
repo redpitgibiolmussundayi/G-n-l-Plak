@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 27;
+const VERSION = 29;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -1071,6 +1071,120 @@ const Scene = (() => {
     g.globalCompositeOperation = 'lighter'; glow(x, y, 56, '200,210,255', 0.18); glow(x, y, 24, '255,250,230', 0.25); g.globalCompositeOperation = 'source-over';
     g.imageSmoothingEnabled = false; g.drawImage(moonCv, x - 48, y - 48, 96, 96); g.imageSmoothingEnabled = true;
   }
+  /* Canlı manzara: ara sıra yoldan araba geçer, gökyüzünden uçak süzülür, kuşlar uçar */
+  let lifeOn = LS.get('gp-life', true), movers = [], lifeT = [];
+  const CAR = [
+    '..........dddddddddddd..............',
+    '........ddwwwwwwdwwwwwwdd...........',
+    '......ddwwwwwwwwdwwwwwwwwdd.........',
+    '....ddbbbbbbbbbbbbbbbbbbbbbbdd......',
+    '..ddbbbbbbbbbbbbbbbbbbbbbbbbbbbddd..',
+    '.kbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbl.',
+    '.kbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbl.',
+    '.dbbbbcccccccccccccccccccccccccbbbd.',
+    '.ddbbtttttbbbbbbbbbbbbbbbbtttttbbdd.',
+    '..ddtrrrrrtddddddddddddddtrrrrrtdd..',
+    '....trrrrrt..............trrrrrt....',
+    '.....ttttt................ttttt.....'];
+  const VAN = [
+    '...dddddddddddddddddddddddddd.......',
+    '..dwwwwwdwwwwwwdwwwwwwdwwwwwwdd.....',
+    '..dwwwwwdwwwwwwdwwwwwwdwwwwwwwwd....',
+    '..dbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbd..',
+    '..dbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbd.',
+    '.kbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbl.',
+    '.kbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbl.',
+    '.dbbbbcccccccccccccccccccccccccbbbd.',
+    '.ddbbtttttbbbbbbbbbbbbbbbbtttttbbdd.',
+    '..ddtrrrrrtddddddddddddddtrrrrrtdd..',
+    '....trrrrrt..............trrrrrt....',
+    '.....ttttt................ttttt.....'];
+  const PAINT = ['#c9ccd2', '#26292f', '#ecebe6', '#a8222a', '#efe4c2', '#2c4c86', '#3d5a40', '#7a7f87'];
+  const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16); return `rgb(${Math.round((n >> 16) * k)},${Math.round(((n >> 8) & 255) * k)},${Math.round((n & 255) * k)})`; };
+  const spriteCache = new Map();
+  function sprite(map, color, dark, taxi) {
+    const key = map[0] + color + dark + taxi; if (spriteCache.has(key)) return spriteCache.get(key);
+    const W = map[0].length, H = map.length + (taxi ? 2 : 0), c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+    const k = dark ? 0.42 : 1, col = { b: shade(color, k), d: shade(color, 0.45 * k), w: dark ? '#1b2530' : '#7d9db5', t: '#151515', r: dark ? '#55585d' : '#b9bcc2', c: dark ? '#6b6e73' : '#e6e8ea', l: dark ? '#fff6d0' : '#f1f1e8', k: dark ? '#ff2a2a' : '#c0302c' };
+    const oy = taxi ? 2 : 0;
+    if (taxi) { x.fillStyle = dark ? '#ffd86a' : '#f2c84b'; x.fillRect(15, 0, 6, 2); }
+    map.forEach((row, y) => [...row].forEach((ch, i) => { if (ch === '.') return; x.fillStyle = col[ch] || col.b; x.fillRect(i, y + oy, 1, 1); }));
+    spriteCache.set(key, c); return c;
+  }
+  // şerit çizgileri (resim koordinatı): uzak şerit sola doğru gider, yakın şerit bize doğru gelir
+  const LANES = [{ a: [1320, 952], b: [-300, 640], s0: 1.25, s1: 0.72, dir: -1 }, { a: [-300, 712], b: [760, 1000], s0: 0.85, s1: 1.4, dir: 1 }];
+  function spawn(kind) {
+    const now = performance.now();
+    if (kind === 'car') {
+      const free = LANES.filter(L => !movers.some(m => m.lane === L && now - m.t0 < 4500)); if (!free.length) return;
+      const lane = free.length > 1 ? (Math.random() < 0.6 ? free[0] : free[1]) : free[0], van = Math.random() < 0.2, color = PAINT[Math.floor(Math.random() * PAINT.length)], taxi = !van && Math.random() < 0.15;
+      movers.push({ k: 'car', lane, map: van ? VAN : CAR, color: taxi ? '#efe4c2' : color, taxi, t0: now, dur: rnd(5500, 8500) });
+    } else if (kind === 'plane') {
+      const ltr = Math.random() < 0.5;
+      movers.push({ k: 'plane', t0: now, dur: rnd(32000, 45000), x0: ltr ? -80 : IW + 80, x1: ltr ? IW + 80 : -80, y0: rnd(70, 230), dy: rnd(-40, 30), trail: [] });
+    } else if (kind === 'birds') {
+      const ltr = Math.random() < 0.5, n = 3 + Math.floor(Math.random() * 5);
+      movers.push({ k: 'birds', t0: now, dur: rnd(14000, 20000), x0: ltr ? -60 : IW + 60, x1: ltr ? IW + 60 : -60, y0: rnd(150, 380), n, ph: Math.random() * 6 });
+    }
+    setRun();
+  }
+  function schedule(kind, a, b) {
+    clearTimeout(lifeT[kind]);
+    lifeT[kind] = setTimeout(() => { if (lifeOn && !document.hidden && !$('scene').hidden) { const sc = cur && SCENES[cur]; if (kind !== 'birds' || (sc && !sc.night)) spawn(kind); } schedule(kind, a, b); }, rnd(a, b));
+  }
+  function lifeStart() { schedule('car', 12000, 40000); schedule('plane', 50000, 170000); schedule('birds', 40000, 120000); }
+  function drawLife(t, sc) {
+    if (!movers.length) return;
+    const now = performance.now(), dark = !!(sc && (sc.night || sc.dusk)) || kind === 'rain' || kind === 'storm' || kind === 'fog';
+    const veil = sc && sc.night ? 1 : sc && sc.dusk ? 0.6 : 0;
+    movers = movers.filter(m => {
+      const u = (now - m.t0) / m.dur; if (u > 1) return false;
+      if (m.k === 'car') {
+        const L = m.lane, x = L.a[0] + (L.b[0] - L.a[0]) * u, y = L.a[1] + (L.b[1] - L.a[1]) * u, sc2 = L.s0 + (L.s1 - L.s0) * u;
+        const spr = sprite(m.map, m.color, veil > 0.5, m.taxi), PX = 4 * sc2, w = spr.width * PX, h = spr.height * PX;
+        const ang = Math.atan2(L.b[1] - L.a[1], L.b[0] - L.a[0]) + (L.dir < 0 ? Math.PI : 0);
+        g.save(); g.translate(x, y); g.rotate(ang); if (L.dir < 0) g.scale(-1, 1);
+        g.imageSmoothingEnabled = false;
+        // gölge
+        g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(-w / 2, -2 * PX, w, 3 * PX);
+        g.drawImage(spr, -w / 2, -h + PX, w, h);
+        if (dark) { // farlar ve stop lambaları
+          g.globalCompositeOperation = 'lighter';
+          const hx = w / 2 - PX, hy = -h + PX + 5.5 * PX;
+          const beam = g.createLinearGradient(hx, hy, hx + 70 * sc2 * 2.2, hy);
+          beam.addColorStop(0, 'rgba(255,245,200,.55)'); beam.addColorStop(1, 'rgba(255,245,200,0)');
+          g.fillStyle = beam; g.beginPath(); g.moveTo(hx, hy - PX); g.lineTo(hx + 150 * sc2, hy - 9 * sc2 * 2); g.lineTo(hx + 150 * sc2, hy + 14 * sc2 * 2); g.lineTo(hx, hy + PX); g.fill();
+          glow(0, 0, 0, '0,0,0', 0);
+          const rg = g.createRadialGradient(-w / 2 + PX, hy, 0, -w / 2 + PX, hy, 9 * PX); rg.addColorStop(0, 'rgba(255,40,40,.6)'); rg.addColorStop(1, 'rgba(255,40,40,0)'); g.fillStyle = rg; g.fillRect(-w / 2 - 9 * PX, hy - 9 * PX, 18 * PX, 18 * PX);
+          g.globalCompositeOperation = 'source-over';
+        }
+        g.restore();
+      } else if (m.k === 'plane') {
+        const x = m.x0 + (m.x1 - m.x0) * u, y = m.y0 + m.dy * u, dir = m.x1 > m.x0 ? 1 : -1, P = 3;
+        if (!dark) { m.trail.push([x - dir * 20, y + 1]); if (m.trail.length > 120) m.trail.shift(); g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 2; g.beginPath(); m.trail.forEach(([a, b], i) => { if (i % 3) return; g.globalAlpha = i / m.trail.length * 0.6; i ? g.lineTo(a, b) : g.moveTo(a, b); }); g.stroke(); g.globalAlpha = 1; }
+        g.save(); g.translate(x, y); g.scale(dir, 1);
+        g.fillStyle = dark ? 'rgba(30,30,40,.95)' : '#eef1f5';
+        g.fillRect(-10 * P, -1 * P, 20 * P, 2 * P); g.fillRect(8 * P, -1 * P, 3 * P, 1 * P);          // gövde, burun
+        g.fillRect(-2 * P, -1 * P, 5 * P, 1 * P); g.fillRect(-4 * P, 1 * P, 6 * P, 1 * P);              // kanat
+        g.fillRect(-10 * P, -4 * P, 2 * P, 3 * P);                                                        // kuyruk
+        if (!dark) { g.fillStyle = '#7d9db5'; for (let i = -6; i < 7; i += 2) g.fillRect(i * P, -0.6 * P, P * 0.8, P * 0.6); }
+        g.restore();
+        if (dark) { g.globalCompositeOperation = 'lighter'; const bl = (t % 1200) < 120, st = (t % 1800) < 80;
+          g.fillStyle = 'rgba(255,40,40,.95)'; g.fillRect(x - dir * 4, y + 3, 3, 3); g.fillStyle = 'rgba(40,255,90,.95)'; g.fillRect(x + dir * 2, y + 3, 3, 3);
+          if (bl) glow(x, y - 3, 10, '255,60,60', 0.8); if (st) glow(x - dir * 28, y - 6, 12, '255,255,255', 0.9);
+          g.globalCompositeOperation = 'source-over'; }
+      } else if (m.k === 'birds') {
+        const cx = m.x0 + (m.x1 - m.x0) * u, cy = m.y0 + Math.sin(u * 6) * 12, dir = m.x1 > m.x0 ? 1 : -1;
+        g.strokeStyle = sc && sc.dusk ? 'rgba(30,20,25,.85)' : 'rgba(40,40,50,.8)'; g.lineWidth = 2.2;
+        for (let i = 0; i < m.n; i++) {
+          const bx = cx - dir * (i * 16), by = cy + Math.abs(i - (m.n - 1) / 2) * 10 + (i % 2) * 4, f = Math.sin(t / 130 + i + m.ph) * 5;
+          g.beginPath(); g.moveTo(bx - 7, by - f); g.lineTo(bx, by); g.lineTo(bx + 7, by - f); g.stroke();
+        }
+      }
+      return true;
+    });
+    if (!movers.length) setRun();
+  }
   /* Stuttgart'ın özel günleri: Weihnachtsmarkt ışıkları, Silvester havai fişeği, Wasen dönme dolabı */
   let force = null, forceUntil = 0, sparks = [], nextBurst = 0;
   function special() {
@@ -1167,6 +1281,7 @@ const Scene = (() => {
     }
     // kuleler
     if (T && (sc.night || sc.dusk)) { if (beatOn && Engine.playing) towerBeat(t, T); else towerShow(t, T); fmtLights(t, T); }
+    drawLife(t, sc);
     const spc = special();
     if (spc && (sc.night || sc.dusk || force)) { if (spc === 'xmas') xmas(t); else if (spc === 'wasen') wheel(t); else if (spc === 'silvester') fireworks(t, dt); }
     // sis
@@ -1211,7 +1326,7 @@ const Scene = (() => {
   }
   function setRun() {
     const sc = cur && SCENES[cur];
-    const need = !reduce && sc && (sc.night || sc.dusk || kind === 'rain' || kind === 'storm' || kind === 'snow' || kind === 'fog' || (force && Date.now() < forceUntil));
+    const need = !reduce && sc && (sc.night || sc.dusk || kind === 'rain' || kind === 'storm' || kind === 'snow' || kind === 'fog' || (force && Date.now() < forceUntil) || movers.length > 0);
     if (need && !running) { running = true; last = 0; requestAnimationFrame(frame); }
     else if (!need && running) { running = false; g.clearRect(0, 0, IW, IH); }
     if (reduce) { g.clearRect(0, 0, IW, IH); const T = cur && META.t[cur]; if (T && sc && (sc.night || sc.dusk)) { g.fillStyle = 'rgb(255,60,60)'; g.fillRect(T[0] - 1, T[1] - 1, 2, 2); g.fillRect(T[4] - 1, T[5] - 1, 2, 2); } }
@@ -1258,11 +1373,12 @@ const Scene = (() => {
   }
   return {
     PICK, info, get meta() { return META; }, get cur() { return cur; },
-    start() { apply(); fetchWx(); setInterval(() => { apply(); fetchWx(); }, 60000); document.addEventListener('visibilitychange', () => { if (!document.hidden) { apply(); fetchWx(); } }); },
+    start() { apply(); fetchWx(); lifeStart(); setInterval(() => { apply(); fetchWx(); }, 60000); document.addEventListener('visibilitychange', () => { if (!document.hidden) { apply(); fetchWx(); } }); },
     get mode() { return mode; }, get wxOn() { return wxOn; }, get wxKind() { return wxKind(); },
     setMode(m) { mode = m; LS.set('gp-scene', m); curFile = null; apply(); },
     setWx(v) { wxOn = v; LS.set('gp-wx-on', v); if (v) fetchWx(true); apply(); },
-    get artUrl() { return curFile; }, get beatOn() { return beatOn; }, preview(k) { force = k; forceUntil = Date.now() + 60000; sparks = []; nextBurst = 0; setRun(); setTimeout(setRun, 60500); }, get special() { return special(); }, setBeat(v) { beatOn = v; LS.set('gp-beat', v); },
+    get artUrl() { return curFile; }, get beatOn() { return beatOn; }, lifeTest(k) { spawn(k); }, get lifeOn() { return lifeOn; }, setLife(v) { lifeOn = v; LS.set('gp-life', v); if (!v) { movers = []; setRun(); } },
+    preview(k) { force = k; forceUntil = Date.now() + 60000; sparks = []; nextBurst = 0; setRun(); setTimeout(setRun, 60500); }, get special() { return special(); }, setBeat(v) { beatOn = v; LS.set('gp-beat', v); },
     describe() { const i = info(); return `Stuttgart'ta şu an ${i.season}, ${i.scene}${i.wx ? ', hava ' + i.wx : ''}. Bugün gün doğumu ${i.rise}, batımı ${i.set}. Ay %${i.moon} dolu.`; }
   };
 })();
@@ -1536,7 +1652,7 @@ const UI = {
     $('play').setAttribute('aria-label', on ? 'Duraklat' : 'Çal');
     ['prev', 'next', 'play'].forEach(id => $(id).disabled = !App.songs.length);
     if (Engine.loadedId !== App.curId) setSeek(0, s && s.duration || 0); else setSeek(Engine.pos, Engine.duration);
-    $('mini').hidden = !s || App.view === 'now' || isWide();
+    $('mini').hidden = !s || App.view === 'now' || App.view === 'pool' || isWide();
     if (s) { $('miniT').textContent = s.title; $('miniA').textContent = s.artist || 'Bilinmeyen sanatçı'; setThumb($('miniTh'), url, s.id); }
     let nx = '';
     if (s) {
@@ -1646,6 +1762,8 @@ const UI = {
         <p class="msg">${(() => { const i = Scene.info(); return `Bugün Stuttgart'ta gün doğumu <strong>${i.rise}</strong>, batımı <strong>${i.set}</strong>. Ay %${i.moon} dolu.${i.wx ? ' Hava: ' + esc(i.wx) + '.' : ''}`; })()}</p>
         <div class="chips" id="sceneChips">${[['auto', 'Gerçek saat ve hava'], ...Object.entries(Scene.PICK), ['off', 'Kapalı']].map(([k, n]) => `<button class="chip${Scene.mode === k ? ' on' : ''}" data-scene="${k}">${n}</button>`).join('')}</div>
         <div class="toggle"><div class="tl"><span>Canlı Stuttgart havası</span><span class="sub">Yağmur yağıyorsa manzarada da yağar · Hava verisi: Open-Meteo</span></div><button class="sw" id="wxOn" role="switch" aria-checked="${Scene.wxOn}" aria-label="Canlı hava"></button></div>
+        <div class="toggle"><div class="tl"><span>Hareketli manzara</span><span class="sub">Ara sıra yoldan araba geçer, gökten uçak süzülür, kuşlar uçar</span></div><button class="sw" id="lifeOn" role="switch" aria-checked="${Scene.lifeOn}" aria-label="Hareketli manzara"></button></div>
+        <div class="chips" style="margin:-4px 0 10px">${[['car', 'Araba geçsin'], ['plane', 'Uçak geçsin'], ['birds', 'Kuşlar']].map(([k, n]) => `<button class="chip" data-life="${k}">${n}</button>`).join('')}</div>
         <div class="field"><label>Kaset ekranında</label><div class="seg">${[['kaset', 'Kaset'], ['plak', 'Plak'], ['yok', 'Kapalı']].map(([k, n]) => `<button data-deck="${k}" aria-pressed="${Deck.kind === k}">${n}</button>`).join('')}</div></div>
         <div class="field"><label>Özel günler (kendiliğinden gelir; 1 dakikalık önizleme)</label><div class="chips">${[['xmas', 'Weihnachtsmarkt'], ['silvester', 'Silvester'], ['wasen', 'Wasen']].map(([k, n]) => `<button class="chip" data-spc="${k}">${n}</button>`).join('')}</div><span class="sub">Weihnachtsmarkt 26 Kasım–23 Aralık, Silvester 31 Aralık akşamı, Wasen ilkbahar ve sonbahar şenliklerinde. Akşam ve gece sahnesinde görünür.</span></div>
         <div class="toggle"><div class="tl"><span>Fernsehturm ritme göre parlasın</span><span class="sub">Akşam ve gece sahnesinde kulenin ışığı çalan şarkının vuruşlarıyla yanıp söner</span></div><button class="sw" id="beatOn" role="switch" aria-checked="${Scene.beatOn}" aria-label="Ritme göre Fernsehturm"></button></div></div>
@@ -2044,9 +2162,11 @@ const SB = (() => {
 function setView(v) {
   if (v === 'now' && isWide()) v = 'lib';
   App.view = v;
-  $('vNow').hidden = v !== 'now'; $('vLib').hidden = v !== 'lib'; $('vLists').hidden = v !== 'lists'; $('vAcct').hidden = v !== 'acct'; $('vSb').hidden = v !== 'sb';
-  ['tNow', 'tLib', 'tLists', 'tSb', 'tAcct'].forEach(t => $(t).setAttribute('aria-selected', 'v' + t.slice(1) === 'v' + { now: 'Now', lib: 'Lib', lists: 'Lists', sb: 'Sb', acct: 'Acct' }[v]));
+  $('vNow').hidden = v !== 'now'; $('vLib').hidden = v !== 'lib'; $('vLists').hidden = v !== 'lists'; $('vAcct').hidden = v !== 'acct'; $('vSb').hidden = v !== 'sb'; $('vPool').hidden = v !== 'pool';
+  ['tNow', 'tLib', 'tLists', 'tSb', 'tPool', 'tAcct'].forEach(t => $(t).setAttribute('aria-selected', 'v' + t.slice(1) === 'v' + { now: 'Now', lib: 'Lib', lists: 'Lists', sb: 'Sb', pool: 'Pool', acct: 'Acct' }[v]));
   if (v === 'sb') SB.start(); else SB.stop();
+  document.documentElement.classList.toggle('pool-on', v === 'pool');
+  if (v === 'pool') Pool.open(); else Pool.close();
   if (v === 'acct') UI.account();
   if (v === 'lists') UI.lists();
   UI.now(); window.scrollTo(0, 0);
@@ -2057,6 +2177,7 @@ $('tLib').onclick = () => setView('lib');
 $('tLists').onclick = () => { App.openList = null; setView('lists'); };
 $('tAcct').onclick = () => setView('acct');
 $('tSb').onclick = () => setView('sb');
+$('tPool').onclick = () => setView('pool');
 SB.bind();
 $('miniOpen').onclick = () => setView('now');
 $('miniTh').onclick = () => setView('now');
@@ -2872,6 +2993,8 @@ $('vAcct').addEventListener('click', async e => {
   else if (e.target.closest('[data-scene]')) { Scene.setMode(e.target.closest('[data-scene]').dataset.scene); UI.account(); }
   else if (id === 'wxOn') { Scene.setWx(!Scene.wxOn); e.target.setAttribute('aria-checked', Scene.wxOn); }
   else if (e.target.closest('[data-spc]')) { Scene.preview(e.target.closest('[data-spc]').dataset.spc); setView('now'); window.scrollTo(0, 0); toast('Önizleme 1 dakika sürecek'); }
+  else if (id === 'lifeOn') { Scene.setLife(!Scene.lifeOn); e.target.setAttribute('aria-checked', Scene.lifeOn); }
+  else if (e.target.closest('[data-life]')) { const k = e.target.closest('[data-life]').dataset.life; setView('now'); window.scrollTo(0, 0); setTimeout(() => Scene.lifeTest(k), 300); }
   else if (id === 'beatOn') { Scene.setBeat(!Scene.beatOn); e.target.setAttribute('aria-checked', Scene.beatOn); }
   else if (e.target.closest('[data-aim]')) { AI.setModel(e.target.closest('[data-aim]').dataset.aim); UI.account(); }
   else if (id === 'aiWeb') { AI.setWeb(!AI.web); e.target.setAttribute('aria-checked', AI.web); }
@@ -3583,6 +3706,25 @@ const Rack = (() => {
   }, true);
   $('libView').addEventListener('click', e => { const b = e.target.closest('[data-lv]'); if (!b) return; view = b.dataset.lv; LS.set('gp-libview', view); UI.lib(); });
   return { render, get view() { return view; } };
+})();
+
+/* ================= Bilardo sekmesi (oyun ayrı dosyada, ilk açılışta yüklenir) ================= */
+const Pool = (() => {
+  let p = null;
+  function load() {
+    if (window.Bilardo) return Promise.resolve();
+    if (p) return p;
+    p = new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'bilardo.js'; sc.onload = res; sc.onerror = () => { p = null; rej(); }; document.head.appendChild(sc); });
+    return p;
+  }
+  async function open() {
+    $('vPool').classList.add('loading');
+    try { await load(); Bilardo.mount($('vPool')); $('vPool').classList.remove('loading'); Bilardo.show(); }
+    catch (e) { toast('Bilardo yüklenemedi, internetini kontrol et'); }
+  }
+  function close() { if (window.Bilardo) Bilardo.hide(); }
+  window.addEventListener('pool-exit', () => setView(isWide() ? 'lib' : 'now'));
+  return { open, close };
 })();
 /* ================= Ekstralar: damar, kader kasetleri, istatistik, yedek, yolculuk ================= */
 const X = (() => {
