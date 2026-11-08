@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 30;
+const VERSION = 31;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -3714,7 +3714,7 @@ const Pool = (() => {
   const BOTS = { kolay: 'ClawBreak', zor: 'TheFarJaw' };
   const lvl = () => { try { return localStorage.getItem('gp_pool_lvl') || 'zor'; } catch (e) { return 'zor'; } };
   const name = () => { try { return (localStorage.getItem('gp_name') || 'Eren').slice(0, 14); } catch (e) { return 'Eren'; } };
-  function src() { return 'bilardo.html?ruletype=eightball&locale=tr&bot=' + BOTS[lvl()] + '&userName=' + encodeURIComponent(name()) + '&t=' + Date.now(); }
+  function src() { return 'bilardo.html?ruletype=eightball&locale=tr&shotClock=3600&bot=' + BOTS[lvl()] + '&userName=' + encodeURIComponent(name()) + '&t=' + Date.now(); }
   function paint() { bar.querySelector('.plvl').innerHTML = '🤖 <b>' + (lvl() === 'zor' ? 'Zor' : 'Kolay') + '</b>'; }
   function start() { $('vPool').classList.add('loading'); fr.style.opacity = 0; fr.src = src(); }
   function build() {
