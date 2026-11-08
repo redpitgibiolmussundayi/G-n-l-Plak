@@ -1,13 +1,17 @@
 /* Gönül Plak — offline önbellek.
    Kod dosyaları önce internetten (güncel sürüm hemen gelsin), internet yoksa önbellekten.
    Resimler ve kütüphaneler önce önbellekten. */
-const CACHE = 'gonulplak-v34';
+const CACHE = 'gonulplak-v36';
 const CORE = ['./', 'index.html', 'app.js', 'config.js', 'stretch.js', 'dsp-worker.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
   ...['sabah', 'gunduz', 'gunbatimi', 'aksam', 'gece', 'kapali-sabah', 'kapali-gunduz', 'kapali-aksam', 'kapali-gece'].map(n => `stg-sonbahar-${n}.webp`)];
+const POOL = ['bilardo.html', 'bl-engine.js', 'bl-ui.js', 'bl-three-core.js', 'bl-three-module.js', 'bl-three-examples.js', 'bl-messaging.js',
+  'bl-table.gltf', 'bl-table.bin', 'bl-ballcollision.m4a', 'bl-cue.m4a', 'bl-cushion.m4a', 'bl-pot.m4a', 'bl-success.m4a'];
+const isPool = p => /\/(bilardo\.html|bl-[^/]+)$/.test(p);
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE.map(u => new Request(u, { cache: 'reload' })))
+    .then(() => Promise.allSettled(POOL.map(u => fetch(new Request(u, { cache: 'reload' })).then(r => r.ok && c.put(new URL(u, self.location).href, r)))))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
@@ -19,6 +23,18 @@ self.addEventListener('fetch', e => {
   const same = url.origin === self.location.origin;
   if (!same && !CDN.includes(url.hostname)) return;
   if (same && url.pathname.endsWith('version.json')) return; // hep canlı
+  // bilardo dosyaları: önce önbellek (sürüm değişince önbellek yenilenir) → anında açılır
+  if (same && isPool(url.pathname)) {
+    const key = url.origin + url.pathname;
+    e.respondWith(caches.open(CACHE).then(async c => {
+      const hit = await c.match(key);
+      if (hit) return hit;
+      const r = await fetch(req);
+      if (r.ok) c.put(key, r.clone());
+      return r;
+    }));
+    return;
+  }
   const isCode = same && (req.mode === 'navigate' || /\.(js|html|webmanifest)$/.test(url.pathname) || url.pathname.endsWith('/'));
   if (isCode) {
     const top = req.mode === 'navigate' && !url.pathname.endsWith('/bilardo.html');

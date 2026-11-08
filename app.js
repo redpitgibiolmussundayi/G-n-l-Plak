@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 32;
+const VERSION = 34;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -3726,6 +3726,9 @@ const Pool = (() => {
   window.addEventListener('message', e => { if (e.data === 'pool-exit' && e.source === (fr && fr.contentWindow)) setView(isWide() ? 'lib' : 'now'); });
   function open() { if (!fr) { build(); start(); } }
   function close() { /* oyun arka planda bekler, geri gelince kaldığın yerden */ }
+  // masa önceden arkada kurulsun: sekmeye basınca anında açılır
+  function prewarm() { if (!fr) { build(); start(); } }
+  window.addEventListener('load', () => setTimeout(() => (window.requestIdleCallback || (f => f()))(prewarm), 3500));
   return { open, close };
 })();
 /* ================= Ekstralar: damar, kader kasetleri, istatistik, yedek, yolculuk ================= */

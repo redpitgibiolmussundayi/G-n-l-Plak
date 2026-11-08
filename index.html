@@ -550,11 +550,13 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .sleeve .cov::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,rgba(255,255,255,.14),rgba(255,255,255,0) 40%)}
 .lgen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:linear-gradient(135deg,#3b0f22,#1e1217);padding:10%;text-align:center}.lgen svg{width:55%}.lgen b{font-family:var(--hand);font-size:1rem;line-height:1.05}
 
-/* Bilardo: tam ekran, oyunun kendi menüsü var */
-.pool{position:fixed;inset:0;z-index:90;background:#141b29;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+/* Bilardo: alt bar görünür kalır */
+.pool{position:fixed;left:0;right:0;top:0;bottom:calc(var(--navh) + env(safe-area-inset-bottom,0px));z-index:29;background:#141b29;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) 0 env(safe-area-inset-left,0px)}
 .pool[hidden]{display:none}.pool.loading::after{content:"Bilardo masası kuruluyor…";position:absolute;inset:0;display:grid;place-items:center;color:#9aa6b8;pointer-events:none}
 .pool-on body{overflow:hidden}.pool-on .scene{visibility:hidden}
-.pframe{display:block;width:100%;height:100%;border:0;background:#141b29;transition:opacity .3s}
+.pframe{display:block;width:100%;height:100%;border:0;background:#141b29;transition:opacity .25s}
+@media (orientation:landscape) and (max-height:540px){html.pool-on .nav,html.pool-on .layout>.side{display:block!important}}
+@media (min-width:920px){.pool{top:64px;bottom:0}}
 
 /* Geniş ekran: kaset solda sabit, sağda arşiv */
 @media (min-width:920px){
