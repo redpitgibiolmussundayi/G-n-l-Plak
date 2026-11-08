@@ -1,11 +1,10 @@
 /* Gönül Plak — offline önbellek.
    Kod dosyaları önce internetten (güncel sürüm hemen gelsin), internet yoksa önbellekten.
    Resimler ve kütüphaneler önce önbellekten. */
-const CACHE = 'gonulplak-v37';
+const CACHE = 'gonulplak-v38';
 const CORE = ['./', 'index.html', 'app.js', 'config.js', 'stretch.js', 'dsp-worker.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
   ...['sabah', 'gunduz', 'gunbatimi', 'aksam', 'gece', 'kapali-sabah', 'kapali-gunduz', 'kapali-aksam', 'kapali-gece'].map(n => `stg-sonbahar-${n}.webp`)];
-const POOL = ['bilardo.html', 'bl-engine.js', 'bl-ui.js', 'bl-three-core.js', 'bl-three-module.js', 'bl-three-examples.js', 'bl-messaging.js',
-  'bl-table.gltf', 'bl-table.bin', 'bl-ballcollision.m4a', 'bl-cue.m4a', 'bl-cushion.m4a', 'bl-pot.m4a', 'bl-success.m4a'];
+const POOL = ['bilardo.html', 'bl-game.js', 'bl-ballcollision.m4a', 'bl-cue.m4a', 'bl-cushion.m4a', 'bl-pot.m4a', 'bl-success.m4a'];
 const isPool = p => /\/(bilardo\.html|bl-[^/]+)$/.test(p);
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
