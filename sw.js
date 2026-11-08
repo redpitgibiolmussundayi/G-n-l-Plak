@@ -1,7 +1,7 @@
 /* Gönül Plak — offline önbellek.
    Kod dosyaları önce internetten (güncel sürüm hemen gelsin), internet yoksa önbellekten.
    Resimler ve kütüphaneler önce önbellekten. */
-const CACHE = 'gonulplak-v36';
+const CACHE = 'gonulplak-v37';
 const CORE = ['./', 'index.html', 'app.js', 'config.js', 'stretch.js', 'dsp-worker.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
   ...['sabah', 'gunduz', 'gunbatimi', 'aksam', 'gece', 'kapali-sabah', 'kapali-gunduz', 'kapali-aksam', 'kapali-gece'].map(n => `stg-sonbahar-${n}.webp`)];
 const POOL = ['bilardo.html', 'bl-engine.js', 'bl-ui.js', 'bl-three-core.js', 'bl-three-module.js', 'bl-three-examples.js', 'bl-messaging.js',

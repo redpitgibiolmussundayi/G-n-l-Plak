@@ -1,5 +1,5 @@
 /* Gönül Plak · Bilardo
- * 2D, üstten bakan masa çizimi ve 8-top arayüzü. Dikeyde masa dik, yatayda yan durur.
+ * 3D (three.js) üstten bakan masa ve 8-top arayüzü. Dikeyde masa dik, yatayda yan durur.
  * Fizik, kurallar ve robot: tailuge/billiards motoru (GPL-3.0); 3D çizimi kapalı, motor arkada çalışır. */
 (() => {
   'use strict';
@@ -95,16 +95,6 @@
     const c = document.createElement('canvas'); paintBall(n, IDQ, 22, c, false);
     return (iconCache[n] = c.toDataURL());
   }
-  const sprites = new Map();
-  function ballSprite(b) {
-    let s = sprites.get(b.id);
-    if (!s) { s = { cv: document.createElement('canvas'), key: '' }; sprites.set(b.id, s); }
-    const q = b.ballmesh ? b.ballmesh.mesh.quaternion : IDQ;
-    const rp = RP * dpr;
-    const key = (port ? 'v' : 'h') + rp.toFixed(2) + '|' + q.x.toFixed(4) + q.y.toFixed(4) + q.z.toFixed(4) + q.w.toFixed(4);
-    if (key !== s.key) { paintBall(b.label || 0, q, rp, s.cv, port); s.key = key; }
-    return s.cv;
-  }
   const chuteImgs = {};
   function chuteIcon(n) {
     const rp = RP * dpr;
@@ -162,103 +152,312 @@
     stage.style.setProperty('--st', slot.t + 'px'); stage.style.setProperty('--sh', slot.h + 'px');
     stage.style.setProperty('--tb', (H - box.b) + 'px'); stage.style.setProperty('--tt', box.t + 'px');
     drawTable();
-    sprites.forEach(s => s.key = '');
   }
 
-  /* ------------------------------------------------------------ static table */
+  /* ------------------------------------------------------------ backdrop (2D, under the 3D table) */
   function rr(x, X, Y, w, h, r) { x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + h, r); x.arcTo(X + w, Y + h, X, Y + h, r); x.arcTo(X, Y + h, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath(); }
   function drawTable() {
     bg.width = cv.width; bg.height = cv.height;
     const x = bg.getContext('2d');
     useS(x);
-    const g0 = x.createRadialGradient(W / 2, H * 0.5, Math.min(W, H) * 0.1, W / 2, H * 0.5, Math.max(W, H) * 0.7);
-    g0.addColorStop(0, '#243149'); g0.addColorStop(1, '#131a27');
+    const g0 = x.createRadialGradient(W / 2, H * 0.45, Math.min(W, H) * 0.05, W / 2, H * 0.5, Math.max(W, H) * 0.75);
+    g0.addColorStop(0, '#2b3954'); g0.addColorStop(0.55, '#18213a'); g0.addColorStop(1, '#0b101c');
     x.fillStyle = g0; x.fillRect(0, 0, W, H);
-    useV(x);
-    const { r, cx, cy, cw, rw, HX, HY } = geo;
-    x.save(); x.shadowColor = 'rgba(0,0,0,.6)'; x.shadowBlur = 22; x.shadowOffsetY = port ? 0 : 8; x.shadowOffsetX = port ? -8 : 0;
-    rr(x, tx(-HX), ty(HY), 2 * HX * K, 2 * HY * K, 2.4 * r * K); x.fillStyle = '#555c66'; x.fill(); x.restore();
-    const gm = x.createLinearGradient(0, ty(HY), 0, ty(-HY));
-    gm.addColorStop(0, '#b9c0c8'); gm.addColorStop(0.5, '#6d757f'); gm.addColorStop(1, '#a9b0b8');
-    rr(x, tx(-HX), ty(HY), 2 * HX * K, 2 * HY * K, 2.4 * r * K); x.fillStyle = gm; x.fill();
-    const ox = cx + cw + rw, oy = cy + cw + rw;
-    const gw = x.createLinearGradient(0, ty(oy), 0, ty(-oy));
-    gw.addColorStop(0, '#8e1b18'); gw.addColorStop(0.08, '#b02a22'); gw.addColorStop(0.5, '#7a1513'); gw.addColorStop(0.92, '#b02a22'); gw.addColorStop(1, '#6a100f');
-    rr(x, tx(-ox), ty(oy), 2 * ox * K, 2 * oy * K, 1.6 * r * K); x.fillStyle = gw; x.fill();
-    x.save(); rr(x, tx(-ox), ty(oy), 2 * ox * K, 2 * oy * K, 1.6 * r * K); x.clip();
-    x.globalAlpha = 0.07; x.strokeStyle = '#000';
-    for (let i = 0; i < 70; i++) { const yy = ty(oy) + Math.random() * 2 * oy * K; x.lineWidth = Math.random() * 1.2; x.beginPath(); x.moveTo(tx(-ox), yy); x.bezierCurveTo(VW * 0.3, yy + 3, VW * 0.6, yy - 3, tx(ox), yy + 1); x.stroke(); }
-    x.restore();
-    x.fillStyle = '#3d0807'; x.fillRect(tx(-(cx + cw) - 0.12 * r), ty(cy + cw + 0.12 * r), (2 * (cx + cw) + 0.24 * r) * K, (2 * (cy + cw) + 0.24 * r) * K);
-    const gc = x.createRadialGradient(OX, OY, 2 * r * K, OX, OY, (cx + cw) * K * 1.05);
-    gc.addColorStop(0, '#36b3e6'); gc.addColorStop(0.55, '#2697cf'); gc.addColorStop(1, '#14699f');
-    x.fillStyle = gc; x.fillRect(tx(-(cx + cw)), ty(cy + cw), 2 * (cx + cw) * K, 2 * (cy + cw) * K);
-    // felt noise
-    const nW = Math.round(2 * (cx + cw) * K * dpr), nH = Math.round(2 * (cy + cw) * K * dpr);
-    if (nW > 0 && nH > 0) {
-      const nc = document.createElement('canvas'); nc.width = nW; nc.height = nH;
-      const nx = nc.getContext('2d'), id = nx.createImageData(nW, nH), dd = id.data;
-      for (let i = 0; i < dd.length; i += 4) { const v = Math.random() * 255; dd[i] = dd[i + 1] = dd[i + 2] = v; dd[i + 3] = 10; }
-      nx.putImageData(id, 0, 0);
-      x.drawImage(nc, tx(-(cx + cw)), ty(cy + cw), 2 * (cx + cw) * K, 2 * (cy + cw) * K);
-    }
-    // centre emblem: Fernsehturm + name
-    x.save(); x.globalAlpha = 0.16; x.strokeStyle = '#06324f'; x.fillStyle = '#06324f'; x.lineWidth = Math.max(1.2, r * K * 0.22); x.lineJoin = 'round';
-    const s = r * K, ex = OX, ey = OY;
-    x.beginPath(); x.moveTo(ex - 0.5 * s, ey + 5 * s); x.lineTo(ex - 0.32 * s, ey - 2.2 * s); x.lineTo(ex + 0.32 * s, ey - 2.2 * s); x.lineTo(ex + 0.5 * s, ey + 5 * s); x.stroke();
-    rr(x, ex - 1.1 * s, ey - 3.6 * s, 2.2 * s, 1.4 * s, 0.4 * s); x.stroke();
-    x.beginPath(); x.moveTo(ex, ey - 3.6 * s); x.lineTo(ex, ey - 6.2 * s); x.stroke();
-    x.beginPath(); x.ellipse(ex, ey + 5.2 * s, 3.4 * s, 0.7 * s, 0, 0, 7); x.stroke();
-    x.font = `800 ${1.25 * s}px system-ui,-apple-system,Arial`; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText('GÖNÜL PLAK', ex, ey + 7.3 * s);
-    x.restore();
-    // head string
-    x.save(); x.globalAlpha = 0.28; x.strokeStyle = '#e8f6ff'; x.lineWidth = 1;
-    x.beginPath(); x.moveTo(tx(-geo.X / 2), ty(cy)); x.lineTo(tx(-geo.X / 2), ty(-cy)); x.stroke(); x.restore();
-    // cushions
-    const cushion = pts => { x.beginPath(); pts.forEach((p, i) => i ? x.lineTo(tx(p[0]), ty(p[1])) : x.moveTo(tx(p[0]), ty(p[1]))); x.closePath(); x.fill(); };
-    const cutC = r * 2.9, cutM = r * 2.0, jaw = r * 0.95;
-    x.fillStyle = '#0d5f93';
-    [1, -1].forEach(sg => {
-      cushion([[-cx + cutC - jaw, sg * (cy + cw)], [-cutM, sg * (cy + cw)], [-cutM - jaw * 0.6, sg * cy], [-cx + cutC, sg * cy]]);
-      cushion([[cutM, sg * (cy + cw)], [cx - cutC + jaw, sg * (cy + cw)], [cx - cutC, sg * cy], [cutM + jaw * 0.6, sg * cy]]);
-      cushion([[sg * (cx + cw), cy - cutC + jaw], [sg * (cx + cw), -cy + cutC - jaw], [sg * cx, -cy + cutC], [sg * cx, cy - cutC]]);
-    });
-    x.strokeStyle = 'rgba(170,230,255,.55)'; x.lineWidth = Math.max(1, r * K * 0.12);
-    [1, -1].forEach(sg => {
-      [[-cx + cutC, -cutM - jaw * 0.6], [cutM + jaw * 0.6, cx - cutC]].forEach(([a, b]) => { x.beginPath(); x.moveTo(tx(a), ty(sg * cy)); x.lineTo(tx(b), ty(sg * cy)); x.stroke(); });
-      x.beginPath(); x.moveTo(tx(sg * cx), ty(cy - cutC)); x.lineTo(tx(sg * cx), ty(-cy + cutC)); x.stroke();
-    });
-    // diamonds
-    x.fillStyle = '#f3e9d8';
-    const dy = cy + cw + rw * 0.5, dx = cx + cw + rw * 0.5;
-    for (let i = -3; i <= 3; i++) { if (!i) continue; const xx = cx * i / 4; [dy, -dy].forEach(yy => { x.beginPath(); x.ellipse(tx(xx), ty(yy), 0.22 * r * K, 0.16 * r * K, 0, 0, 7); x.fill(); }); }
-    for (let j = -1; j <= 1; j++) { const yy = cy * j / 2; [dx, -dx].forEach(xx => { x.beginPath(); x.ellipse(tx(xx), ty(yy), 0.16 * r * K, 0.22 * r * K, 0, 0, 7); x.fill(); }); }
-    // pockets
-    geo.pockets.forEach(p => {
-      const corner = Math.abs(p.x) > geo.X * 0.5;
-      const pr = (corner ? 1.0 : 0.95) * p.rad * K, px = tx(p.x), py = ty(p.y);
-      if (corner) {
-        const gcov = x.createRadialGradient(px, py, pr * 0.5, px, py, pr * 1.75);
-        gcov.addColorStop(0, '#2a2d31'); gcov.addColorStop(0.6, '#5b626b'); gcov.addColorStop(1, '#8d959e');
-        x.fillStyle = gcov; x.beginPath(); x.arc(px, py, pr * 1.3, 0, 7); x.fill();
-      } else { x.fillStyle = '#4d535b'; x.beginPath(); x.ellipse(px, py, pr * 1.3, pr * 1.12, 0, 0, 7); x.fill(); }
-      const gp = x.createRadialGradient(px, py, 0, px, py, pr);
-      gp.addColorStop(0, '#000'); gp.addColorStop(0.75, '#060606'); gp.addColorStop(1, '#202020');
-      x.fillStyle = gp; x.beginPath(); x.arc(px, py, pr, 0, 7); x.fill();
-    });
+    // soft drop shadow under the table
+    x.save(); x.shadowColor = 'rgba(0,0,0,.75)'; x.shadowBlur = 34; x.shadowOffsetX = port ? -10 : 0; x.shadowOffsetY = port ? 0 : 12;
+    rr(x, box.l + 4, box.t + 4, box.r - box.l - 8, box.b - box.t - 8, RP * 2.2); x.fillStyle = '#05070c'; x.fill(); x.restore();
     // ball return chute (landscape only; in portrait the HUD rows show potted balls)
     chute = null;
     if (!port && W - box.r > RP * 5) {
-      useS(x);
       const cxr = box.r + Math.min(W * 0.032, (W - box.r) * 0.4), cwid = RP * 2.6, ctop = ty(geo.cy) + RP * 0.5, cbot = box.b - RP * 1.6, bend = RP * 2.2;
       chute = { x: cxr, top: ctop + bend, bot: cbot };
       const tube = () => { x.beginPath(); x.moveTo(box.r - RP * 1.2, ctop); x.lineTo(cxr - bend, ctop); x.arcTo(cxr, ctop, cxr, ctop + bend, bend); x.lineTo(cxr, cbot); };
       x.save(); x.lineCap = 'round'; x.lineJoin = 'round';
-      tube(); x.strokeStyle = '#9aa3ae'; x.lineWidth = cwid + Math.max(3, RP * 0.45); x.stroke();
-      tube(); x.strokeStyle = '#0c1018'; x.lineWidth = cwid; x.stroke();
-      tube(); x.strokeStyle = 'rgba(255,255,255,.06)'; x.lineWidth = cwid * 0.35; x.stroke();
+      tube(); x.strokeStyle = '#7d8794'; x.lineWidth = cwid + Math.max(4, RP * 0.55); x.stroke();
+      tube(); x.strokeStyle = '#c3cad3'; x.lineWidth = cwid + Math.max(2, RP * 0.25); x.stroke();
+      tube(); x.strokeStyle = '#090c13'; x.lineWidth = cwid; x.stroke();
+      tube(); x.strokeStyle = 'rgba(255,255,255,.07)'; x.lineWidth = cwid * 0.3; x.stroke();
       x.restore();
+    }
+    if (S3) sizeGL();
+  }
+
+  /* ------------------------------------------------------------ 3D table (three.js, orthographic, top down) */
+  let T = null, S3 = null;   // three namespace, scene state
+  const glcv = document.createElement('canvas'); glcv.className = 'g8gl';
+  bg.className = 'g8bg';
+  const mkCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+  function tex(c, o) {
+    const t = new T.CanvasTexture(c);
+    t.colorSpace = T.SRGBColorSpace;
+    t.anisotropy = Math.min(8, S3.r.capabilities.getMaxAnisotropy());
+    if (o && o.rep) { t.wrapS = t.wrapT = T.RepeatWrapping; t.repeat.set(o.rep, o.rep); }
+    return t;
+  }
+  // screen up / right as table directions (portrait: table x points up)
+  const scrUp = () => port ? [1, 0] : [0, 1];
+  const scrRt = () => port ? [0, -1] : [1, 0];
+
+  function noiseTile(n, a, b) {
+    const c = mkCanvas(n, n), x = c.getContext('2d'), id = x.createImageData(n, n), d = id.data;
+    for (let i = 0; i < d.length; i += 4) { const v = a + Math.random() * (b - a); d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255; }
+    x.putImageData(id, 0, 0); return c;
+  }
+  function woodCanvas() {
+    const c = mkCanvas(1024, 1024), x = c.getContext('2d');
+    const g = x.createLinearGradient(0, 0, 0, 1024);
+    g.addColorStop(0, '#6e130f'); g.addColorStop(0.5, '#8a1d15'); g.addColorStop(1, '#6a120e');
+    x.fillStyle = g; x.fillRect(0, 0, 1024, 1024);
+    for (let i = 0; i < 420; i++) {
+      const y = Math.random() * 1024, a = 0.03 + Math.random() * 0.09, w = 0.6 + Math.random() * 2.4;
+      x.strokeStyle = Math.random() < 0.7 ? `rgba(30,0,0,${a})` : `rgba(255,150,110,${a * 0.6})`; x.lineWidth = w;
+      x.beginPath(); x.moveTo(0, y);
+      for (let k = 1; k <= 8; k++) x.lineTo(k * 128, y + Math.sin(k * 0.9 + y * 0.03) * (4 + Math.random() * 6));
+      x.stroke();
+    }
+    for (let i = 0; i < 14; i++) {   // knots
+      const kx = Math.random() * 1024, ky = Math.random() * 1024, rw = 20 + Math.random() * 60;
+      for (let j = 0; j < 6; j++) { x.strokeStyle = 'rgba(40,0,0,.08)'; x.lineWidth = 1.5; x.beginPath(); x.ellipse(kx, ky, rw * (1 - j * 0.14), rw * 0.18 * (1 - j * 0.12), 0, 0, 7); x.stroke(); }
+    }
+    return c;
+  }
+  // cloth: lighting, edge shade, head string and the emblem are baked into one texture
+  function clothCanvas() {
+    const { r, cx, cy, cw } = geo, wx = cx + cw, wy = cy + cw;
+    const PX = 1400, PY = Math.round(PX * wy / wx), s = PX / (2 * wx);
+    const c = mkCanvas(PX, PY), x = c.getContext('2d');
+    const X = v => (v + wx) * s, Y = v => (wy - v) * s;
+    const g = x.createRadialGradient(PX / 2, PY / 2, PY * 0.05, PX / 2, PY / 2, PX * 0.62);
+    g.addColorStop(0, '#47b4ec'); g.addColorStop(0.45, '#2f9ad9'); g.addColorStop(1, '#176aa8');
+    x.fillStyle = g; x.fillRect(0, 0, PX, PY);
+    const n = noiseTile(256, 0, 255);
+    x.save(); x.globalAlpha = 0.05; x.globalCompositeOperation = 'overlay';
+    for (let i = 0; i < PX; i += 256) for (let j = 0; j < PY; j += 256) x.drawImage(n, i, j);
+    x.restore();
+    // shade under the cushions
+    const e = r * 1.3 * s;
+    [[0, Y(cy), 0, Y(cy) + e, 0, 0, PX, Y(cy) + e], [0, Y(-cy), 0, Y(-cy) - e, 0, Y(-cy) - e, PX, PY], [X(-cx), 0, X(-cx) + e, 0, 0, 0, X(-cx) + e, PY], [X(cx), 0, X(cx) - e, 0, X(cx) - e, 0, PX, PY]]
+      .forEach(([a, b, c2, d, rx, ry, rx2, ry2]) => { const lg = x.createLinearGradient(a, b, c2, d); lg.addColorStop(0, 'rgba(0,20,50,.42)'); lg.addColorStop(1, 'rgba(0,20,50,0)'); x.fillStyle = lg; x.fillRect(rx, ry, rx2 - rx, ry2 - ry); });
+    // head string + spots
+    x.strokeStyle = 'rgba(225,245,255,.22)'; x.lineWidth = Math.max(1.5, r * s * 0.07);
+    x.beginPath(); x.moveTo(X(-geo.X / 2), Y(cy)); x.lineTo(X(-geo.X / 2), Y(-cy)); x.stroke();
+    x.fillStyle = 'rgba(225,245,255,.28)';
+    [[-geo.X / 2, 0], [geo.X / 2, 0]].forEach(([a, b]) => { x.beginPath(); x.arc(X(a), Y(b), r * s * 0.13, 0, 7); x.fill(); });
+    // emblem: Fernsehturm + GÖNÜL PLAK, upright on screen
+    x.save(); x.translate(X(0), Y(0)); if (port) x.rotate(Math.PI / 2);
+    const k = r * s; x.globalAlpha = 0.17; x.strokeStyle = '#04304f'; x.fillStyle = '#04304f'; x.lineWidth = k * 0.2; x.lineJoin = 'round'; x.lineCap = 'round';
+    x.beginPath(); x.moveTo(-0.55 * k, 4.6 * k); x.lineTo(-0.3 * k, -2.0 * k); x.lineTo(0.3 * k, -2.0 * k); x.lineTo(0.55 * k, 4.6 * k); x.stroke();
+    rr(x, -1.15 * k, -3.5 * k, 2.3 * k, 1.5 * k, 0.45 * k); x.stroke();
+    x.beginPath(); x.moveTo(0, -3.5 * k); x.lineTo(0, -6.4 * k); x.stroke();
+    x.beginPath(); x.ellipse(0, 4.8 * k, 3.6 * k, 0.75 * k, 0, 0, 7); x.stroke();
+    x.font = `800 ${1.3 * k}px system-ui,-apple-system,Arial`; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText('GÖNÜL PLAK', 0, 7.0 * k);
+    x.restore();
+    return c;
+  }
+  function radialCanvas(n, stops) {
+    const c = mkCanvas(n, n), x = c.getContext('2d'), g = x.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+    stops.forEach(([o, col]) => g.addColorStop(o, col)); x.fillStyle = g; x.fillRect(0, 0, n, n); return c;
+  }
+  // ball skin in sphere UV space; spots at local ±Z, stripe band around |x| < .52
+  function ballCanvas(label) {
+    const Wd = 512, Hd = 256, c = mkCanvas(Wd, Hd), x = c.getContext('2d'), id = x.createImageData(Wd, Hd), d = id.data;
+    const base = baseOf(label), stripe = label > 8, cueb = !label;
+    let dg = null, DN = 128;
+    if (label) {
+      const dc = mkCanvas(DN, DN), dx = dc.getContext('2d');
+      dx.fillStyle = '#fff'; dx.fillRect(0, 0, DN, DN);
+      dx.fillStyle = '#141414'; dx.font = `800 ${label > 9 ? 70 : 88}px system-ui,-apple-system,Arial`; dx.textAlign = 'center'; dx.textBaseline = 'middle';
+      dx.fillText(String(label), DN / 2, DN / 2 + 5);
+      if (label === 6 || label === 9) { dx.fillRect(DN * 0.3, DN * 0.86, DN * 0.4, DN * 0.05); }
+      dg = dx.getImageData(0, 0, DN, DN).data;
+    }
+    const WH = [246, 243, 234], SPOT = 0.85, SR = Math.sqrt(1 - SPOT * SPOT) * 1.02;
+    const sm = (a, b, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+    for (let py = 0; py < Hd; py++) {
+      const th = (py + 0.5) / Hd * Math.PI, st = Math.sin(th), ct = Math.cos(th);
+      for (let px = 0; px < Wd; px++) {
+        const ph = (px + 0.5) / Wd * 2 * Math.PI;
+        const lx = -Math.cos(ph) * st, ly = ct, lz = Math.sin(ph) * st;
+        let col = base;
+        if (cueb) col = WH;
+        else {
+          let r0 = base[0], g0 = base[1], b0 = base[2];
+          if (stripe) { const t = sm(0.5, 0.54, Math.abs(lx)); r0 += (WH[0] - r0) * t; g0 += (WH[1] - g0) * t; b0 += (WH[2] - b0) * t; }
+          const ts = sm(SPOT - 0.012, SPOT + 0.006, Math.abs(lz));
+          if (ts > 0) {
+            const qx = (lz > 0 ? lx : -lx) / SR, qy = ly / SR;
+            const tX = Math.max(0, Math.min(DN - 1, ((qx * 0.5 + 0.5) * DN) | 0)), tY = Math.max(0, Math.min(DN - 1, ((0.5 - qy * 0.5) * DN) | 0));
+            const v = dg[(tY * DN + tX) * 4] / 255, sr = 20 + (WH[0] - 20) * v, sg = 20 + (WH[1] - 20) * v, sb = 20 + (WH[2] - 20) * v;
+            r0 += (sr - r0) * ts; g0 += (sg - g0) * ts; b0 += (sb - b0) * ts;
+          }
+          col = [r0, g0, b0];
+        }
+        const i = (py * Wd + px) * 4; d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2]; d[i + 3] = 255;
+      }
+    }
+    x.putImageData(id, 0, 0);
+    if (cueb) {   // small red dot so spin and roll are visible on the cue ball, like real practice balls
+      x.fillStyle = '#d0201a';
+      [[0.25, 0.5], [0.75, 0.5]].forEach(([u, v]) => { x.beginPath(); x.ellipse(u * Wd, v * Hd, Wd * 0.012, Hd * 0.024, 0, 0, 7); x.fill(); });
+    }
+    return c;
+  }
+  function cueCanvas() {   // row 0 = butt, last row = tip
+    const Wc = 64, Hc = 2048, c = mkCanvas(Wc, Hc), x = c.getContext('2d');
+    const band = (a, b, col) => { x.fillStyle = col; x.fillRect(0, a * Hc, Wc, (b - a) * Hc + 1); };
+    band(0, 0.015, '#0d0d0d'); band(0.015, 0.03, '#d7b25a');
+    band(0.03, 0.27, '#1a1a22');
+    for (let y = 0.03 * Hc; y < 0.27 * Hc; y += 6) { x.fillStyle = 'rgba(255,255,255,.05)'; x.fillRect(0, y, Wc, 2); }   // linen wrap
+    band(0.27, 0.285, '#d7b25a'); band(0.285, 0.29, '#111');
+    const fg = x.createLinearGradient(0, 0.29 * Hc, 0, 0.47 * Hc); fg.addColorStop(0, '#120705'); fg.addColorStop(1, '#2a0f08');
+    x.fillStyle = fg; x.fillRect(0, 0.29 * Hc, Wc, 0.18 * Hc);
+    for (let k = 0; k < 4; k++) {   // maple points running into the ebony forearm
+      const cx0 = (k + 0.5) * Wc / 4; x.fillStyle = '#e8cf9a';
+      x.beginPath(); x.moveTo(cx0 - Wc / 9, 0.47 * Hc); x.lineTo(cx0, 0.33 * Hc); x.lineTo(cx0 + Wc / 9, 0.47 * Hc); x.fill();
+      x.fillStyle = '#c63a20'; x.beginPath(); x.moveTo(cx0 - Wc / 24, 0.47 * Hc); x.lineTo(cx0, 0.36 * Hc); x.lineTo(cx0 + Wc / 24, 0.47 * Hc); x.fill();
+    }
+    band(0.47, 0.478, '#cfd4da'); band(0.478, 0.482, '#222'); band(0.482, 0.49, '#cfd4da');
+    const sg = x.createLinearGradient(0, 0.49 * Hc, 0, 0.965 * Hc); sg.addColorStop(0, '#d9b57a'); sg.addColorStop(1, '#f1dfb8');
+    x.fillStyle = sg; x.fillRect(0, 0.49 * Hc, Wc, 0.475 * Hc);
+    for (let i = 0; i < 40; i++) { x.fillStyle = `rgba(120,70,20,${0.03 + Math.random() * 0.05})`; x.fillRect(0, (0.49 + Math.random() * 0.47) * Hc, Wc, 1 + Math.random() * 3); }
+    band(0.965, 0.985, '#f5f3ee'); band(0.985, 1, '#2d6fd8');
+    return c;
+  }
+
+  function init3D() {
+    T = G.THREE; if (!T) return false;
+    const r = new T.WebGLRenderer({ canvas: glcv, antialias: true, alpha: true, powerPreference: 'high-performance' });
+    r.setClearColor(0x000000, 0);
+    r.outputColorSpace = T.SRGBColorSpace;
+    r.toneMapping = T.ACESFilmicToneMapping; r.toneMappingExposure = 1.12;
+    const scene = new T.Scene();
+    const cam = new T.OrthographicCamera(-1, 1, 1, -1, 0.01, 20);
+    S3 = { r, scene, cam, balls: new Map() };
+    const R0 = geo.r, { cx, cy, cw, rw, rim } = geo;
+
+    // environment for reflections: a dark hall with three lamp panels above the table
+    const es = new T.Scene();
+    es.add(new T.Mesh(new T.BoxGeometry(12, 12, 12), new T.MeshBasicMaterial({ color: 0x232a38, side: T.BackSide })));
+    [-1.4, 0, 1.4].forEach(ox => { const m = new T.Mesh(new T.PlaneGeometry(0.9, 0.5), new T.MeshBasicMaterial({ color: new T.Color(6, 5.7, 5.2), side: T.DoubleSide })); m.position.set(ox, 0, 3.2); es.add(m); });
+    const side = new T.Mesh(new T.PlaneGeometry(6, 1.2), new T.MeshBasicMaterial({ color: new T.Color(0.5, 0.6, 0.85), side: T.DoubleSide })); side.position.set(0, -5.5, 1.5); side.rotation.x = Math.PI / 2; es.add(side);
+    const pm = new T.PMREMGenerator(r);
+    scene.environment = pm.fromScene(es, 0.025).texture;
+    pm.dispose();
+
+    scene.add(new T.AmbientLight(0xffffff, 0.45));
+    const key = new T.DirectionalLight(0xfff6ea, 2.4); scene.add(key); scene.add(key.target); S3.key = key;
+
+    // cloth
+    const clothMat = new T.MeshBasicMaterial({ map: tex(clothCanvas()) });
+    const cloth = new T.Mesh(new T.PlaneGeometry(2 * (cx + cw), 2 * (cy + cw)), clothMat);
+    cloth.position.z = -R0; scene.add(cloth); S3.cloth = cloth; S3.clothPort = port;
+
+    // cushions
+    const feltN = tex(noiseTile(128, 222, 255), { rep: 1 / (5 * R0) });
+    const cushMat = new T.MeshStandardMaterial({ color: 0x2386c8, map: feltN, roughness: 0.95, metalness: 0, envMapIntensity: 0.3 });
+    const cutC = R0 * 2.9, cutM = R0 * 2.0, jaw = R0 * 0.95;
+    const cushions = [];
+    const bs = R0 * 0.12, ny = cy + bs, nx = cx + bs;   // nose shifted so the bevelled edge lands on the physics cushion line
+    [1, -1].forEach(sg => {
+      cushions.push([[-cx + cutC - jaw, sg * (cy + cw)], [-cutM, sg * (cy + cw)], [-cutM - jaw * 0.6, sg * ny], [-cx + cutC, sg * ny]]);
+      cushions.push([[cutM, sg * (cy + cw)], [cx - cutC + jaw, sg * (cy + cw)], [cx - cutC, sg * ny], [cutM + jaw * 0.6, sg * ny]]);
+      cushions.push([[sg * (cx + cw), cy - cutC + jaw], [sg * (cx + cw), -cy + cutC - jaw], [sg * nx, -cy + cutC], [sg * nx, cy - cutC]]);
+    });
+    cushions.forEach(pts => {
+      const sh = new T.Shape(); pts.forEach((p, i) => i ? sh.lineTo(p[0], p[1]) : sh.moveTo(p[0], p[1])); sh.closePath();
+      const g = new T.ExtrudeGeometry(sh, { depth: R0 * 1.0, bevelEnabled: true, bevelThickness: R0 * 0.14, bevelSize: bs, bevelSegments: 3, curveSegments: 4 });
+      const m = new T.Mesh(g, cushMat); m.position.z = -R0 - R0 * 0.02; scene.add(m);
+    });
+
+    // wooden rails with rounded outer corners, then a dark metal rim
+    const rrShape = (hx, hy, rad) => { const s = new T.Shape(); s.moveTo(-hx + rad, -hy); s.lineTo(hx - rad, -hy); s.quadraticCurveTo(hx, -hy, hx, -hy + rad); s.lineTo(hx, hy - rad); s.quadraticCurveTo(hx, hy, hx - rad, hy); s.lineTo(-hx + rad, hy); s.quadraticCurveTo(-hx, hy, -hx, hy - rad); s.lineTo(-hx, -hy + rad); s.quadraticCurveTo(-hx, -hy, -hx + rad, -hy); return s; };
+    const rrPath = (hx, hy, rad) => { const s = new T.Path(); s.moveTo(-hx + rad, -hy); s.lineTo(hx - rad, -hy); s.quadraticCurveTo(hx, -hy, hx, -hy + rad); s.lineTo(hx, hy - rad); s.quadraticCurveTo(hx, hy, hx - rad, hy); s.lineTo(-hx + rad, hy); s.quadraticCurveTo(-hx, hy, -hx, hy - rad); s.lineTo(-hx, -hy + rad); s.quadraticCurveTo(-hx, -hy, -hx + rad, -hy); return s; };
+    const ox = cx + cw + rw, oy = cy + cw + rw;
+    const railShape = rrShape(ox, oy, R0 * 1.7); railShape.holes.push(rrPath(cx + cw - R0 * 0.05, cy + cw - R0 * 0.05, R0 * 0.05));
+    const woodT = tex(woodCanvas(), { rep: 1 / (14 * R0) });
+    const railMat = new T.MeshStandardMaterial({ map: woodT, color: 0xd8d0d0, roughness: 0.7, metalness: 0, envMapIntensity: 0.35 });
+    const railG = new T.ExtrudeGeometry(railShape, { depth: R0 * 1.15, bevelEnabled: true, bevelThickness: R0 * 0.2, bevelSize: R0 * 0.22, bevelSegments: 4, curveSegments: 10 });
+    const rail = new T.Mesh(railG, railMat); rail.position.z = -R0; scene.add(rail);
+    const topZ = -R0 + R0 * 1.15 + R0 * 0.2;
+    const rimShape = rrShape(ox + rim, oy + rim, R0 * 2.0); rimShape.holes.push(rrPath(ox - R0 * 0.1, oy - R0 * 0.1, R0 * 1.6));
+    const rimMat = new T.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.35, metalness: 0.85, envMapIntensity: 0.4 });
+    const rimM = new T.Mesh(new T.ExtrudeGeometry(rimShape, { depth: R0 * 1.0, bevelEnabled: true, bevelThickness: R0 * 0.16, bevelSize: R0 * 0.12, bevelSegments: 3, curveSegments: 10 }), rimMat);
+    rimM.position.z = -R0; scene.add(rimM);
+
+    // diamonds
+    const dMat = new T.MeshStandardMaterial({ color: 0xf6efe2, roughness: 0.25, metalness: 0.1, emissive: 0x2a2620 });
+    const dGeo = new T.CircleGeometry(R0 * 0.2, 20);
+    const dy = cy + cw + rw * 0.48, dx = cx + cw + rw * 0.48;
+    const addD = (px, py, rot) => { const m = new T.Mesh(dGeo, dMat); m.scale.set(rot ? 0.7 : 1.15, rot ? 1.15 : 0.7, 1); m.position.set(px, py, topZ + 0.0004); scene.add(m); };
+    for (let i = -3; i <= 3; i++) if (i) { addD(cx * i / 4, dy, false); addD(cx * i / 4, -dy, false); }
+    for (let j = -1; j <= 1; j++) { addD(dx, cy * j / 2, true); addD(-dx, cy * j / 2, true); }
+
+    // pockets: deep black holes with a chrome liner on the rail side
+    const holeT = tex(radialCanvas(128, [[0, '#000'], [0.72, '#020202'], [0.9, '#0b0b0d'], [1, '#202227']]));
+    const holeMat = new T.MeshBasicMaterial({ map: holeT });
+    const linerMat = new T.MeshStandardMaterial({ color: 0x5d6570, roughness: 0.3, metalness: 1, envMapIntensity: 0.35 });
+    const lipMat = new T.MeshStandardMaterial({ color: 0x15171b, roughness: 0.6, metalness: 0.2 });
+    geo.pockets.forEach(p => {
+      const corner = Math.abs(p.x) > geo.X * 0.5, pr = p.rad * (corner ? 1.06 : 1.0);
+      const out = Math.atan2(corner ? Math.sign(p.y) : Math.sign(p.y), corner ? Math.sign(p.x) : 0);
+      const hole = new T.Mesh(new T.CircleGeometry(pr, 48), holeMat); hole.position.set(p.x, p.y, topZ + 0.0008); scene.add(hole);
+      const span = corner ? 3.9 : 3.5;
+      const lip = new T.Mesh(new T.RingGeometry(pr * 0.98, pr * 1.16, 48, 1, out - span / 2, span), lipMat); lip.position.set(p.x, p.y, topZ + 0.001); scene.add(lip);
+      const ln = new T.Mesh(new T.RingGeometry(pr * 1.16, pr * 1.42, 48, 1, out - span / 2, span), linerMat); ln.position.set(p.x, p.y, topZ + 0.0012); scene.add(ln);
+    });
+
+    // balls + blob shadows
+    const sph = new T.SphereGeometry(R0, 48, 32);
+    const shT = tex(radialCanvas(64, [[0, 'rgba(0,0,0,.62)'], [0.45, 'rgba(0,0,0,.42)'], [1, 'rgba(0,0,0,0)']]));
+    const shGeo = new T.PlaneGeometry(R0 * 2.7, R0 * 2.7);
+    table.balls.forEach(b => {
+      const mat = new T.MeshPhysicalMaterial({ map: tex(ballCanvas(b.label || 0)), roughness: 0.16, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.0 });
+      const m = new T.Mesh(sph, mat); scene.add(m);
+      const s = new T.Mesh(shGeo, new T.MeshBasicMaterial({ map: shT, transparent: true, depthWrite: false })); s.renderOrder = 1; scene.add(s);
+      S3.balls.set(b, { m, s, mat });
+    });
+
+    // cue stick + its shadow
+    const L = geo.X * 1.35, rt = R0 * 0.3, rb = R0 * 0.56;
+    const cueMat = new T.MeshPhysicalMaterial({ map: tex(cueCanvas()), roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08, transparent: true });
+    const cueMesh = new T.Mesh(new T.CylinderGeometry(rb, rt, L, 28, 1), cueMat);
+    cueMesh.rotation.z = -Math.PI / 2;
+    const cueInner = new T.Group(); cueInner.add(cueMesh);
+    const cueGrp = new T.Group(); cueGrp.add(cueInner); cueGrp.position.z = R0 * 1.45; scene.add(cueGrp);
+    const csc = mkCanvas(32, 256), cx2 = csc.getContext('2d'), cg = cx2.createLinearGradient(0, 0, 32, 0);
+    cg.addColorStop(0, 'rgba(0,0,0,0)'); cg.addColorStop(0.5, 'rgba(0,0,0,.42)'); cg.addColorStop(1, 'rgba(0,0,0,0)'); cx2.fillStyle = cg; cx2.fillRect(0, 0, 32, 256);
+    const cueShMat = new T.MeshBasicMaterial({ map: tex(csc), transparent: true, depthWrite: false });
+    const cueSh = new T.Mesh(new T.PlaneGeometry(L, rb * 3.2), cueShMat); cueSh.renderOrder = 1;
+    const cueShInner = new T.Group(); cueShInner.add(cueSh);
+    const cueShGrp = new T.Group(); cueShGrp.add(cueShInner); cueShGrp.position.z = -R0 + 0.0007; scene.add(cueShGrp);
+    Object.assign(S3, { cueGrp, cueInner, cueMat, cueShGrp, cueShInner, cueShMat, cueL: L });
+
+    sizeGL();
+    try { r.compile(scene, cam); } catch (e) {}
+    return true;
+  }
+
+  let started = false;
+  function uprightNumbers() {   // before the break, turn the numbers to face the player
+    if (started) return;
+    const q0 = port ? [0, 0, -Math.SQRT1_2, Math.SQRT1_2] : [0, 0, 0, 1];
+    table.balls.forEach(b => { try { b.ballmesh.mesh.quaternion.set(...q0); } catch (e) {} });
+  }
+  function sizeGL() {
+    if (!S3 || !W) return;
+    uprightNumbers();
+    const { r, cam, key } = S3;
+    r.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    r.setSize(W, H, false);
+    glcv.style.width = W + 'px'; glcv.style.height = H + 'px';
+    const c = sToT(W / 2, H / 2), hw = W / 2 / K, hh = H / 2 / K, up = scrUp(), rt = scrRt();
+    cam.left = -hw; cam.right = hw; cam.top = hh; cam.bottom = -hh; cam.updateProjectionMatrix();
+    cam.up.set(up[0], up[1], 0); cam.position.set(c.x, c.y, 5); cam.lookAt(c.x, c.y, 0);
+    key.position.set((up[0] - rt[0]) * 1.2, (up[1] - rt[1]) * 1.2, 3); key.target.position.set(0, 0, 0);
+    S3.shOff = [(rt[0] - up[0]) * geo.r * 0.2, (rt[1] - up[1]) * geo.r * 0.2];
+    if (S3.clothPort !== port) {   // emblem follows the orientation
+      const old = S3.cloth.material.map; S3.cloth.material.map = tex(clothCanvas()); S3.cloth.material.needsUpdate = true; old.dispose(); S3.clothPort = port;
     }
   }
 
@@ -348,26 +547,20 @@
     x.restore();
   }
 
-  /* ------------------------------------------------------------ cue stick (virtual space) */
+  /* ------------------------------------------------------------ cue stick (3D) */
   let pull = 0, strike = null, cueAlpha = 0, dispAng = null;
-  function drawCue(x, ang, gapPx, alpha) {
-    if (alpha <= 0.01) return;
-    const c = cb(), px = tx(c.pos.x), py = ty(c.pos.y);
-    const len = Math.max(VW * 0.42, geo.X * K * 1.05), tipW = RP * 0.36, buttW = RP * 0.82;
-    x.save(); x.globalAlpha = alpha; x.translate(px, py); x.rotate(-ang + Math.PI);
-    x.translate(RP + gapPx, 0);
-    x.save(); x.translate(RP * 0.2, RP * 0.45); x.fillStyle = 'rgba(0,0,0,.16)';
-    x.beginPath(); x.moveTo(0, -tipW / 2); x.lineTo(len, -buttW / 2); x.lineTo(len, buttW / 2); x.lineTo(0, tipW / 2); x.fill(); x.restore();
-    const g = x.createLinearGradient(0, 0, len, 0);
-    g.addColorStop(0, '#f4f1ea'); g.addColorStop(0.012, '#f4f1ea'); g.addColorStop(0.013, '#2f6fd6'); g.addColorStop(0.022, '#2f6fd6');
-    g.addColorStop(0.023, '#efe3c6'); g.addColorStop(0.08, '#e8cf9c'); g.addColorStop(0.52, '#d2a466');
-    g.addColorStop(0.525, '#e8c35a'); g.addColorStop(0.535, '#e8c35a'); g.addColorStop(0.54, '#1d0d06'); g.addColorStop(0.62, '#5a2410');
-    g.addColorStop(0.75, '#7b3416'); g.addColorStop(0.9, '#3a1508'); g.addColorStop(0.97, '#e8c35a'); g.addColorStop(0.98, '#111'); g.addColorStop(1, '#111');
-    x.fillStyle = g;
-    x.beginPath(); x.moveTo(0, -tipW / 2); x.lineTo(len, -buttW / 2); x.lineTo(len, buttW / 2); x.lineTo(0, tipW / 2); x.closePath(); x.fill();
-    x.globalAlpha = alpha * 0.45; x.fillStyle = '#fff';
-    x.beginPath(); x.moveTo(0, -tipW * 0.32); x.lineTo(len, -buttW * 0.3); x.lineTo(len, -buttW * 0.1); x.lineTo(0, -tipW * 0.1); x.fill();
-    x.restore();
+  function placeCue(ang, gap, alpha) {
+    const { cueGrp, cueInner, cueMat, cueShGrp, cueShInner, cueShMat, cueL } = S3;
+    const vis = alpha > 0.01;
+    cueGrp.visible = cueShGrp.visible = vis;
+    if (!vis) return;
+    const c = cb().pos, R0 = geo.r, a = ang + Math.PI;
+    cueGrp.position.x = c.x; cueGrp.position.y = c.y; cueGrp.rotation.z = a;
+    cueInner.position.x = R0 + gap + cueL / 2;
+    const o = S3.shOff;
+    cueShGrp.position.x = c.x + o[0] * 2.6; cueShGrp.position.y = c.y + o[1] * 2.6; cueShGrp.rotation.z = a;
+    cueShInner.position.x = R0 + gap + cueL / 2;
+    cueMat.opacity = alpha; cueShMat.opacity = alpha;
   }
 
   /* ------------------------------------------------------------ frame */
@@ -375,39 +568,28 @@
   function trackPotted(now) {
     table.balls.forEach(b => { if (b.label && b.state === 'InPocket' && !potted.includes(b.label)) { potted.push(b.label); chuteAnim[b.label] = now; } });
   }
-  let lastCtrl = '', lastMine = null;
+  function syncBalls() {
+    const R0 = geo.r, o = S3.shOff;
+    for (const b of table.balls) {
+      const e = S3.balls.get(b); if (!e) continue;
+      if (b.state === 'InPocket') { e.m.visible = e.s.visible = false; continue; }
+      e.m.visible = e.s.visible = true;
+      e.m.position.set(b.pos.x, b.pos.y, b.pos.z);
+      const q = b.ballmesh && b.ballmesh.mesh.quaternion; if (q) e.m.quaternion.copy(q);
+      const f = b.pos.z < 0 ? Math.max(0, 1 + b.pos.z / (1.6 * R0)) : 1;
+      e.s.position.set(b.pos.x + o[0], b.pos.y + o[1], -R0 + 0.0005);
+      e.s.material.opacity = f;
+      const dk = 0.25 + 0.75 * f; e.mat.color.setRGB(dk, dk, dk);
+    }
+  }
+  let lastCtrl = '', lastMine = null, lastTick = 0;
   function frame(ts) {
     try {
       if (innerWidth + 'x' + innerHeight !== lastSize) layout();
-      if (!W || !geo) return requestAnimationFrame(frame);
-      const x = ctx;
-      x.setTransform(1, 0, 0, 1, 0, 0); x.drawImage(bg, 0, 0);
+      if (!W || !geo || !S3) return;
       const name = ctrl(), mine = myTurn(), still = table.allStationary();
-      // shadows (virtual space)
-      useV(x); x.fillStyle = 'rgba(0,0,0,.33)';
-      for (const b of table.balls) {
-        if (b.state === 'InPocket') continue;
-        const sc = b.state === 'Falling' ? Math.max(0.2, 1 + b.pos.z / (2 * geo.r)) : 1;
-        x.beginPath(); x.ellipse(tx(b.pos.x) + (port ? -RP * 0.38 : RP * 0.3), ty(b.pos.y) + (port ? RP * 0.3 : RP * 0.38), RP * 1.02 * sc, RP * 0.96 * sc, 0, 0, 7); x.fill();
-      }
-      // balls (screen space so the light stays top-left)
-      useS(x);
-      for (const b of table.balls) {
-        if (b.state === 'InPocket') continue;
-        let sc = 1, al = 1;
-        if (b.state === 'Falling') { sc = Math.max(0.15, 1 + b.pos.z / (2 * geo.r)); al = Math.max(0, sc); }
-        const sp = ballSprite(b), sz = sp.width / dpr * sc, [sx, sy] = tToS(b.pos.x, b.pos.y);
-        x.globalAlpha = al; x.drawImage(sp, sx - sz / 2, sy - sz / 2, sz, sz); x.globalAlpha = 1;
-      }
-      if (mine && placing()) {
-        const c = cb(), [px, py] = tToS(c.pos.x, c.pos.y), bad = table.overlapsAny(c.pos);
-        x.save(); x.strokeStyle = bad ? '#ff3b30' : 'rgba(255,255,255,.9)'; x.lineWidth = 1.5; x.setLineDash([4, 4]);
-        x.lineDashOffset = -ts / 60; x.beginPath(); x.arc(px, py, RP * 2.2, 0, 7); x.stroke(); x.restore();
-        x.font = `${Math.max(16, RP * 2.2)}px system-ui`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('✋', px + RP * 2.1, py - RP * 2.3);
-      }
-      // guideline + cue
-      useV(x);
-      if (mine && still && !strike) drawGuide(x);
+      syncBalls();
+      // cue
       const showCue = (still && (name === 'Aim' || name === 'WatchAim' || (name === 'PlaceBall' && mine))) || !!strike;
       cueAlpha += ((showCue ? 1 : 0) - cueAlpha) * (showCue ? 0.4 : 0.25);
       let gap = pull * RP * 9;
@@ -418,8 +600,21 @@
         if (ts - strike.t0 > 240) strike = null;
       }
       if (mine || dispAng == null) dispAng = cue.aim.angle; else dispAng += wrap(cue.aim.angle - dispAng) * 0.12;
-      drawCue(x, dispAng, Math.max(-RP * 0.7, gap), cueAlpha);
-      // chute
+      placeCue(dispAng, Math.max(-RP * 0.7, gap) / K, cueAlpha);
+      S3.r.render(S3.scene, S3.cam);
+
+      // 2D overlay: guideline, ball-in-hand ring, chute
+      const x = ctx;
+      x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, cv.width, cv.height);
+      if (mine && placing()) {
+        useS(x);
+        const c = cb(), [px, py] = tToS(c.pos.x, c.pos.y), bad = table.overlapsAny(c.pos);
+        x.save(); x.strokeStyle = bad ? '#ff3b30' : 'rgba(255,255,255,.9)'; x.lineWidth = 1.5; x.setLineDash([4, 4]);
+        x.lineDashOffset = -ts / 60; x.beginPath(); x.arc(px, py, RP * 2.2, 0, 7); x.stroke(); x.restore();
+        x.font = `${Math.max(16, RP * 2.2)}px system-ui`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('✋', px + RP * 2.1, py - RP * 2.3);
+      }
+      useV(x);
+      if (mine && still && !strike) drawGuide(x);
       trackPotted(ts);
       if (chute) {
         useS(x); const step = RP * 2.05;
@@ -432,10 +627,16 @@
         });
       }
       if (mine !== lastMine) { lastMine = mine; stage.classList.toggle('mine', mine); if (!mine) closeSpin(); else { try { cue.setSpin(V(0, 0), table); } catch (e) {} } }
-      if (name !== lastCtrl) { lastCtrl = name; hud(); }
+      if (name !== lastCtrl) { lastCtrl = name; hud(); if (name === 'PlayShot' || name === 'WatchShot') started = true; }
       hudBalls(); paintSpinDot(); idleMsg();
     } catch (e) { if (!frame.err) { frame.err = 1; console.warn(e); } }
-    requestAnimationFrame(frame);
+  }
+  // draw right after the engine steps the physics, in the same animation frame (no lag, no jitter)
+  function hookEngineLoop() {
+    const proto = Object.getPrototypeOf(C).animate;
+    C.animate = function (t) { proto.call(C, t); lastTick = t; frame(t); };
+    const watchdog = t => { if (t - lastTick > 120) frame(t); requestAnimationFrame(watchdog); };
+    requestAnimationFrame(watchdog);
   }
 
   /* ------------------------------------------------------------ HUD (DOM) */
@@ -498,13 +699,17 @@
     if (m.textContent !== t) m.textContent = t;
     m.classList.toggle('on', !!t);
   }
+  const TRN = [['Hitting the 8-ball first is a foul', 'Önce 8 numaraya vurdun'], ['Must hit 8-ball first', 'Önce 8 numaraya vurmalısın'], ['Wrong group hit first', 'Önce rakibin topuna vurdun'],
+    ['Wrong ball hit first', 'Önce yanlış topa vurdun'], ['Cue ball potted', 'Beyaz top deliğe girdi'], ['No ball hit', 'Hiçbir topa değmedi'], ['No cushion after contact', 'Temastan sonra banda değmedi'], ['ELDE TOP', '· Elde top']];
+  function trNote(t) { TRN.forEach(([a, b]) => { t = t.split(a).join(b); }); return t.replace(/^FAUL\s+/, 'FAUL · '); }
   function watchNotes() {
     const el = document.getElementById('notification');
     if (!el) return setTimeout(watchNotes, 300);
     let last = '';
     new MutationObserver(() => {
-      const txt = (el.innerText || '').trim().replace(/\s+/g, ' ');
+      let txt = (el.innerText || '').trim().replace(/\s+/g, ' ');
       if (!txt || txt === last) return; last = txt;
+      txt = trNote(txt);
       const up = txt.toLocaleUpperCase('tr');
       if (/KAZANDIN|KAYBETTİN|OYUN BİTTİ/.test(up)) return gameOver(/KAZANDIN/.test(up));
       say(txt.length > 60 ? txt.slice(0, 58) + '…' : txt, 2600);
@@ -661,15 +866,15 @@
     if (!G || !G.container || !G.container.table || !G.container.view) return setTimeout(boot, 40);
     C = G.container; table = C.table; cue = table.cue;
     try { C.view.render = () => {}; C.view.renderCamera = () => {}; } catch (e) {}
-    table.balls.forEach(b => { try { b.ballmesh.mesh.quaternion.set(0, 0, 0, 1); } catch (e) {} });
     readGeo(); setupSound();
     document.body.classList.add('g8on');
-    stage.append(cv, touch, ui);
+    stage.append(bg, glcv, cv, touch, ui);
     document.body.append(stage);
     layout();
+    init3D();
     window.__g8 = { toScreen: (x, y) => tToS(x, y) };   // test hook
     watchNotes(); hud(); hudBalls();
-    requestAnimationFrame(frame);
+    hookEngineLoop();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();
