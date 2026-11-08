@@ -550,18 +550,11 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .sleeve .cov::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,rgba(255,255,255,.14),rgba(255,255,255,0) 40%)}
 .lgen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:linear-gradient(135deg,#3b0f22,#1e1217);padding:10%;text-align:center}.lgen svg{width:55%}.lgen b{font-family:var(--hand);font-size:1rem;line-height:1.05}
 
-/* Bilardo */
-.pool{position:fixed;left:0;right:0;top:0;bottom:calc(var(--navh) + env(safe-area-inset-bottom,0px));z-index:30;background:#0b0b0b;padding-top:env(safe-area-inset-top,0px);display:flex;flex-direction:column}
-.pool[hidden]{display:none}.pool.loading::after{content:"Bilardo masası kuruluyor…";position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);pointer-events:none}
+/* Bilardo: tam ekran, oyunun kendi menüsü var */
+.pool{position:fixed;inset:0;z-index:90;background:#141b29;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+.pool[hidden]{display:none}.pool.loading::after{content:"Bilardo masası kuruluyor…";position:absolute;inset:0;display:grid;place-items:center;color:#9aa6b8;pointer-events:none}
 .pool-on body{overflow:hidden}.pool-on .scene{visibility:hidden}
-.pframe{display:block;width:100%;flex:1;min-height:0;border:0;background:#0b0b0b;transition:opacity .3s}
-.pbar{position:absolute;left:max(8px,env(safe-area-inset-left,0px));top:calc(env(safe-area-inset-top,0px) + 8px);display:flex;gap:6px;align-items:center;z-index:2}
-.plvl{height:36px;padding:0 10px;border-radius:12px;background:#000a;border:1px solid #ffffff1f;color:#ddd;font-size:.78rem;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}.plvl b{color:#ffd25a}
-.pib{width:36px;height:36px;border-radius:12px;background:#000a;border:1px solid #ffffff1f;color:#f5e7d0;font-size:1.1rem;display:grid;place-items:center;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
-.pexit{display:none!important}
-@media (orientation:portrait){.pbar{position:static;order:-1;padding:6px 10px;background:#0b0b0b;justify-content:flex-start}}
-@media (orientation:landscape) and (max-height:540px){.pexit{display:grid!important} html.pool-on .pool{bottom:0!important}}
-@media (min-width:920px){.pexit{display:grid!important} .pool{bottom:0;z-index:60}}
+.pframe{display:block;width:100%;height:100%;border:0;background:#141b29;transition:opacity .3s}
 
 /* Geniş ekran: kaset solda sabit, sağda arşiv */
 @media (min-width:920px){
