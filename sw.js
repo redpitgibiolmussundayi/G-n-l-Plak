@@ -1,8 +1,8 @@
 /* Gönül Plak — offline önbellek.
    Kod dosyaları önce internetten (güncel sürüm hemen gelsin), internet yoksa önbellekten.
    Resimler ve kütüphaneler önce önbellekten. */
-const CACHE = 'gonulplak-v39';
-const CORE = ['./', 'index.html', 'app.js', 'config.js', 'stretch.js', 'dsp-worker.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
+const CACHE = 'gonulplak-v41';
+const CORE = ['./', 'index.html', 'app.js', 'i18n.js', 'config.js', 'stretch.js', 'dsp-worker.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
   ...['sabah', 'gunduz', 'gunbatimi', 'aksam', 'gece', 'kapali-sabah', 'kapali-gunduz', 'kapali-aksam', 'kapali-gece'].map(n => `stg-sonbahar-${n}.webp`)];
 const POOL = ['bilardo.html', 'bl-game.js', 'bl-bg-classic.webp', 'bl-bg-la.webp', 'bl-bg-stg.webp', 'bl-th-classic.webp', 'bl-th-la.webp', 'bl-th-stg.webp', 'bl-av-eren.webp', 'bl-av-mira.webp', 'bl-ballcollision.m4a', 'bl-cue.m4a', 'bl-cushion.m4a', 'bl-pot.m4a', 'bl-success.m4a'];
 const isPool = p => /\/(bilardo\.html|bl-[^/]+)$/.test(p);

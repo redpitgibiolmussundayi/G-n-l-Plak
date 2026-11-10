@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 37;
+const VERSION = 39;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -1773,7 +1773,7 @@ const UI = {
         <p class="msg" hidden>${d.mode === 'live' ? '' : 'Hazırlamalı: ses arka planda işlenip çalınır. Her iPhone\'da çalışır, kilit ekranında da devam eder. Ayar değişince yaklaşık bir saniyede güncellenir.'}</p>
         <pre class="diag" id="diagText">${esc(['motor: ' + d.mode + (d.motor ? ' (hazır)' : ''), 'ses: ' + d.ctx, 'oturum: ' + d.session, d.ua, '', ...d.events].join('\n'))}</pre>
         <button class="btn" id="diagCopy">Teknik bilgiyi kopyala</button></div>
-      <div class="group"><h3>Uygulama</h3><p class="msg">Sürüm <strong>${VERSION}</strong></p><button class="btn" id="upd">Güncellemeyi kontrol et</button></div>`;
+      <div class="group"><h3>Uygulama</h3><p class="msg">Sürüm <strong>${VERSION}</strong></p><div class="field"><label>Dil / Sprache</label><div class="seg" id="langSeg"><button data-lang="tr" aria-pressed="${window.GP_LANG !== 'de'}">Türkçe</button><button data-lang="de" aria-pressed="${window.GP_LANG === 'de'}">Deutsch</button></div></div><button class="btn" id="upd">Güncellemeyi kontrol et</button></div>`;
   }
 };
 
@@ -2400,7 +2400,9 @@ Uygulamayı yönetebilirsin (araçlar): şarkı çalmak, sıraya koymak, liste k
 
 Kullanıcı Stuttgart'ta yaşıyor ve Stuttgart'a sevdalı. Saate, havaya ve gün batımına göre yeri gelince Stuttgart'a değin (Fernsehturm, Fernmeldeturm, Schlossplatz, Königstraße, Neckar, Bad Cannstatt, Karlshöhe, Killesberg, Feuersee gibi) ama her cevapta değil.
 
-Kullanıcı kendine zarar vermeyi düşündüğünü ya da çok kötü olduğunu söylerse dertleşmeyi sürdür, yargılama; nazikçe güvendiği biriyle ya da bir uzmanla konuşmasını öner ve Almanya'da ücretsiz, 7/24 açık Telefonseelsorge'u ver: 0800 111 0 111 veya 0800 111 0 222.`;
+Kullanıcı kendine zarar vermeyi düşündüğünü ya da çok kötü olduğunu söylerse dertleşmeyi sürdür, yargılama; nazikçe güvendiği biriyle ya da bir uzmanla konuşmasını öner ve Almanya'da ücretsiz, 7/24 açık Telefonseelsorge'u ver: 0800 111 0 111 veya 0800 111 0 222.` + (window.GP_LANG === 'de' ? `
+
+WICHTIG: Der Nutzer hat die App auf Deutsch gestellt. Antworte ab jetzt immer auf Deutsch statt auf Türkisch: locker, per Du, kurz (meist 1-4 Sätze). Türkische Liedtitel, Künstlernamen und einzelne Arabesk-Wörter (z. B. "damar", "gönül") bleiben im Original. Auch Systemnotizen auf Türkisch beantwortest du auf Deutsch.` : '');
 
   function dynamicCtx() {
     const s = App.byId(App.curId);
@@ -3800,7 +3802,7 @@ const X = (() => {
     'Unutmak istediğini bir şarkıya koy; şarkı hatırlasın, sen değil.', 'Bugün de geçer; gün batımı bile Killesberg\'de bekletmez.', 'Arabesk ağlamak değil, ağlarken dik durmaktır.', 'Gönül kapısı itmekle değil, çalmakla açılır.',
     'Her durak bir veda, her kalkış bir umut.', 'Karanlık tünelde bile S-Bahn ışığını yakar.', 'Gözyaşı da yağmur gibi; toprağı yumuşatır.', 'Kalbinin sesini aç; kulaklık sadece müziği duyurur.', 'Derdin varsa çayı tazele, kaseti çevir.',
     'Yolun yarısı sabır, yarısı şarkı.', 'Ay dolunay olunca gönül de taşar.', 'Bir şarkı yetmez, bir ömür de.', 'Her gece biraz Müslüm, her sabah biraz umut.'];
-  const sozToday = () => { const d = new Date(), k = d.getFullYear() * 400 + d.getMonth() * 32 + d.getDate(); return SOZ[k % SOZ.length]; };
+  const sozToday = () => { const d = new Date(), k = d.getFullYear() * 400 + d.getMonth() * 32 + d.getDate(); return (window.gpT || (x => x))(SOZ[k % SOZ.length]); };
   function sozUI() { const el = $('soz'); if (el) el.innerHTML = `<span class="kicker">günün sözü</span><p>“${esc(sozToday())}”</p><button class="chipbtn" id="sozCard">Söz kartı yap</button>`; }
 
   // ---- Söz kartı (paylaşılabilir resim)
