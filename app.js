@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 40;
+const VERSION = 41;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -423,7 +423,9 @@ const Engine = (() => {
   // Sadece canlı motor: hazırlamalı motora artık hiç geçilmez (Eren'in isteği)
   let mode = 'live'; LS.set('gp-engine2', 'live');
   let duration = 0, pos = 0, playing = false, loadedId = null, curBlob = null;
-  const L = { time() {}, end() {}, mode() {}, state() {}, busy() {}, decoded() {}, fxset() {} };
+  const L = { time() {}, end() {}, mode() {}, state() {}, busy() {}, decoded() {}, fxset() {}, hint() {} };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  let interrupted = null, wantPlay = false, reviving = false, tapArmed = false;
   const diag = [];
   function log(m) { diag.push(new Date().toTimeString().slice(0, 8) + ' ' + m); if (diag.length > 40) diag.shift(); }
   window.addEventListener('error', e => log('JS hata: ' + (e.message || '')));
@@ -450,7 +452,7 @@ const Engine = (() => {
     });
     el.addEventListener('pause', () => { if (mode === 'render' && playing && !swapping && !waitFull && el.currentTime < el.duration - 0.2) { playing = false; L.state(); } });
     el.addEventListener('play', () => { if (mode === 'render' && !playing) { playing = true; L.state(); } });
-    el.addEventListener('pause', () => { if (mode === 'live' && bridge && el.srcObject && playing) { playing = false; try { stretch.schedule({ active: false, output: ctx.currentTime }); } catch (e) {} L.state(); } });
+    el.addEventListener('pause', () => { if (mode === 'live' && bridge && el.srcObject && playing) markInterrupted('ses öğesi durdu'); });
   }
 
   /* ---- canlı motor ---- */
@@ -476,7 +478,10 @@ const Engine = (() => {
         ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
         log('AudioContext ' + ctx.sampleRate + ' Hz, ' + ctx.state);
         try { if (bridgeOn && ctx.createMediaStreamDestination && window.MediaStream) bridge = ctx.createMediaStreamDestination(); } catch (e) { bridge = null; }
-        ctx.onstatechange = () => { log('AudioContext: ' + ctx.state); if (playing && mode === 'live' && ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().catch(() => {}); };
+        const me = ctx;
+        ctx.onstatechange = () => { if (me !== ctx) return; log('AudioContext: ' + ctx.state); if (!playing || mode !== 'live') return;
+          if (ctx.state === 'interrupted' || (ctx.state === 'suspended' && document.hidden)) markInterrupted('ses oturumu ' + ctx.state);
+          else if (ctx.state === 'suspended') ctx.resume().catch(() => {}); };
       } catch (e) { log('AudioContext açılamadı'); return; }
     }
     if (ctx.state !== 'running') ctx.resume().catch(e => log('resume: ' + e.message));
@@ -610,8 +615,9 @@ const Engine = (() => {
       if (el && !el.paused) { swapping = true; el.pause(); swapping = false; }
       return loadRender(id, blob, cancelled);
     }
+    if (ctx && !(await ctxRunning(700))) freshCtx();
     try { await initLive(); }
-    catch (e) { initP = null; unlockCtx(); try { await initLive(); } catch (e2) { log('Canlı motor açılamadı: ' + e2.message); throw new Error('motor'); } }
+    catch (e) { freshCtx(); try { await initLive(); } catch (e2) { log('Canlı motor açılamadı: ' + e2.message); throw new Error('motor'); } }
     stretch.schedule({ active: false }); await stretch.dropBuffers();
     const ab = await blob.arrayBuffer(); if (cancelled()) return false;
     let buf;
@@ -638,12 +644,73 @@ const Engine = (() => {
       el.play().catch(e => { log('oynatma: ' + e.message); playing = false; L.state(); });
       return;
     }
-    if (!stretch) return;
+    if (!stretch || !ctx || ctx.state !== 'running') {
+      if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+      if (reviving) return; reviving = true; wantPlay = true; L.busy('Ses açılıyor…');
+      revive().then(ok => { reviving = false; L.busy(null); if (ok && wantPlay) startLive(); else if (!ok) { playing = false; L.state(); needTap(); } });
+      return;
+    }
+    startLive();
+  }
+  function startLive() {
+    wantPlay = false; interrupted = null;
     if (pos >= duration - 0.1) seek(0);
-    if (ctx.state !== 'running') ctx.resume().catch(() => {});
     stretch.schedule(Object.assign({ active: true, output: ctx.currentTime + 0.03 }, params()));
-    playing = true; bridgePlay();
+    playing = true; bridgePlay(); L.state();
     arm();
+  }
+  /* ---- kesinti (Instagram, arama, başka uygulama sesi) ve geri dönüş ---- */
+  function markInterrupted(why) {
+    if (!playing || mode !== 'live') return;
+    log('Kesinti: ' + why);
+    interrupted = { at: pos, t: Date.now() };
+    clearTimeout(watchdog); playing = false;
+    try { if (stretch) stretch.schedule({ active: false, output: ctx.currentTime }); } catch (e) {}
+    L.state();
+  }
+  async function ctxRunning(ms) {
+    if (!ctx) return false; if (ctx.state === 'running') return true;
+    try { await Promise.race([ctx.resume(), sleep(ms || 700)]); } catch (e) {}
+    return ctx.state === 'running';
+  }
+  // takılı kalan ses oturumunu at, yepyeni bir AudioContext kur
+  function freshCtx() {
+    log('Ses motoru sıfırdan kuruluyor');
+    try { if (stretch) stretch.disconnect(); } catch (e) {}
+    if (ctx) { const old = ctx; ctx = null; old.onstatechange = null; try { old.close(); } catch (e) {} }
+    stretch = null; graph = null; initP = null; bridge = null; vuA = null;
+    if (el && el.srcObject) { try { el.pause(); } catch (e) {} el.srcObject = null; }
+    unlockCtx();
+  }
+  async function revive() {
+    const id = loadedId, blob = curBlob, at = pos;
+    if (!(await ctxRunning(700))) { freshCtx(); if (!(await ctxRunning(900))) return false; }
+    if (!stretch && id && blob) {
+      try { const ok = await load(id, blob, () => false); if (!ok) return false; } catch (e) { return false; }
+      seek(at);
+    }
+    return !!stretch;
+  }
+  // iPhone sesi ancak bir dokunuşla açmaya izin veriyorsa: bir sonraki dokunuşta devam et
+  function needTap() {
+    L.hint('Müziğe devam etmek için ekrana dokun');
+    if (tapArmed) return; tapArmed = true;
+    const go = () => {
+      ['touchend', 'pointerup', 'click'].forEach(e => document.removeEventListener(e, go, true)); tapArmed = false;
+      unlock();
+      setTimeout(() => { if (wantPlay && !playing && !reviving) play(); }, 350);
+    };
+    ['touchend', 'pointerup', 'click'].forEach(e => document.addEventListener(e, go, true));
+  }
+  function comeBack() {
+    if (document.hidden || mode !== 'live') return;
+    if (playing) { if (ctx && ctx.state !== 'running') { ctx.resume().catch(() => {}); arm(); } return; }
+    if (!interrupted || !loadedId) return;
+    const it = interrupted; interrupted = null;
+    if (Date.now() - it.t > 15 * 60 * 1000) return;
+    log('Geri dönüldü, şarkı kaldığı yerden devam ediyor');
+    pos = it.at; try { if (stretch) seek(it.at); } catch (e) {}
+    wantPlay = true; play();
   }
   // Bekçi: ses ilerlemiyorsa önce sesi uyandır, olmazsa canlı motoru yeniden kur (hazırlamalıya ASLA geçme)
   let tries = 0;
@@ -653,7 +720,7 @@ const Engine = (() => {
       if (!playing || Math.abs(pos - p0) >= 0.3) { tries = 0; return; }
       log('Canlı motor ilerlemiyor (ses ' + (ctx && ctx.state) + '), deneme ' + (tries + 1));
       tries++;
-      if (tries <= 2) { try { await ctx.resume(); } catch (e) {} if (stretch) stretch.schedule(Object.assign({ input: pos, output: ctx.currentTime + 0.05, active: true }, params())); bridgePlay(); arm(); }
+      if (tries <= 2 && (await ctxRunning(600))) { if (stretch) stretch.schedule(Object.assign({ input: pos, output: ctx.currentTime + 0.05, active: true }, params())); bridgePlay(); arm(); }
       else { tries = 0; recover(); }
     }, 2400);
   }
@@ -662,15 +729,17 @@ const Engine = (() => {
     if (recovering || !curBlob || !loadedId) return; recovering = true;
     const at = pos, id = loadedId, was = playing, blob = curBlob;
     L.busy('Motor tazeleniyor');
-    try { if (stretch) { try { stretch.disconnect(); } catch (e) {} } stretch = null; initP = null;
-      try { if (ctx.state !== 'running') await ctx.resume(); } catch (e) {}
+    try {
+      if (!(await ctxRunning(700))) freshCtx();
+      else { try { if (stretch) stretch.disconnect(); } catch (e) {} stretch = null; initP = null; }
+      if (!(await ctxRunning(900))) { playing = false; wantPlay = was; L.busy(null); recovering = false; L.state(); if (was) needTap(); return; }
       const ok = await load(id, blob, () => false);
       if (ok) { seek(at); if (was) play(); }
     } catch (e) { log('Yeniden kurulamadı: ' + e.message); }
     L.busy(null); recovering = false; L.state();
   }
   function pause() {
-    clearTimeout(watchdog); playing = false; waitFull = false;
+    clearTimeout(watchdog); playing = false; waitFull = false; wantPlay = false; interrupted = null;
     if (mode === 'render') { if (el) el.pause(); L.busy(null); return; }
     if (stretch) stretch.schedule({ active: false, output: ctx.currentTime });
     if (bridge && el && el.srcObject) el.pause();
@@ -684,7 +753,9 @@ const Engine = (() => {
     }
     if (stretch) stretch.schedule(Object.assign({ input: t, output: ctx.currentTime, active: playing }, params()));
   }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && playing && ctx.state !== 'running') { ctx.resume().catch(() => {}); arm(); } });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { if (playing && ctx && ctx.state !== 'running') markInterrupted('arka plan'); } else setTimeout(comeBack, 250); });
+  window.addEventListener('pageshow', () => setTimeout(comeBack, 250));
+  window.addEventListener('focus', () => setTimeout(comeBack, 250));
 
   function setFx(patch, quiet) {
     Object.assign(fx, patch); LS.set('gp-fx2', fx);
@@ -1485,6 +1556,7 @@ function step(dir, auto) {
   const id = nextId(dir); if (id) playSong(id);
 }
 Engine.on('end', () => step(1, true));
+Engine.on('hint', m => toast(m));
 Engine.on('state', () => { UI.now(); Wave.state(); Media.state(); if (Lamp.on) Lamp.upd(); });
 Engine.on('busy', t => UI.busy(t));
 Engine.on('mode', () => { toast('iPhone için hazırlamalı motora geçildi. Ton, yankı ve EQ çalışır; ayar değişince ses bir saniyede güncellenir.'); UI.now(); renderFx(); UI.account(); });
@@ -2244,6 +2316,7 @@ const PRESETS = [
   { id: 'fernsehturm', n: 'Fernsehturm Tepesi', d: 'Şehrin üstünde, geniş ve derin', p: { rvbOn: true, rvbType: 'konser', rvbMix: 0.32, d8On: true, d8Speed: 0.06 } },
   { id: 'ubahn', n: 'U-Bahn Gecesi', d: 'Yeraltında yankılanan uzak ses', p: { rvbOn: true, rvbType: 'hamam', rvbMix: 0.36, echoOn: true, echoTime: 0.18, echoFb: 0.25, echoMix: 0.12, eqOn: true, eq: [-3, -2, 0, 1, 2, 1, 0, -2, -4, -6], eqPreset: 'custom' } },
   { id: 'neckar', n: 'Neckar Kenarı', d: 'Sakin, sudan gelen bir hüzün', p: { rate: 0.96, semi: -0.5, rvbOn: true, rvbType: 'oda', rvbMix: 0.2, tapeOn: true, tapeWow: 0.25, tapeHiss: 0.1, eqOn: true, eq: [2, 2, 1, 0, 0, -1, -2, -2, -3, -4], eqPreset: 'gece' } },
+  { id: 'eskihiz', n: 'Eski Kaset Hızı', d: 'Eski damar kasetleri gibi hafif hızlı, ton da birlikte yukarı', p: { rate: 1.07, semi: 1.17, tapeOn: true, tapeWow: 0.12, tapeHiss: 0.06, rvbOn: true, rvbType: 'oda', rvbMix: 0.1, eqOn: true, eq: [1, 1, 0, 0, 1, 2, 2, 1, 0, -1], eqPreset: 'custom' } },
   { id: 'nightcore', n: 'Nightcore', d: 'Hızlı ve tiz', p: { rate: 1.25, semi: 3 } }
 ];
 function renderModes() {
