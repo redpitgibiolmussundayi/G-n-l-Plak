@@ -179,7 +179,7 @@
     "Bütün şarkıların, kapakların, listelerin ve ayarların tek dosyada. \"Dosyalara kaydet\" ile iCloud Drive'a koy; telefon değişse de geri yüklersin.": "Alle Lieder, Cover, Listen und Einstellungen in einer Datei. Leg sie mit \"In Dateien sichern\" in iCloud Drive ab; nach einem Handywechsel stellst du alles wieder her.",
     "Tam yedek": "Vollständiges Backup", "Sadece etiketler": "Nur Infos", "Yedekten geri yükle": "Aus Backup wiederherstellen", "Benim yerlerim": "Meine Orte", "Açılıyor…": "Wird geöffnet…", "Kapatılıyor…": "Wird geschlossen…",
     "Yedek açılıyor…": "Backup wird geöffnet…", "Yedek açılamadı": "Backup konnte nicht geöffnet werden", "Arşivde şarkı yok": "Keine Lieder im Archiv", "Arşiv yeni sürüme taşınıyor…": "Archiv wird auf die neue Version umgestellt…",
-    "Dil / Sprache": "Sprache / Dil", "sevdası": "meine Liebe", "dolunay": "Vollmond", "kış": "Winter", "ilkbahar": "Frühling", "yaz": "Sommer", "sonbahar": "Herbst",
+    "Dil / Sprache": "Sprache / Dil", "Görünüm": "Ansicht", "2D · Üstten": "2D · Von oben", "3D · Gerçek masa": "3D · Echter Tisch", "Kamera": "Kamera", "sevdası": "meine Liebe", "dolunay": "Vollmond", "kış": "Winter", "ilkbahar": "Frühling", "yaz": "Sommer", "sonbahar": "Herbst",
     /* ---------- bilardo ---------- */
     "Bilardo hazırlanıyor…": "Billard wird vorbereitet…", "Menü": "Menü", "Ayarlar": "Einstellungen", "Rakipler": "Gegner", "İstatistik": "Statistik", "Mağaza": "Shop", "Falso": "Effet",
     "Kırılış sende": "Du stößt an", "Elde top: beyazı istediğin yere sürükle": "Ball in Hand: Zieh die Weiße, wohin du willst", "Kırılış: beyazı çizginin gerisinde sürükle": "Anstoß: Zieh die Weiße hinter die Linie",
