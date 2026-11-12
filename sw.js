@@ -1,11 +1,11 @@
 /* Gönül Plak — offline önbellek.
    Kod dosyaları önce internetten (güncel sürüm hemen gelsin), internet yoksa önbellekten.
    Resimler ve kütüphaneler önce önbellekten. */
-const CACHE = 'gonulplak-v43';
+const CACHE = 'gonulplak-v44';
 const CORE = ['./', 'index.html', 'app.js', 'i18n.js', 'config.js', 'stretch.js', 'dsp-worker.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
   ...['sabah', 'gunduz', 'gunbatimi', 'aksam', 'gece', 'kapali-sabah', 'kapali-gunduz', 'kapali-aksam', 'kapali-gece'].map(n => `stg-sonbahar-${n}.webp`)];
-const POOL = ['bilardo.html', 'bl-game.js', 'bl-bg-classic.webp', 'bl-bg-la.webp', 'bl-bg-stg.webp', 'bl-th-classic.webp', 'bl-th-la.webp', 'bl-th-stg.webp', 'bl-av-eren.webp', 'bl-av-mira.webp', 'bl-ballcollision.m4a', 'bl-cue.m4a', 'bl-cushion.m4a', 'bl-pot.m4a', 'bl-success.m4a'];
-const isPool = p => /\/(bilardo\.html|bl-[^/]+)$/.test(p);
+const POOL = ['bilardo.html', 'bl-game.js', 'bl-bg-classic.webp', 'bl-bg-la.webp', 'bl-bg-stg.webp', 'bl-th-classic.webp', 'bl-th-la.webp', 'bl-th-stg.webp', 'bl-av-eren.webp', 'bl-av-mira.webp', 'bl-ballcollision.m4a', 'bl-cue.m4a', 'bl-cushion.m4a', 'bl-pot.m4a', 'bl-success.m4a', 'okey.html', 'okey.js', 'net.js', 'ok-bg.webp', 'ok-th.webp', 'stg-gece.webp', 'stg-gunbatimi.webp'];
+const isPool = p => /\/(bilardo\.html|okey\.html|okey\.js|net\.js|bl-[^/]+|ok-[^/]+)$/.test(p);
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', e => {
@@ -36,7 +36,7 @@ self.addEventListener('fetch', e => {
   }
   const isCode = same && (req.mode === 'navigate' || /\.(js|html|webmanifest)$/.test(url.pathname) || url.pathname.endsWith('/'));
   if (isCode) {
-    const top = req.mode === 'navigate' && !url.pathname.endsWith('/bilardo.html');
+    const top = req.mode === 'navigate' && !/\/(bilardo|okey)\.html$/.test(url.pathname);
     const key = top ? 'index.html' : url.origin + url.pathname; // bilardo iframe'i ana sayfanın yerine geçmesin
     e.respondWith(
       fetch(req, { cache: 'no-cache' }).then(r => { if (r.ok) { const cp = r.clone(); e.waitUntil(caches.open(CACHE).then(c => c.put(key, cp))); } return r; })

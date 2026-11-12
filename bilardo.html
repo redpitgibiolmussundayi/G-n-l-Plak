@@ -62,7 +62,8 @@ html,body{margin:0;height:100%;background:#0c0708;overflow:hidden;overscroll-beh
 .side button:active{background:rgba(255,255,255,.06)}
 .side svg{width:46px;height:46px}
 /* power */
-.pow{left:143px;top:296px;width:54px;height:330px;border-radius:27px;touch-action:none;overflow:hidden;transition:opacity .25s}
+.powhit{position:absolute;left:126px;top:250px;width:190px;height:440px;touch-action:none}
+.pow{left:136px;top:290px;width:68px;height:340px;border-radius:27px;touch-action:none;overflow:hidden;transition:opacity .25s}
 .pow .fill{position:absolute;left:5px;right:5px;bottom:5px;height:0;border-radius:22px;background:linear-gradient(0deg,#ffcf6a,#ff8a2b 60%,#ff3b2f);opacity:.85}
 .pow .stick{position:absolute;left:50%;top:14px;width:12px;margin-left:-6px;height:300px;border-radius:6px 6px 2px 2px}
 .pow .lbl{position:absolute;left:0;right:0;bottom:12px;text-align:center;font-size:15px;font-weight:700;color:rgba(255,255,255,.55)}
@@ -146,6 +147,7 @@ html.ready .bpload{opacity:0;pointer-events:none}
 <body>
 <div class="bpload"><div><i></i>Bilardo hazırlanıyor…</div></div>
 <script src="i18n.js"></script>
+<script src="net.js"></script>
 <script src="bl-game.js" defer></script>
 </body>
 </html>

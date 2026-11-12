@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 41;
+const VERSION = 42;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -619,16 +619,16 @@ const Engine = (() => {
     try { await initLive(); }
     catch (e) { freshCtx(); try { await initLive(); } catch (e2) { log('Canlı motor açılamadı: ' + e2.message); throw new Error('motor'); } }
     stretch.schedule({ active: false }); await stretch.dropBuffers();
-    const ab = await blob.arrayBuffer(); if (cancelled()) return false;
+    let ab = await blob.arrayBuffer(); if (cancelled()) return false;
     let buf;
     try { buf = await new Promise((res, rej) => { const p = ctx.decodeAudioData(ab, res, rej); if (p && p.catch) p.catch(rej); }); }
     catch (e) { log('çözümleme hatası'); throw e; }
     if (cancelled()) return false;
     // Tek parça halinde ver: kütüphane parça sınırlarında taşma hatası veriyor
-    const a = buf.getChannelData(0).slice(), b = buf.numberOfChannels > 1 ? buf.getChannelData(1).slice() : a.slice();
-    duration = buf.duration;
+    const a = buf.getChannelData(0).slice(), b = buf.numberOfChannels > 1 ? buf.getChannelData(1).slice() : a.slice(), sr0 = buf.sampleRate;
+    duration = buf.duration; buf = null;   // çözülmüş sesi hemen bırak: iPhone hafızası (uygulama arka planda kapanmasın)
     fx._norm = loudness(a, b); graph.apply(fx, true);
-    try { L.decoded(id, a, b, buf.sampleRate); } catch (e) { log('dalga: ' + e.message); }
+    try { L.decoded(id, a, b, sr0); } catch (e) { log('dalga: ' + e.message); }
     await stretch.addBuffers([a, b], [a.buffer, b.buffer]);
     if (cancelled()) return false;
     stretch.schedule({ input: 0, output: ctx.currentTime, active: false });
@@ -1476,7 +1476,11 @@ const App = {
     else if (k === 'artist') list.sort((a, b) => (a.artist || '~').localeCompare(b.artist || '~', 'tr') || (a.title || '').localeCompare(b.title || '', 'tr'));
     else list.reverse();
     return list;
-  }
+  },
+  // sıra her zaman bütün arşivden kurulur; arama sadece şarkıyı bulmak içindir
+  get userName() { return LS.get('gp_name', '') || ''; },
+  setName(n, quiet) { n = String(n || '').trim().slice(0, 18); if (!n) return; LS.set('gp_name', n); if (!quiet) toast('Merhaba ' + n + '!'); try { UI.account(); } catch (e) {} },
+  all() { const q = this.query; this.query = ''; const l = this.filtered(); this.query = q; return l; }
 };
 const fx = Engine.fx;
 const isWide = () => matchMedia('(min-width:920px)').matches;
@@ -1488,7 +1492,7 @@ async function playSong(id, queue) {
   const s = App.byId(id); if (!s) return;
   Engine.unlock();
   if (queue) App.queue = queue;
-  if (!App.queue.includes(id)) App.queue = App.filtered().map(x => x.id);
+  if (!App.queue.includes(id)) App.queue = App.all().map(x => x.id);
   const tok = ++loadToken;
   App.curId = id; App.loadingId = id; Wave.song();
   UI.now(); UI.markOn(); UI.lists(); UI.busy('Kaset takılıyor');
@@ -1845,6 +1849,7 @@ const UI = {
         <p class="msg" hidden>${d.mode === 'live' ? '' : 'Hazırlamalı: ses arka planda işlenip çalınır. Her iPhone\'da çalışır, kilit ekranında da devam eder. Ayar değişince yaklaşık bir saniyede güncellenir.'}</p>
         <pre class="diag" id="diagText">${esc(['motor: ' + d.mode + (d.motor ? ' (hazır)' : ''), 'ses: ' + d.ctx, 'oturum: ' + d.session, d.ua, '', ...d.events].join('\n'))}</pre>
         <button class="btn" id="diagCopy">Teknik bilgiyi kopyala</button></div>
+      <div class="group"><h3>Profil</h3><div class="field"><label>Adın</label><input id="meName" maxlength="18" autocomplete="nickname" value="${esc(App.userName)}" placeholder="Adını yaz"></div><span class="sub">Oyunlarda ve Gönül Dostu'nda bu isim görünür.</span></div>
       <div class="group"><h3>Uygulama</h3><p class="msg">Sürüm <strong>${VERSION}</strong></p><div class="field"><label>Dil / Sprache</label><div class="seg" id="langSeg"><button data-lang="tr" aria-pressed="${window.GP_LANG !== 'de'}">Türkçe</button><button data-lang="de" aria-pressed="${window.GP_LANG === 'de'}">Deutsch</button></div></div><button class="btn" id="upd">Güncellemeyi kontrol et</button></div>`;
   }
 };
@@ -2489,7 +2494,7 @@ WICHTIG: Der Nutzer hat die App auf Deutsch gestellt. Antworte ab jetzt immer au
     numMap = list.map(x => x.id);
     const arc = list.map((x, i) => `${i + 1}. ${x.title}${x.artist ? ' – ' + x.artist : ''}`).join('\n');
     const now = new Date();
-    return `Şu an: ${now.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })}, saat ${now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}. ${Scene.describe()}${X.aiHint()}
+    return (App.userName ? `Kullanıcının adı: ${App.userName}. ` : '') + `Şu an: ${now.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })}, saat ${now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}. ${Scene.describe()}${X.aiHint()}
 Çalan şarkı: ${s ? `"${s.title}"${s.artist ? ' – ' + s.artist : ''}${s.album ? ', albüm ' + s.album : ''}${s.year ? ', ' + s.year : ''} (arşiv no ${numMap.indexOf(s.id) + 1})` : 'yok'}; ${Engine.playing ? 'çalıyor' : 'duraklatılmış'}.
 Ses: mod ${mode ? mode.n : 'özel ayar'}; efektler: ${eff.join(', ') || 'yok'}.${Sleep.left ? ` Uyku zamanlayıcısı: ${Sleep.left} dk kaldı.` : ''}
 Dinleme: ${Hist.summary()}
@@ -2517,7 +2522,7 @@ ${arc || 'boş'}`;
   function act(t) { log.push({ r: 'act', t }); }
   function runTool(name, x) {
     try {
-      if (name === 'play_song') { const s = songAt(x.song); if (!s) return 'Bu numarada şarkı yok.'; playSong(s.id, App.queue.includes(s.id) ? App.queue : App.filtered().map(y => y.id)); act(`♪ ${s.title} çalıyor`); return `Çalıyor: ${s.title}`; }
+      if (name === 'play_song') { const s = songAt(x.song); if (!s) return 'Bu numarada şarkı yok.'; playSong(s.id, App.queue.includes(s.id) ? App.queue : App.all().map(y => y.id)); act(`♪ ${s.title} çalıyor`); return `Çalıyor: ${s.title}`; }
       if (name === 'queue_songs') {
         const ids = (x.songs || []).map(songAt).filter(Boolean).map(s => s.id); if (!ids.length) return 'Geçerli şarkı yok.';
         App.queue = [App.curId, ...ids].filter(Boolean); App.prefs.shuffle = false; App.savePrefs(); UI.modes(); UI.now();
@@ -3158,7 +3163,7 @@ $('list').addEventListener('click', e => {
   const ed = e.target.closest('[data-edit]'); if (ed) return songMenu(ed.dataset.edit);
   const row = e.target.closest('[data-id]'); if (!row) return;
   const id = row.dataset.id;
-  id === App.curId && Engine.loadedId === id ? toggle() : playSong(id, App.filtered().map(s => s.id));
+  id === App.curId && Engine.loadedId === id ? toggle() : playSong(id, App.all().map(s => s.id));
 });
 $('search').addEventListener('input', raf(() => { App.query = $('search').value; UI.lib(); }));
 
@@ -3783,28 +3788,53 @@ const Rack = (() => {
   return { render, get view() { return view; } };
 })();
 
-/* ================= Bilardo sekmesi: gerçek fizik motoru (tailuge/billiards, GPL-3.0) iframe içinde ================= */
+/* ================= Oyunlar sekmesi: Bilardo + Okey (iframe sadece oyun açıkken yaşar: hafıza) ================= */
+const GAMES = {
+  bilardo: { file: 'bilardo.html', t: 'Bilardo', d: '8-Ball ve 9-Ball · 2D veya 3D · arkadaşınla online', img: 'bl-th-stg.webp' },
+  okey: { file: 'okey.html', t: 'Okey', d: 'Dışarıda kar, içeride çay · arkadaşlarınla online', img: 'ok-th.webp' }
+};
 const Pool = (() => {
-  let fr = null;
-  const BOTS = { kolay: 'ClawBreak', zor: 'TheFarJaw' };
-  const lvl = () => { try { return localStorage.getItem('gp_pool_lvl') || 'zor'; } catch (e) { return 'zor'; } };
-  const name = () => { try { return (localStorage.getItem('gp_name') || 'Eren').slice(0, 14); } catch (e) { return 'Eren'; } };
-  function src() { return 'bilardo.html?ruletype=eightball&tableSize=7&locale=tr&shotClock=3600&bot=' + BOTS[lvl()] + '&userName=' + encodeURIComponent(name()) + '&t=' + Date.now(); }
-  function start() { $('vPool').classList.add('loading'); fr.style.opacity = 0; fr.src = src(); }
-  function build() {
-    const v = $('vPool'); v.innerHTML = '';
-    fr = document.createElement('iframe'); fr.className = 'pframe'; fr.title = 'Bilardo';
-    fr.setAttribute('allow', 'autoplay; fullscreen');
-    fr.onload = () => { $('vPool').classList.remove('loading'); fr.style.opacity = 1; };
-    v.append(fr);
+  let fr = null, cur = null, killT = 0;
+  const v = () => $('vPool');
+  function chooser() {
+    destroy();
+    v().innerHTML = `<div class="games"><p class="eyebrow">oyun köşesi</p><h2 class="title">Oyunlar</h2>
+      ${Object.entries(GAMES).map(([k, g]) => `<button class="gcard" data-game="${k}"><i style="background-image:url(${g.img})"></i><span><strong>${g.t}</strong><small>${g.d}</small></span></button>`).join('')}
+      <p class="sub" style="margin-top:14px">Arkadaşınla oynamak için oyunda <b>Online</b>'a bas, oda kur ve linki gönder.</p></div>`;
   }
-  window.addEventListener('message', e => { if (e.data === 'pool-exit' && e.source === (fr && fr.contentWindow)) setView(isWide() ? 'lib' : 'now'); });
-  function open() { if (!fr) { build(); start(); } }
-  function close() { /* oyun arka planda bekler, geri gelince kaldığın yerden */ }
-  // masa önceden arkada kurulsun: sekmeye basınca anında açılır
-  function prewarm() { if (!fr) { build(); start(); } }
-  window.addEventListener('load', () => setTimeout(() => (window.requestIdleCallback || (f => f()))(prewarm), 3500));
-  return { open, close };
+  function launch(id, oda) {
+    const g = GAMES[id]; if (!g) return chooser();
+    destroy(); cur = id;
+    const box = v(); box.innerHTML = ''; box.classList.add('loading');
+    fr = document.createElement('iframe'); fr.className = 'pframe'; fr.title = g.t; fr.setAttribute('allow', 'autoplay; fullscreen; clipboard-write; web-share');
+    fr.style.opacity = 0;
+    fr.onload = () => { box.classList.remove('loading'); if (fr) fr.style.opacity = 1; };
+    fr.src = g.file + '?userName=' + encodeURIComponent(App.userName || '') + (oda ? '&oda=' + encodeURIComponent(oda) : '') + '&t=' + Date.now();
+    box.append(fr);
+  }
+  function destroy() {
+    clearTimeout(killT);
+    if (fr) { try { fr.src = 'about:blank'; } catch (e) {} fr.remove(); fr = null; }
+    cur = null; const b = v(); if (b) b.classList.remove('loading');
+  }
+  window.addEventListener('message', e => {
+    if (!fr || e.source !== fr.contentWindow) return;
+    const d = e.data;
+    if (d === 'pool-exit' || d === 'game-exit') chooser();
+    else if (d && d.type === 'gp-name' && d.name) App.setName(d.name, true);
+  });
+  $('vPool').addEventListener('click', e => { const b = e.target.closest('[data-game]'); if (b) launch(b.dataset.game); });
+  function open() { clearTimeout(killT); if (!fr && !v().querySelector('.games')) chooser(); }
+  // sekmeden çıkınca oyun 20 sn bekler (yanlışlıkla çıktıysan kaybolmasın), sonra hafızayı boşaltır
+  function close() { clearTimeout(killT); if (fr) killT = setTimeout(() => { if (App.view !== 'pool') { destroy(); v().innerHTML = ''; } }, 20000); }
+  document.addEventListener('visibilitychange', () => { if (document.hidden && fr && App.view !== 'pool') { destroy(); v().innerHTML = ''; } });
+  function invite() {
+    const q = new URLSearchParams(location.search), g = q.get('oyun'), oda = q.get('oda');
+    if (!g || !GAMES[g]) return false;
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    setView('pool'); launch(g, oda); return true;
+  }
+  return { open, close, launch, invite };
 })();
 /* ================= Ekstralar: damar, kader kasetleri, istatistik, yedek, yolculuk ================= */
 const X = (() => {
@@ -4114,10 +4144,10 @@ const X = (() => {
   const aiHint = () => fx._night ? ' Saat gece 2\'yi geçti (Gece 3 modu): daha derin, daha yavaş, daha içten konuş; kısa ama dokunaklı ol.' : '';
 
   // ---- Benim yerlerim (uygulama açıkken konuma göre şarkı)
-  let places = LS.get('gp-places', []), watch = null, placed = LS.get('gp-placed', {});
+  let places = LS.get('gp-places', []), watch = null, placed = LS.get('gp-placed', {}), placeAuto = LS.get('gp-places-auto', false);
   const dist = (a, b) => { const R = 6371e3, t = Math.PI / 180, dl = (b[0] - a[0]) * t, dn = (b[1] - a[1]) * t; const x = Math.sin(dl / 2) ** 2 + Math.cos(a[0] * t) * Math.cos(b[0] * t) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); };
   function placesWatch() {
-    if (watch !== null || !places.length || !navigator.geolocation) return;
+    if (watch !== null || !places.length || !placeAuto || !navigator.geolocation) return;
     watch = navigator.geolocation.watchPosition(p => {
       const me = [p.coords.latitude, p.coords.longitude];
       for (const pl of places) {
@@ -4130,6 +4160,7 @@ const X = (() => {
   }
   function placesHTML() {
     return `${places.length ? `<ul class="memlist">${places.map((p, i) => `<li><span><strong>${esc(p.n)}</strong> · ${esc((App.byId(p.song) || {}).title || 'şarkı silinmiş')}</span><button class="more" data-xplacedel="${i}" aria-label="Sil">×</button></li>`).join('')}</ul>` : '<span class="sub">Henüz yer yok.</span>'}
+      ${places.length ? `<div class="toggle"><div class="tl"><span>Yere gelince kendiliğinden çal</span><span class="sub">Açıksa uygulama her açılışta konumuna bakar. iPhone sormasın istersen: Ayarlar › Uygulamalar › Safari › Konum › İzin Ver</span></div><button class="sw" data-xplaceauto role="switch" aria-checked="${placeAuto}" aria-label="Yere göre çal"></button></div>` : ''}
       <button class="btn" id="placeAdd">Burayı ekle (şu an çalan şarkıyla)</button>
       <span class="sub">Uygulama açıkken o yere gelince şarkın kendiliğinden başlar. iPhone, web uygulamalarına kapalıyken konum vermez.</span>`;
   }
@@ -4140,7 +4171,7 @@ const X = (() => {
       const n = prompt('Bu yerin adı (ör. Killesberg, Karlshöhe)'); if (!n) return;
       places.push({ id: Date.now().toString(36), n: n.trim(), c: [p.coords.latitude, p.coords.longitude], r: 250, song: s.id }); LS.set('gp-places', places);
       placed[places[places.length - 1].id] = Date.now(); LS.set('gp-placed', placed);
-      UI.account(); placesWatch(); toast(n + ' eklendi');
+      placeAuto = true; LS.set('gp-places-auto', true); UI.account(); placesWatch(); toast(n + ' eklendi');
     }, () => toast('Konum izni verilmedi. Ayarlar > Gizlilik > Konum Servisleri > Safari Web Siteleri'), { timeout: 15000 });
   }
 
@@ -4347,12 +4378,14 @@ const X = (() => {
     if (t.closest('#bkLite')) { backup(false); return true; }
     if (t.closest('#wrapBtn')) { wrapped(); return true; }
     if (t.closest('#placeAdd')) { placeAdd(); return true; }
+    if (t.closest('[data-xplaceauto]')) { placeAuto = !placeAuto; LS.set('gp-places-auto', placeAuto); if (placeAuto) placesWatch(); else if (watch !== null) { try { navigator.geolocation.clearWatch(watch); } catch (e) {} watch = null; } UI.account(); return true; }
     const pd = t.closest('[data-xplacedel]'); if (pd) { places.splice(+pd.dataset.xplacedel, 1); LS.set('gp-places', places); UI.account(); return true; }
     return false;
   }
 
   function bind() {
     $('vAcct').addEventListener('click', e => { acctClick(e); });
+    $('vAcct').addEventListener('change', e => { if (e.target && e.target.id === 'meName') App.setName(e.target.value); });
     $('vAcct').addEventListener('change', async e => {
       if (e.target.id !== 'bkIn' || !e.target.files[0]) return;
       toast('Yedek açılıyor…');
@@ -4377,6 +4410,37 @@ const X = (() => {
   return { damar, nowUI, moodRow, acct, bind, sbRender, sbClick, aiHint, onTime, shareList, importShared, get tripLine() { return trip ? trip.line + ' ' + trip.from + '→' + trip.to : null; } };
 })();
 
+/* ================= İlk açılış: isim sor (her yeni kullanıcıda bir kez) ================= */
+function askName() {
+  if (App.userName) return;
+  const w = document.createElement('div'); w.className = 'sheet'; w.id = 'nameSheet';
+  w.innerHTML = `<div class="sheet-card"><div class="sheet-inner" style="padding-bottom:28px">
+    <p class="eyebrow">hoş geldin</p><h3 style="font:700 24px var(--slab);margin:4px 0 6px">Adın ne?</h3>
+    <p class="sub" style="margin:0 0 14px">Oyunlarda arkadaşların seni bu isimle görür. Sonra Ben sekmesinden değiştirebilirsin.</p>
+    <input id="nameIn" maxlength="18" autocomplete="nickname" placeholder="Adın" style="width:100%;box-sizing:border-box;font-size:18px">
+    <button class="btn" id="nameOk" style="width:100%;margin-top:14px">Devam</button></div></div>`;
+  document.body.append(w);
+  const go = () => { const n = $('nameIn').value.trim(); if (!n) { $('nameIn').focus(); return; } App.setName(n); w.remove(); };
+  $('nameOk').onclick = go; $('nameIn').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+}
+/* ================= iPhone uygulamayı kapatırsa: kaldığın şarkı ve saniye ================= */
+const Resume = (() => {
+  function save() { if (App.curId && Engine.loadedId === App.curId) LS.set('gp-resume', { id: App.curId, pos: Engine.pos, t: Date.now(), q: App.queue.slice(0, 400) }); }
+  setInterval(() => { if (Engine.playing) save(); }, 4000);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+  window.addEventListener('pagehide', save);
+  async function restore() {
+    const r = LS.get('gp-resume', null); if (!r || Date.now() - r.t > 12 * 3600e3) return;
+    const s = App.byId(r.id); if (!s || !s.blob || App.curId) return;
+    if (Array.isArray(r.q) && r.q.length) App.queue = r.q.filter(id => App.byId(id));
+    App.curId = s.id; App.loadingId = s.id; UI.now(); UI.busy('Kaset takılıyor');
+    try { SongFx.load(s); const ok = await Engine.load(s.id, s.blob, () => App.curId !== s.id); if (ok) { Engine.seek(Math.max(0, (r.pos || 0) - 1)); toast('Kaldığın yerden devam: ▶ bas'); } }
+    catch (e) {}
+    App.loadingId = null; UI.busy(null); UI.now(); UI.markOn(); Media.meta();
+  }
+  return { restore, save };
+})();
+
 (async () => {
   buildKnobs(); buildFx(); buildEq(); renderModes(); UI.modes();
   await DB.open();
@@ -4384,7 +4448,7 @@ const X = (() => {
   App.songs = songs; App.lists = lists; App.sortSongs();
   for (const x of App.songs) { let ch = false; for (const k of ['title', 'artist', 'album']) { if (x[k] && x[k] !== x[k].normalize('NFC')) { x[k] = x[k].normalize('NFC'); ch = true; } } if (ch) DB.song(x); }
   if (legacy.length) { toast('Arşiv yeni sürüme taşınıyor…'); const broken = []; await DB.migrate(legacy, s => broken.push(s)); if (broken.length) { UI.lib(); toast(broken.length + ' şarkının dosyası bozulmuş, tekrar eklemen gerekiyor'); } }
-  App.queue = App.filtered().map(s => s.id);
+  App.queue = App.all().map(s => s.id);
   renderFx(); UI.lib(); AI.render(); $('chatAv').innerHTML = TEA; Scene.start();
   setView(App.songs.length ? 'now' : 'lib');
   X.bind(); X.nowUI(); X.importShared(); Deck.apply(); MyEq.render(); UI.lib();
@@ -4394,6 +4458,8 @@ const X = (() => {
   DB.putFile('crowd:user', null);
   if (/^#sb$|^#sbahn$/.test(location.hash) || new URLSearchParams(location.search).get('go') === 'sb') setView('sb');
   document.documentElement.classList.remove('booting');
+  askName();
+  if (!Pool.invite()) Resume.restore();
   const back = await Spotify.handleRedirect();
   if (back) { setView('lists'); openSpImport(); }
   Cloud.init();
