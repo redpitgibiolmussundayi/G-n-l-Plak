@@ -867,6 +867,7 @@ async function netHost() {
   openModal(`<h2>${T('Oda kuruluyor…')}</h2>`);
   try {
     const room = await window.GPNet.host('okey', netOpts()); pending = room;
+    try { parent.postMessage({ type: 'okey-room', code: room.code }, '*'); } catch (e) {}
     openModal(`<h2>🌐 ${T('Oda kuruldu')}</h2><div class="big">${room.code}</div><div class="ovs">${T('Arkadaşların Oyunlar › Okey › 🌐 › Odaya katıl\'a girip bu kodu yazsın ya da linke dokunsun.')}</div>
       <div id="lobby">${lobbyHTML(room.peers)}</div>
       <div class="row2"><button class="btn ghost" data-v="share">${T('Linki gönder')}</button><button class="btn" data-v="start">${T('Başlat')}</button></div>
@@ -934,6 +935,7 @@ function boot() {
   setTimeout(() => document.documentElement.classList.add('ready'), 2500);
   if (!P.name) setTimeout(() => askName(() => { if (qs.get('oda')) netJoin(qs.get('oda')); }), 300);
   else if (qs.get('oda')) setTimeout(() => netJoin(qs.get('oda')), 300);
+  else if (qs.get('autohost')) setTimeout(() => netHost(), 400);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) loadView(); });
   requestAnimationFrame(frame);
   window.__okey = { state: () => G, slots: () => slots, act, apply, solve, isWin, finishTile, melds, mySeat: () => mySeat, netHost, netJoin, setScene, setTime: t => { P.time = t; loadView(); }, startOnline: () => pending && startOnline(pending), pending: () => pending && pending.code, net: () => NET && { seat: NET.seat, code: NET.room.code } };

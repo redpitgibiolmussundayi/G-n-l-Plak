@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 43;
+const VERSION = 44;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -3791,6 +3791,7 @@ const Rack = (() => {
 /* ================= Oyunlar sekmesi: Bilardo + Okey (iframe sadece oyun açıkken yaşar: hafıza) ================= */
 const GAMES = {
   bilardo: { file: 'bilardo.html', t: 'Bilardo', d: '8-Ball ve 9-Ball · 2D veya 3D · arkadaşınla online', img: 'bl-th-stg.webp' },
+  kiraathane: { file: 'kiraathane.html', t: 'Kıraathane 3D', d: 'Stuttgart kıraathanesinde gez · TV, çay, okey masası · arkadaşlarınla online', img: 'kh-th.webp' },
   okey: { file: 'okey.html', t: 'Okey', d: 'Stuttgart kıraathanesi · gerçek saatle manzara · arkadaşlarınla online', img: 'ok-th.webp' }
 };
 const Pool = (() => {
