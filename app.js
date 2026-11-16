@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 44;
+const VERSION = 45;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -891,6 +891,7 @@ const Cloud = (() => {
     async signIn(email, pw) { const { error } = await sb.auth.signInWithPassword({ email, password: pw }); if (error) throw error; },
     async signUp(email, pw) { const { data, error } = await sb.auth.signUp({ email, password: pw }); if (error) throw error; return !data.session; },
     async signOut() { await sb.auth.signOut(); setState(''); }
+    ,async signedUrl(path) { const { data, error } = await sb.storage.from('music').createSignedUrl(path, 4 * 3600); if (error) throw error; return data.signedUrl; }
   };
 })();
 
@@ -2244,6 +2245,7 @@ function setView(v) {
   if (v === 'sb') SB.start(); else SB.stop();
   document.documentElement.classList.toggle('pool-on', v === 'pool');
   if (v === 'pool') Pool.open(); else Pool.close();
+  document.documentElement.classList.remove('game-nav');
   if (v === 'acct') UI.account();
   if (v === 'lists') UI.lists();
   UI.now(); window.scrollTo(0, 0);
@@ -3791,7 +3793,7 @@ const Rack = (() => {
 /* ================= Oyunlar sekmesi: Bilardo + Okey (iframe sadece oyun açıkken yaşar: hafıza) ================= */
 const GAMES = {
   bilardo: { file: 'bilardo.html', t: 'Bilardo', d: '8-Ball ve 9-Ball · 2D veya 3D · arkadaşınla online', img: 'bl-th-stg.webp' },
-  kiraathane: { file: 'kiraathane.html', t: 'Kıraathane 3D', d: 'Stuttgart kıraathanesinde gez · TV, çay, okey masası · arkadaşlarınla online', img: 'kh-th.webp' },
+  kiraathane: { file: 'kiraathane.html', t: 'Kıraathane 3D', d: 'Stuttgart kıraathanesi · okey, bilardo, nargile, TV, plak · arkadaşlarınla online', img: 'kh-th.webp' },
   okey: { file: 'okey.html', t: 'Okey', d: 'Stuttgart kıraathanesi · gerçek saatle manzara · arkadaşlarınla online', img: 'ok-th.webp' }
 };
 const Pool = (() => {
@@ -3812,22 +3814,26 @@ const Pool = (() => {
     fr.onload = () => { box.classList.remove('loading'); if (fr) fr.style.opacity = 1; };
     fr.src = g.file + '?userName=' + encodeURIComponent(App.userName || '') + (oda ? '&oda=' + encodeURIComponent(oda) : '') + '&t=' + Date.now();
     box.append(fr);
+    document.documentElement.classList.add('game-alive'); full();
   }
+  function full() { const on = !!fr && App.view === 'pool'; document.documentElement.classList.toggle('game-full', on); if (!on) document.documentElement.classList.remove('game-nav'); }
   function destroy() {
     clearTimeout(killT);
     if (fr) { try { fr.src = 'about:blank'; } catch (e) {} fr.remove(); fr = null; }
     cur = null; const b = v(); if (b) b.classList.remove('loading');
+    document.documentElement.classList.remove('game-alive', 'game-full', 'game-nav');
   }
   window.addEventListener('message', e => {
     if (!fr || e.source !== fr.contentWindow) return;
     const d = e.data;
     if (d === 'pool-exit' || d === 'game-exit') chooser();
     else if (d && d.type === 'gp-name' && d.name) App.setName(d.name, true);
+    else if (d && d.type) GameBridge.msg(d);
   });
   $('vPool').addEventListener('click', e => { const b = e.target.closest('[data-game]'); if (b) launch(b.dataset.game); });
-  function open() { clearTimeout(killT); if (!fr && !v().querySelector('.games')) chooser(); }
-  // sekmeden çıkınca oyun 20 sn bekler (yanlışlıkla çıktıysan kaybolmasın), sonra hafızayı boşaltır
-  function close() { clearTimeout(killT); if (fr) killT = setTimeout(() => { if (App.view !== 'pool') { destroy(); v().innerHTML = ''; } }, 20000); }
+  function open() { clearTimeout(killT); if (!fr && !v().querySelector('.games')) chooser(); full(); }
+  // sekmeden çıkınca oyun açık kalır (sağ üstteki düğmeyle geri dönülür); 15 dk dokunulmazsa hafızayı boşaltır
+  function close() { clearTimeout(killT); full(); if (fr) killT = setTimeout(() => { if (App.view !== 'pool') { destroy(); v().innerHTML = ''; } }, 15 * 60000); }
   document.addEventListener('visibilitychange', () => { if (document.hidden && fr && App.view !== 'pool') { destroy(); v().innerHTML = ''; } });
   function invite() {
     const q = new URLSearchParams(location.search), g = q.get('oyun'), oda = q.get('oda');
@@ -3835,7 +3841,45 @@ const Pool = (() => {
     try { history.replaceState(null, '', location.pathname); } catch (e) {}
     setView('pool'); launch(g, oda); return true;
   }
-  return { open, close, launch, invite };
+  function post(m) { try { if (fr && fr.contentWindow) fr.contentWindow.postMessage(m, '*'); } catch (e) {} }
+  return { open, close, launch, invite, post, get frame() { return fr; }, get cur() { return cur; } };
+})();
+$('gameBack').onclick = () => setView('pool');
+$('gameTog').onclick = () => document.documentElement.classList.toggle('game-nav');
+/* Oyun ↔ müzik köprüsü: kıraathanedeki plak çalar uygulamanın çaları ile konuşur */
+const GameBridge = (() => {
+  let last = '', lastT = 0;
+  function np() {
+    const s = App.byId(App.curId); if (!s) return null;
+    return { id: s.id, title: s.title || '', artist: s.artist || '', playing: !!Engine.playing && Engine.loadedId === s.id, pos: +(Engine.pos || 0).toFixed(2), dur: Engine.duration || s.duration || 0, cloud: !!(s.cloud && s.audioPath && Cloud.user) };
+  }
+  setInterval(() => {
+    if (!Pool.frame) return;
+    const n = np(), sig = n ? n.id + n.playing : '', now = Date.now();
+    if (sig !== last || (n && n.playing && now - lastT > 4000)) { last = sig; lastT = now; Pool.post({ type: 'gp-np', np: n, at: now }); }
+  }, 700);
+  const rx = id => App.byId(id);
+  async function msg(d) {
+    if (d.type === 'gp-open') { const vw = ['now', 'lib', 'lists'].includes(d.view) ? d.view : 'now'; setView(vw); return; }
+    if (d.type === 'gp-np?') { last = ''; return; }
+    if (d.type === 'gp-url') {
+      const s = rx(d.id); if (!s || !s.audioPath || !Cloud.user) return Pool.post({ type: 'gp-url', id: d.id, url: null });
+      try { Pool.post({ type: 'gp-url', id: d.id, url: await Cloud.signedUrl(s.audioPath) }); } catch (e) { Pool.post({ type: 'gp-url', id: d.id, url: null }); }
+      return;
+    }
+    if (d.type === 'gp-match') {
+      const s = App.match({ title: d.title, artist: d.artist });
+      if (!s) return Pool.post({ type: 'gp-match', ok: false, title: d.title });
+      if (App.curId !== s.id || Engine.loadedId !== s.id) await playSong(s.id);
+      if (d.pos && Math.abs((Engine.pos || 0) - d.pos) > 2.5) try { Engine.seek(d.pos); } catch (e) {}
+      if (d.playing === false && Engine.playing) Engine.pause();
+      Pool.post({ type: 'gp-match', ok: true, title: d.title }); return;
+    }
+    if (d.type === 'gp-pause') { if (Engine.playing) { Engine.pause(); UI.now(); } return; }
+    if (d.type === 'gp-resume') { if (!Engine.playing && App.curId) { Engine.unlock(); toggle(); } return; }
+    if (d.type === 'gp-seek' && Engine.loadedId) { try { Engine.seek(+d.pos || 0); } catch (e) {} }
+  }
+  return { msg };
 })();
 /* ================= Ekstralar: damar, kader kasetleri, istatistik, yedek, yolculuk ================= */
 const X = (() => {

@@ -138,11 +138,13 @@
   function host(game, opts) {
     var r = new Room(game, opts); r.isHost = true; r.seat = 0;
     r.peers = [{ id: r.id, name: r.name, seat: 0, last: Date.now() }];
+    var pre = String(opts && opts.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     var tryB = function (i) {
-      var code = rid(4) + (i + 1);
+      var code = (pre.length === 5 && +pre.charAt(4) === i + 1) ? pre : rid(4) + (i + 1);
       return r._open(code, i).catch(function (e) { if (i + 1 < BROKERS.length && !TEST) return tryB(i + 1); throw e; });
     };
-    return tryB(0).then(function () { if (opts.onPeers) opts.onPeers(r.peers.slice()); return r; });
+    var first = pre.length === 5 ? Math.max(0, Math.min(BROKERS.length - 1, (+pre.charAt(4) || 1) - 1)) : 0;
+    return tryB(first).then(function () { if (opts.onPeers) opts.onPeers(r.peers.slice()); return r; });
   }
   function join(game, code, opts) {
     code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
