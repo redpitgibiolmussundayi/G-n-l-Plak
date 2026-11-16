@@ -5,7 +5,6 @@
 import * as THREE from './kh-three.js';
 import { CSS3DRenderer, CSS3DObject } from './kh-css3d.js';
 import { createOkey } from './kh-okey.js';
-import { loadAvatars, createAvatar } from './kh-av.js';
 import { EffectComposer } from './kh-x-EffectComposer.js';
 import { RenderPass } from './kh-x-RenderPass.js';
 import { UnrealBloomPass } from './kh-x-UnrealBloomPass.js';
@@ -73,6 +72,7 @@ function viewFile(ph) {
 
 /* ============================================================ renderer (boyutları her iki katmanda da aynı: TV görüntüsü tam oturur) */
 const lowQ = () => P.q === 'low';
+const BLOOM = !(matchMedia('(pointer:coarse)').matches && Math.min(screen.width, screen.height) < 900); // telefonda parlama kapalı (kasma olmasın)
 const renderer = new THREE.WebGLRenderer({ antialias: !lowQ(), alpha: true, powerPreference: 'high-performance' });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1;
@@ -694,20 +694,88 @@ function updateSmoke(dt) {
 
 /* ============================================================ insanlar: riglı 3D modeller (kh-av.js) */
 const AVS = new Set();
-setLoad(0.55, T('Karakterler geliyor…'));
-await loadAvatars();
-setLoad(0.8, T('Kıraathane kuruluyor…'));
+setLoad(0.6, T('Kıraathane kuruluyor…'));
+const matCache = new Map();
+const pm = c => { let m = matCache.get(c); if (!m) { m = std({ color: c, roughness: 0.82 }); matCache.set(c, m); } return m; };
+const BG = { torso: new THREE.BoxGeometry(0.4, 0.56, 0.22), vest: new THREE.BoxGeometry(0.42, 0.42, 0.24), thigh: new THREE.BoxGeometry(0.15, 0.46, 0.17), shin: new THREE.BoxGeometry(0.13, 0.42, 0.14), foot: new THREE.BoxGeometry(0.12, 0.06, 0.24), arm1: new THREE.BoxGeometry(0.1, 0.3, 0.11), arm2: new THREE.BoxGeometry(0.09, 0.27, 0.1), hand: new THREE.BoxGeometry(0.08, 0.09, 0.09), neck: new THREE.CylinderGeometry(0.05, 0.055, 0.08, 10), head: new THREE.SphereGeometry(0.12, 18, 14), hair: new THREE.SphereGeometry(0.126, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.45), hairLong: new THREE.SphereGeometry(0.13, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.7), eye: new THREE.SphereGeometry(0.014, 8, 6), must: new THREE.BoxGeometry(0.1, 0.025, 0.03), beard: new THREE.SphereGeometry(0.11, 14, 8, 0, Math.PI * 2, Math.PI * 0.55, Math.PI * 0.45), cap: new THREE.CylinderGeometry(0.125, 0.13, 0.07, 18), visor: new THREE.BoxGeometry(0.2, 0.012, 0.09), lens: new THREE.TorusGeometry(0.026, 0.005, 6, 16), curl: new THREE.SphereGeometry(0.04, 8, 6) };
 function makePerson(o) {
   o = Object.assign({}, DEF_AV, o);
-  const a = createAvatar(o, { blob: texBlob }), g = a.root;
-  g.userData = { a, cup: a.cup, look: o };
+  const g = new THREE.Group(), skin = pm(o.skin);
+  const hip = new THREE.Group(); hip.position.y = 0.92; g.add(hip);
+  const torso = new THREE.Mesh(BG.torso, pm(o.shirt)); torso.position.y = 0.3; torso.castShadow = true; hip.add(torso);
+  if (o.vest) { const v = new THREE.Mesh(BG.vest, pm(o.vest)); v.position.y = 0.33; hip.add(v); }
+  const legs = [], arms = [];
+  for (const s of [-1, 1]) {
+    const th = new THREE.Group(); th.position.set(s * 0.1, 0, 0); hip.add(th);
+    const t1 = new THREE.Mesh(BG.thigh, pm(o.pants)); t1.position.y = -0.23; t1.castShadow = true; th.add(t1);
+    const kn = new THREE.Group(); kn.position.y = -0.46; th.add(kn);
+    const s1 = new THREE.Mesh(BG.shin, pm(o.pants)); s1.position.y = -0.21; kn.add(s1);
+    const ft = new THREE.Mesh(BG.foot, pm(0x15100c)); ft.position.set(0, -0.43, 0.05); kn.add(ft);
+    legs.push({ th, kn });
+    const sh = new THREE.Group(); sh.position.set(s * 0.26, 0.54, 0); hip.add(sh);
+    const a1 = new THREE.Mesh(BG.arm1, pm(o.shirt)); a1.position.y = -0.15; sh.add(a1);
+    const el = new THREE.Group(); el.position.y = -0.3; sh.add(el);
+    const a2 = new THREE.Mesh(BG.arm2, pm(o.shirt)); a2.position.y = -0.13; el.add(a2);
+    const hd = new THREE.Mesh(BG.hand, skin); hd.position.y = -0.3; el.add(hd);
+    arms.push({ sh, el, hand: hd });
+  }
+  const head = new THREE.Group(); head.position.y = 0.6; hip.add(head);
+  const nk = new THREE.Mesh(BG.neck, skin); nk.position.y = 0.03; head.add(nk);
+  const hh = new THREE.Mesh(BG.head, skin); hh.scale.set(0.95, 1.12, 1); hh.position.y = 0.17; hh.castShadow = true; head.add(hh);
+  if (o.hairStyle !== 1) {
+    const hair = new THREE.Mesh(o.hairStyle === 2 ? BG.hairLong : BG.hair, pm(o.hair)); hair.scale.set(0.95, 1.12, 1.02); hair.position.set(0, o.hairStyle === 2 ? 0.16 : 0.18, -0.008); hair.rotation.x = o.hairStyle === 2 ? -0.35 : 0; head.add(hair);
+    if (o.hairStyle === 3) for (let i = 0; i < 9; i++) { const c = new THREE.Mesh(BG.curl, pm(o.hair)); const a = i / 9 * Math.PI * 2; c.position.set(Math.cos(a) * 0.1, 0.26 + Math.sin(i * 1.7) * 0.02, Math.sin(a) * 0.1 - 0.01); head.add(c); }
+  }
+  if (o.cap) { const c = new THREE.Mesh(BG.cap, pm(o.cap)); c.position.y = 0.29; head.add(c); const v = new THREE.Mesh(BG.visor, pm(o.cap)); v.position.set(0, 0.26, 0.13); head.add(v); }
+  if (o.mustache) { const mu = new THREE.Mesh(BG.must, pm(o.hair === 0x9a9a9a || o.hair === 0xb0b0b0 ? o.hair : 0x1a120c)); mu.position.set(0, 0.12, 0.115); head.add(mu); }
+  if (o.beard) { const b = new THREE.Mesh(BG.beard, pm(o.hair)); b.scale.set(0.98, 1.05, 1.05); b.position.set(0, 0.17, 0.008); head.add(b); }
+  for (const s of [-1, 1]) { const e = new THREE.Mesh(BG.eye, pm(0x120c08)); e.position.set(s * 0.04, 0.19, 0.11); head.add(e); if (o.glasses) { const l = new THREE.Mesh(BG.lens, pm(0x111111)); l.position.set(s * 0.042, 0.19, 0.118); head.add(l); } }
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8), new THREE.MeshBasicMaterial({ map: texBlob, transparent: true, depthWrite: false })); shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.005; g.add(shadow);
+  // eldeki çay bardağı
+  const cup = teaGlass(arms[1].hand, 0, -0.03, 0.05); cup.rotation.x = Math.PI / 2; cup.scale.setScalar(0.9); cup.visible = false;
+  g.userData = { hip, legs, arms, head, shadow, cup, av: o, act: null, actT: 0 };
+  // hafif animasyon kontrolü (yürüme / oturma / yudum / baş çevirme)
+  let mode = 'idle', speed = 0, sitH = 0.5, ph = Math.random() * 6, act = null, actT = 0, actDur = 1400, yaw = 0;
+  const u = g.userData;
+  function apply(dt) {
+    if (mode === 'sit') {
+      u.hip.position.y = sitH; u.legs.forEach(l => { l.th.rotation.x = -Math.PI / 2 + 0.05; l.kn.rotation.x = Math.PI / 2 - 0.1; });
+      u.arms.forEach(a => { a.sh.rotation.x = -0.55; a.sh.rotation.z = 0; a.el.rotation.x = -0.9; }); u.shadow.visible = false;
+    } else {
+      const amt = mode === 'walk' ? Math.min(1.3, speed / 1.45) : 0; if (amt) ph += dt * speed * 4.6;
+      u.hip.position.y = 0.92 + Math.abs(Math.sin(ph)) * 0.025 * amt; u.shadow.visible = true;
+      u.legs.forEach((l, i) => { const s = Math.sin(ph + i * Math.PI); l.th.rotation.x = s * 0.5 * amt; l.kn.rotation.x = Math.max(0, -Math.sin(ph + i * Math.PI + 1.2)) * 0.7 * amt; });
+      u.arms.forEach((a, i) => { a.sh.rotation.x = -Math.sin(ph + i * Math.PI) * 0.4 * amt; a.sh.rotation.z = 0; a.el.rotation.x = -0.15 - 0.2 * amt; });
+      if (u.cup.visible) { u.arms[1].sh.rotation.x = -0.35; u.arms[1].el.rotation.x = -1.2; }
+      if (u.tray && u.tray.visible) { u.arms[1].sh.rotation.x = -0.5; u.arms[1].el.rotation.x = -1.3; }
+    }
+    u.head.rotation.y = yaw; u.head.rotation.x = 0;
+    if (act) {
+      const k = (performance.now() - actT) / actDur;
+      if (k >= 1) act = null;
+      else {
+        const e = Math.sin(Math.min(1, k) * Math.PI);
+        if (act === 'wave') { u.arms[1].sh.rotation.z = e * 2.4; u.arms[1].el.rotation.z = Math.sin(k * 22) * 0.35 * e; }
+        else if (act === 'nod') u.head.rotation.x = Math.sin(k * Math.PI * 4) * 0.18 * e;
+        else { u.arms[1].sh.rotation.x = -0.6 - e * 1.1; u.arms[1].el.rotation.x = -1.0 - e * 0.9; u.arms[1].sh.rotation.z = e * 0.25; u.head.rotation.x = act === 'sip' ? -e * 0.25 : -e * 0.1; }
+      }
+    }
+  }
+  const a = {
+    cup: u.cup, look: o,
+    get mode() { return mode; }, set headYaw(v) { yaw = v; }, get acting() { return !!act; },
+    setMode(m, sp = 0, h = 0.5) { mode = m; speed = sp; sitH = h; apply(0); },
+    act(name, dur) { act = name; actT = performance.now(); actDur = dur || (name === 'pull' ? 1800 : name === 'nod' ? 1200 : name === 'wave' ? 1600 : 1400); },
+    update: apply, dispose() {}
+  };
+  u.a = a; u.look = o; apply(0);
   dyn(g); scene.add(g); AVS.add(g); return g;
 }
-function disposePerson(p) { scene.remove(p); AVS.delete(p); if (p.userData.a) p.userData.a.dispose(); }
+function disposePerson(p) { scene.remove(p); AVS.delete(p); p.traverse(o => { if (o.material && o.material.map && o.material.map !== texBlob) o.material.map.dispose(); }); }
 function pose(p, mode, t = 0, amt = 0, sitH = 0.5) {
   const a = p.userData.a; if (!a) return;
   if (mode === 'sit') { if (a.mode !== 'sit') a.setMode('sit', 0, sitH); }
-  else if (amt > 0.12) a.setMode('walk', 1.45 * amt + (amt > 1.6 ? 1 : 0));
+  else if (amt > 0.12) { if (a.mode !== 'walk') a.setMode('walk', 1.45 * amt); else a.setMode('walk', 1.45 * amt + (amt > 1.6 ? 1 : 0)); }
   else if (a.mode !== 'idle') a.setMode('idle');
 }
 const avAct = (p, name) => { if (p && p.userData.a) p.userData.a.act(name); };
@@ -720,7 +788,7 @@ function bubble(p, text) {
   const c = cvs(640, 150, x => { x.font = '600 46px -apple-system,Segoe UI,Roboto,sans-serif'; const w = Math.min(620, x.measureText(text).width + 60); x.fillStyle = '#fff'; x.beginPath(); x.roundRect((640 - w) / 2, 10, w, 100, 34); x.fill(); x.beginPath(); x.moveTo(300, 108); x.lineTo(320, 140); x.lineTo(340, 108); x.fill(); x.fillStyle = '#2a1810'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(text, 320, 62); });
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: mkTex(c), transparent: true, depthWrite: false, depthTest: false })); sp.scale.set(1.2, 0.28, 1); sp.position.y = 2.35; sp.renderOrder = 11; p.add(sp); u.bub = sp; u.bubT = performance.now() + 4500;
 }
-function sitAt(p, seat) { p.position.set(seat.x - Math.sin(seat.yaw) * 0.06, 0, seat.z - Math.cos(seat.yaw) * 0.06); p.rotation.y = seat.yaw; pose(p, 'sit', 0, 0, seat.h || 0.5); }
+function sitAt(p, seat) { p.position.set(seat.x, 0, seat.z); p.rotation.y = seat.yaw; pose(p, 'sit', 0, 0, seat.h || 0.5); }
 // müdavimler
 const NPCS = [];
 function npc(o, seatIdx, extra) { const s = seats[seatIdx]; s.npc = true; const p = makePerson(o); sitAt(p, s); p.userData.npc = { ph: rnd() * 6, next: 4000 + rnd() * 9000 }; NPCS.push(p); if (extra) extra(p, s); return p; }
@@ -749,7 +817,7 @@ const CAYCI_HOME = { x: -8.05, z: 5.4 };
 const cayci = makePerson({ shirt: 0xf2efe8, vest: 0x2a1a12, pants: 0x1a1a1e, mustache: 1, hair: 0x1a120c });
 cayci.position.set(CAYCI_HOME.x, 0, CAYCI_HOME.z); cayci.rotation.y = Math.PI / 2; pose(cayci, 'walk', 0, 0);
 const cayTray = new THREE.Group(); { const t = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.01, 20), M.steel); cayTray.add(t); const gl = teaGlass(cayTray, 0, 0.005, 0); gl.scale.setScalar(1.2); }
-cayTray.position.set(0.18, 1.08, 0.32); cayci.add(cayTray); cayTray.visible = false;
+cayTray.position.set(0, -0.32, 0.18); cayci.userData.arms[1].el.add(cayTray); cayci.userData.tray = cayTray; cayTray.visible = false;
 const orders = []; let cayJob = null;
 
 /* ============================================================ yürünebilir alan + yol bulma */
@@ -865,7 +933,7 @@ function resize() {
   const r = document.documentElement; VW = r.clientWidth || innerWidth; VH = r.clientHeight || innerHeight;
   prCap = Math.min(window.devicePixelRatio || 1, lowQ() ? 1 : 1.6); prNow = Math.min(prNow, prCap) || prCap;
   renderer.setPixelRatio(prNow); renderer.setSize(VW, VH, true); css.setSize(VW, VH);
-  if (!composer && !lowQ()) makeComposer(); if (composer) { composer.setPixelRatio(prNow); composer.setSize(VW, VH); if (bloom) bloom.resolution.set(VW * prNow / 2, VH * prNow / 2); }
+  if (!composer && BLOOM && !lowQ()) makeComposer(); if (composer) { composer.setPixelRatio(prNow); composer.setSize(VW, VH); if (bloom) bloom.resolution.set(VW * prNow / 2, VH * prNow / 2); }
   camera.aspect = VW / VH; camera.fov = VW < VH ? 76 : 60; camera.updateProjectionMatrix();
   handTea.userData.x = Math.min(0.24, 0.5 * Math.tan(camera.fov * Math.PI / 360) * camera.aspect * 0.62); handTea.position.x = handTea.userData.x;
   okey.resize();
@@ -1748,7 +1816,7 @@ function tick(now) {
   if ((fN++ % 6) === 0) { ui(); const h = me.watch || okey.active ? null : pick(VW / 2, VH / 2); cross.classList.toggle('hot', !!h && h.k !== 'full' && h.d < 6); }
   sendState(false);
   placeWp();
-  if (composer && !lowQ() && !tvObj.visible) composer.render(); else renderer.render(scene, camera);
+  if (composer && BLOOM && !lowQ() && !tvObj.visible) composer.render(); else renderer.render(scene, camera);
   if (tvObj.visible) css.render(cssScene, camera);
 }
 
