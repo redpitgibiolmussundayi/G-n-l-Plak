@@ -318,7 +318,7 @@ export function createOkey(ctx) {
       if (!G || G.over) newGame(false); else { broadcast(); refresh(false); }
     }
     syncBots(); ui();
-    toast('🀄 ' + T('Taşa dokun: seç. Başka yere dokun: taşı oraya taşı.'), 3600);
+    if (!sit.shown) { sit.shown = 1; toast('🀄 ' + T('Taşa dokun: seç. Başka yere dokun: taşı oraya taşı.'), 3600); }
     return true;
   }
   function stand() {

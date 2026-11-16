@@ -332,18 +332,22 @@ function buildPano(img, info) {
   let H_, Y0, T0, TL;
   if (info.photo) {
     // [ayna][foto][ayna]: kuleler ortadaki kopyada, arka-sağ pencerelerden görünür
-    const cw = 1365, ch = Math.round(cw * img.naturalHeight / img.naturalWidth);
-    panoCanvas.height = ch; x.imageSmoothingEnabled = true;
-    x.save(); x.translate(cw, 0); x.scale(-1, 1); x.drawImage(img, 0, 0, cw, ch); x.restore();
-    x.drawImage(img, cw, 0, cw, ch);
-    x.save(); x.translate(cw * 3, 0); x.scale(-1, 1); x.drawImage(img, 0, 0, cw, ch); x.restore();
-    // aynalı kopyalarda kuleleri gökyüzüyle ört (üç kule görünmesin)
+    // [ayna][foto][ayna][foto] = tam 360°; aynalı geçişler dikişsiz. Üst ve alt kenar yumuşakça uzatılır (pencereden bakınca kenar görünmez)
+    const cw = 1280, ch = Math.round(cw * img.naturalHeight / img.naturalWidth), pt = 140, pb = 220, CH = ch + pt + pb;
+    panoCanvas.width = cw * 4; panoCanvas.height = CH; x.imageSmoothingEnabled = true;
+    for (let i = 0; i < 4; i++) { x.save(); if (i % 2 === 0) { x.translate(cw * (i + 1), 0); x.scale(-1, 1); x.drawImage(img, 0, pt, cw, ch); } else x.drawImage(img, cw * i, pt, cw, ch); x.restore(); }
+    // aynalı kopyalarda kuleleri gökyüzüyle ört
     for (const fx_ of [0.357, 0.546]) for (const base of [cw - fx_ * cw, cw * 3 - fx_ * cw]) {
-      const w_ = cw * 0.03, x0_ = base - w_ / 2, y0_ = ch * 0.3, h_ = ch * 0.19;
+      const w_ = cw * 0.03, x0_ = base - w_ / 2, y0_ = pt + ch * 0.3, h_ = ch * 0.19;
       x.drawImage(panoCanvas, x0_ - w_ * 1.2, y0_, w_ * 0.5, h_, x0_, y0_, w_, h_);
     }
-    TL = 4.0; const arcPerCopy = TL / 3; H_ = PR * arcPerCopy * ch / cw; // en-boy oranı korunur
-    const ridge = 0.47; Y0 = 3.6 - (1 - ridge) * H_; T0 = 2.75 - TL / 2 - 0.0;
+    // uzatmalar: kenar satırları küçültülüp yumuşakça büyütülür (çizgi çizgi olmaz)
+    const sm = document.createElement('canvas'); sm.width = 96; sm.height = 2; const sx = sm.getContext('2d'); sx.imageSmoothingEnabled = true;
+    sx.drawImage(panoCanvas, 0, pt + 2, cw * 4, 6, 0, 0, 96, 2); x.drawImage(sm, 0, 0, 96, 2, 0, 0, cw * 4, pt + 2);
+    sx.clearRect(0, 0, 96, 2); sx.drawImage(panoCanvas, 0, pt + ch - 30, cw * 4, 28, 0, 0, 96, 2); x.drawImage(sm, 0, 0, 96, 2, 0, pt + ch - 2, cw * 4, pb + 2);
+    const g_ = x.createLinearGradient(0, pt + ch, 0, CH); g_.addColorStop(0, 'rgba(0,0,0,0)'); g_.addColorStop(1, 'rgba(0,0,0,.45)'); x.fillStyle = g_; x.fillRect(0, pt + ch, cw * 4, pb);
+    TL = Math.PI * 2; H_ = PR * (TL / 4) * CH / cw;
+    const ridgePx = pt + 0.47 * ch, Ytop = 3.6 + ridgePx / CH * H_; Y0 = Ytop - H_; T0 = 2.75 - Math.PI / 4;
   } else {
     panoCanvas.height = 630; x.imageSmoothingEnabled = false;
     const sw = img.naturalWidth, sh = img.naturalHeight, chh = Math.round(sh * 630 / 941), cut = Math.round(sw * 0.742), rw = sw - cut;
@@ -355,11 +359,11 @@ function buildPano(img, info) {
   gradeCanvas(x, panoCanvas.width, panoCanvas.height, info.photo ? panoGrade : '');
   panoTex.dispose(); panoTex.image = panoCanvas; panoTex.magFilter = info.photo ? THREE.LinearFilter : THREE.NearestFilter; panoTex.needsUpdate = true;
   pano.geometry.dispose(); pano.geometry = new THREE.CylinderGeometry(PR, PR, H_, 96, 1, true, T0, TL);
-  if (info.photo) { panoTex.repeat.x = -panoCanvas.width / (1365 * 3); panoTex.offset.x = 1; } else { panoTex.repeat.x = -(1672 + 3 * Math.round((img.naturalWidth - Math.round(img.naturalWidth * 0.742)) * 1672 / img.naturalWidth)) / panoCanvas.width; panoTex.offset.x = -panoTex.repeat.x; }
+  if (info.photo) { panoTex.repeat.x = -1; panoTex.offset.x = 1; } else { panoTex.repeat.x = -(1672 + 3 * Math.round((img.naturalWidth - Math.round(img.naturalWidth * 0.742)) * 1672 / img.naturalWidth)) / panoCanvas.width; panoTex.offset.x = -panoTex.repeat.x; }
   pano.position.y = Y0 + H_ / 2;
-  const sc = avgColor(x, Math.round(panoCanvas.width * 0.45), 2, 300, 4); skyCol.setRGB(...sc, THREE.SRGBColorSpace); scene.background = skyCol;
-  const gc = avgColor(x, Math.round(panoCanvas.width * 0.4), panoCanvas.height - 8, 400, 6); ground.material.color.setRGB(...gc, THREE.SRGBColorSpace);
-  ground.position.y = Y0 + 0.3;
+  const sc = avgColor(x, Math.round(panoCanvas.width * 0.3), 2, Math.round(panoCanvas.width * 0.4), 4); skyCol.setRGB(...sc, THREE.SRGBColorSpace); scene.background = skyCol;
+  const gc = avgColor(x, Math.round(panoCanvas.width * 0.2), panoCanvas.height - 4, Math.round(panoCanvas.width * 0.6), 3); ground.material.color.setRGB(...gc, THREE.SRGBColorSpace);
+  ground.position.y = Y0 + 0.05;
 }
 function loadPano(ph) {
   const info = viewFile(ph); panoGrade = info.photo && overcast() ? (snowing() ? 'snow' : 'grey') : '';
@@ -661,13 +665,13 @@ snow.visible = false; scene.add(dyn(snow));
 
 /* ============================================================ duman (nargile) */
 const smoke = [];
-for (let i = 0; i < 70; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texSmoke, transparent: true, depthWrite: false, opacity: 0 })); s.visible = false; scene.add(dyn(s)); smoke.push({ s, life: 0, v: new THREE.Vector3() }); }
+for (let i = 0; i < 110; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: texSmoke, transparent: true, depthWrite: false, opacity: 0 })); s.visible = false; scene.add(dyn(s)); smoke.push({ s, life: 0, v: new THREE.Vector3() }); }
 let smokeI = 0;
-function puff(x, y, z, dirx = 0, dirz = 0, n = 9, tint = 0xffffff) {
+function puff(x, y, z, dirx = 0, dirz = 0, n = 9, tint = 0xffffff, big = 1) {
   for (let i = 0; i < n; i++) {
     const p = smoke[smokeI++ % smoke.length]; p.life = 1; p.s.visible = true; p.s.position.set(x + (Math.random() - 0.5) * 0.03, y, z + (Math.random() - 0.5) * 0.03);
     p.v.set(dirx * (0.25 + Math.random() * 0.2) + (Math.random() - 0.5) * 0.08, 0.06 + Math.random() * 0.12, dirz * (0.25 + Math.random() * 0.2) + (Math.random() - 0.5) * 0.08);
-    p.s.material.color.set(tint); p.delay = i * 0.05;
+    p.s.material.color.set(tint); p.delay = i * 0.045; p.big = big;
   }
 }
 function updateSmoke(dt) {
@@ -675,8 +679,8 @@ function updateSmoke(dt) {
     if (p.life <= 0) continue;
     if (p.delay > 0) { p.delay -= dt; p.s.material.opacity = 0; continue; }
     p.life -= dt / 3.2; p.v.multiplyScalar(1 - dt * 0.9); p.v.y += dt * 0.03;
-    p.s.position.addScaledVector(p.v, dt); const k = 1 - p.life, sc = 0.06 + k * 0.55; p.s.scale.set(sc, sc, 1);
-    p.s.material.opacity = Math.max(0, Math.min(0.5, p.life * 0.7) * (k < 0.1 ? k * 10 : 1));
+    p.s.position.addScaledVector(p.v, dt); const k = 1 - p.life, sc = (0.05 + k * 0.9) * (p.big || 1); p.s.scale.set(sc, sc, 1);
+    p.s.material.opacity = Math.max(0, Math.min(0.48, p.life * 0.7) * (k < 0.08 ? k * 12 : 1));
     if (p.life <= 0) p.s.visible = false;
   }
 }
@@ -975,20 +979,31 @@ function clearSeg(x0, z0, x1, z1) {
 const third = () => P.cam === 3 && !okey.active && !me.watch && me.narg < 0;
 const camPos = new THREE.Vector3();
 function placeCamera(by) {
+  let tp = false;
   if (third()) {
-    const back = me.seat >= 0 ? 1.9 : 2.5, up = me.seat >= 0 ? 0.55 : 0.65;
-    const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
-    let d = back; const head = { x: me.x, z: me.z };
-    for (; d > 0.4; d -= 0.15) { if (clearSeg(head.x, head.z, head.x - fx * d, head.z - fz * d)) break; }
-    camPos.set(head.x - fx * d, (me.seat >= 0 ? 1.2 : 1.62) + up + Math.max(0, -me.pitch) * 0.8, head.z - fz * d);
-    camera.position.copy(camPos); camera.rotation.set(Math.min(0.3, me.pitch - 0.18), me.yaw, 0);
-    handTea.visible = false;
-  } else {
+    const seated = me.seat >= 0, s = seated ? seats[me.seat] : null;
+    const hx = seated ? s.x : me.x, hz = seated ? s.z : me.z, hy = seated ? 1.12 : 1.5;
+    const orb = Math.max(0.08, Math.min(1.1, 0.32 - me.pitch)), want = seated ? 1.75 : 2.15;
+    const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw), rx = -fz, rz = fx, sh = 0.28; // omuz kayması (sağ)
+    let d = want;
+    const dMin = seated ? 1.25 : 1.3;
+    for (; d >= dMin; d -= 0.1) { const h_ = d * Math.cos(orb); if (clearSeg(hx, hz, hx - fx * h_ + rx * sh, hz - fz * h_ + rz * sh)) break; }
+    if (d >= dMin) {
+      tp = true; const h_ = d * Math.cos(orb);
+      camPos.set(hx - fx * h_ + rx * sh, hy + d * Math.sin(orb), hz - fz * h_ + rz * sh);
+      camPos.y = Math.min(camPos.y, (me.z > ZF ? H2 : H) - 0.25);
+      camera.position.lerp(camPos, camera.userData.tpOn ? 0.35 : 1); camera.userData.tpOn = 1;
+      camera.lookAt(hx + rx * sh * 0.6 + fx * 0.6, hy + 0.05 - (orb - 0.32) * 0.4, hz + rz * sh * 0.6 + fz * 0.6);
+      handTea.visible = false;
+    }
+  }
+  if (!tp) {
+    camera.userData.tpOn = 0;
     camera.position.set(me.x, me.eye + by, me.z); camera.rotation.set(me.pitch, me.yaw, 0);
     handTea.visible = me.tea === 1;
   }
   if (meAv) {
-    meAv.visible = third();
+    meAv.visible = tp;
     if (meAv.visible) {
       if (me.seat >= 0) sitAt(meAv, seats[me.seat]); else { meAv.position.set(me.x, 0, me.z); meAv.rotation.y = me.yaw + Math.PI; }
       meAv.userData.cup.visible = me.tea === 1;
@@ -1282,9 +1297,13 @@ let nargStep = '', nargHold = 0, nargHoldStart = 0, bubAudio = null;
 function startNarg(i) {
   const n = NARG[i]; if (!n) return; me.narg = i;
   const s = seats[me.seat]; const bowl = new THREE.Vector3(0, 0.74, 0).add(n.g.position);
-  camTo(bowl.x - 0.42, bowl.y + 0.5, bowl.z, -Math.PI / 2, -0.95, 600);
   nargStep = n.lit > performance.now() ? 'smoke' : n.flavor ? (n.holes.length < 12 ? 'foil' : 'coal') : 'flavor';
-  nargUI(); ui();
+  nargCam(600); nargUI(); ui();
+}
+function nargCam(dur = 500) {
+  const n = NARG[me.narg]; if (!n) return; const bowl = new THREE.Vector3(0, 0.74, 0).add(n.g.position), s = seats[me.seat];
+  if (nargStep === 'smoke') { const dx = bowl.x - s.x, dz = bowl.z - s.z; camTo(s.x + 0.1, 1.16, s.z, Math.atan2(-dx, -dz), -0.16, dur); }
+  else camTo(bowl.x - 0.42, bowl.y + 0.5, bowl.z, -Math.PI / 2, -0.95, dur);
 }
 function endNarg() { me.narg = -1; $('ngbar').hidden = true; stopBubble(); if (me.seat >= 0) { const s = seats[me.seat]; camTo(s.x + 0.05, 1.12, s.z, s.yaw - Math.PI, -0.3, 450); } ui(); }
 function nargUI() {
@@ -1300,7 +1319,7 @@ function nargUI() {
 $('ngbar').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return; const n = NARG[me.narg]; if (!n) return;
   if (b.dataset.f) { n.flavor = b.dataset.f; n.holes = []; drawFoil(n); n.coals.forEach(c => c.visible = false); nargStep = 'foil'; nargUI(); return; }
-  if (b.dataset.n === 'coal') { n.coals.forEach((c, i) => setTimeout(() => { c.visible = true; }, i * 250)); n.lit = performance.now() + 8 * 60000; nargStep = 'smoke'; setTimeout(nargUI, 800); if (NET) NET.room.send('x', { a: 'narg', n: me.narg, f: n.flavor }); return; }
+  if (b.dataset.n === 'coal') { n.coals.forEach((c, i) => setTimeout(() => { c.visible = true; }, i * 250)); n.lit = performance.now() + 8 * 60000; nargStep = 'smoke'; setTimeout(() => { nargUI(); nargCam(700); }, 800); if (NET) NET.room.send('x', { a: 'narg', n: me.narg, f: n.flavor }); return; }
   if (b.dataset.n === 'x') endNarg();
 });
 $('ngbar').addEventListener('pointerdown', e => { const b = e.target.closest('[data-n=pull]'); if (!b) return; nargHold = 1; nargHoldStart = performance.now(); startBubble(); });
@@ -1322,8 +1341,8 @@ function exhale(dur) {
   const n = NARG[me.narg]; const fl = FLAVORS.find(f => f[0] === n.flavor) || FLAVORS[0];
   const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw), s = seats[me.seat];
   const hx = s.x + Math.sin(s.yaw) * 0.08, hz = s.z + Math.cos(s.yaw) * 0.08;
-  if (third()) puff(hx, 1.25, hz, Math.sin(s.yaw), Math.cos(s.yaw), Math.round(6 + dur * 4), fl[2]);
-  else puff(camera.position.x + fx * 0.35, camera.position.y - 0.08, camera.position.z + fz * 0.35, fx, fz, Math.round(6 + dur * 4), fl[2]);
+  const dir = camera.getWorldDirection(new THREE.Vector3()); dir.y = 0; dir.normalize();
+  puff(camera.position.x + dir.x * 0.55, camera.position.y - 0.1, camera.position.z + dir.z * 0.55, dir.x, dir.z, Math.round(10 + dur * 6), fl[2], 1.1);
   if (meAv) { meAv.userData.act = 'pull'; meAv.userData.actT = performance.now(); }
   if (NET) NET.room.send('x', { a: 'puff', x: +hx.toFixed(2), z: +hz.toFixed(2), d: +dur.toFixed(1), c: fl[2], dx: +Math.sin(s.yaw).toFixed(2), dz: +Math.cos(s.yaw).toFixed(2) });
 }
@@ -1521,7 +1540,6 @@ function bakeStatic() {
     const m = new THREE.Mesh(geo, g.mat); m.castShadow = g.cast; m.receiveShadow = g.recv; m.matrixAutoUpdate = false; scene.add(m); n1++;
   }
   for (const o of victims) { o.parent && o.parent.remove(o); }
-  scene.traverse(o => { if (!o.userData.dyn && !o.isCamera && o !== scene && !(o.parent && o.parent.userData && o.parent.userData.dyn)) { o.updateMatrix(); o.matrixAutoUpdate = false; } });
   return { n0, n1 };
 }
 
@@ -1597,6 +1615,7 @@ function tick(now) {
   const spinning = plakPlaying(); plakSpin += ((spinning ? 3.5 : 0) - plakSpin) * Math.min(1, dt * 2); plakDisc.rotation.y -= plakSpin * dt; plakArm.rotation.y += ((spinning ? 0.42 : 0) - plakArm.rotation.y) * Math.min(1, dt * 3);
   if (nargHold && me.narg >= 0) { const w = NARG[me.narg].water; w.scale.y = 1 + Math.sin(now / 40) * 0.08; w.position.y = Math.abs(Math.sin(now / 55)) * 0.004; }
   for (const n of NARG) if (n.lit > now) { const f = 1.8 + Math.sin(now / 300 + n.g.position.z) * 0.5; n.coals.forEach(c => { c.material = M.ember; }); M.ember.emissiveIntensity = f; } else if (n.lit && n.lit <= now) { n.lit = 0; n.coals.forEach(c => c.visible = false); n.flavor = null; n.holes = []; drawFoil(n); if (me.narg >= 0 && NARG[me.narg] === n) { toast(T('Kömür söndü, nargileyi tazele')); nargStep = 'flavor'; nargUI(); } }
+  if (fN % 40 === 0) for (const n of NARG) if (n.lit > now) { const p = n.g.position; puff(p.x, p.y + 0.78, p.z, 0, 0, 1, 0xdddddd, 0.35); }
   updateSmoke(dt);
   if ((fN++ % 6) === 0) { ui(); const h = me.watch || okey.active ? null : pick(VW / 2, VH / 2); cross.classList.toggle('hot', !!h && h.k !== 'full' && h.d < 6); }
   sendState(false);
