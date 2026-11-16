@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 46;
+const VERSION = 47;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -3866,6 +3866,11 @@ const GameBridge = (() => {
       const s = rx(d.id); if (!s || !s.audioPath || !Cloud.user) return Pool.post({ type: 'gp-url', id: d.id, url: null });
       try { Pool.post({ type: 'gp-url', id: d.id, url: await Cloud.signedUrl(s.audioPath) }); } catch (e) { Pool.post({ type: 'gp-url', id: d.id, url: null }); }
       return;
+    }
+    if (d.type === 'gp-blob') {
+      const s = rx(d.id); let b = s && s.blob;
+      if (!b && s && s.audioPath && Cloud.user) try { const r = await fetch(await Cloud.signedUrl(s.audioPath)); if (r.ok) b = await r.blob(); } catch (e) {}
+      Pool.post({ type: 'gp-blob', id: d.id, blob: b || null }); return;
     }
     if (d.type === 'gp-match') {
       const s = App.match({ title: d.title, artist: d.artist });

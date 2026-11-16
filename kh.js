@@ -5,6 +5,11 @@
 import * as THREE from './kh-three.js';
 import { CSS3DRenderer, CSS3DObject } from './kh-css3d.js';
 import { createOkey } from './kh-okey.js';
+import { loadAvatars, createAvatar } from './kh-av.js';
+import { EffectComposer } from './kh-x-EffectComposer.js';
+import { RenderPass } from './kh-x-RenderPass.js';
+import { UnrealBloomPass } from './kh-x-UnrealBloomPass.js';
+import { OutputPass } from './kh-x-OutputPass.js';
 
 const T = s => (window.gpT ? window.gpT(s) : s);
 const $ = id => document.getElementById(id);
@@ -18,6 +23,8 @@ const save = () => LS.set('gp_kh', P);
 let myName = (qs.get('userName') || '').trim().slice(0, 18) || String((LS.get('gp_okey', {}) || {}).name || '').slice(0, 18);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const TEST = /[?&]khtest=1/.test(location.search);
+const setLoad = (p, txt) => { const b = $('loadbar'); if (b) b.style.width = Math.round(p * 100) + '%'; const t = $('loadtxt'); if (t && txt) t.textContent = txt; };
+setLoad(0.15, T('Çay demleniyor…'));
 const toParent = m => { try { if (parent !== window) parent.postMessage(m, '*'); } catch (e) {} };
 
 /* ============================================================ zaman / hava / mevsim */
@@ -685,70 +692,25 @@ function updateSmoke(dt) {
   }
 }
 
-/* ============================================================ insanlar (özelleştirilebilir) */
-const matCache = new Map();
-const pm = c => { let m = matCache.get(c); if (!m) { m = std({ color: c, roughness: 0.82 }); matCache.set(c, m); } return m; };
-const BG = { torso: new THREE.BoxGeometry(0.4, 0.56, 0.22), vest: new THREE.BoxGeometry(0.42, 0.42, 0.24), thigh: new THREE.BoxGeometry(0.15, 0.46, 0.17), shin: new THREE.BoxGeometry(0.13, 0.42, 0.14), foot: new THREE.BoxGeometry(0.12, 0.06, 0.24), arm1: new THREE.BoxGeometry(0.1, 0.3, 0.11), arm2: new THREE.BoxGeometry(0.09, 0.27, 0.1), hand: new THREE.BoxGeometry(0.08, 0.09, 0.09), neck: new THREE.CylinderGeometry(0.05, 0.055, 0.08, 10), head: new THREE.SphereGeometry(0.12, 18, 14), hair: new THREE.SphereGeometry(0.126, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.45), hairLong: new THREE.SphereGeometry(0.13, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.7), eye: new THREE.SphereGeometry(0.014, 8, 6), must: new THREE.BoxGeometry(0.1, 0.025, 0.03), beard: new THREE.SphereGeometry(0.11, 14, 8, 0, Math.PI * 2, Math.PI * 0.55, Math.PI * 0.45), cap: new THREE.CylinderGeometry(0.125, 0.13, 0.07, 18), visor: new THREE.BoxGeometry(0.2, 0.012, 0.09), lens: new THREE.TorusGeometry(0.026, 0.005, 6, 16), curl: new THREE.SphereGeometry(0.04, 8, 6) };
+/* ============================================================ insanlar: riglı 3D modeller (kh-av.js) */
+const AVS = new Set();
+setLoad(0.55, T('Karakterler geliyor…'));
+await loadAvatars();
+setLoad(0.8, T('Kıraathane kuruluyor…'));
 function makePerson(o) {
   o = Object.assign({}, DEF_AV, o);
-  const g = new THREE.Group(), skin = pm(o.skin);
-  const hip = new THREE.Group(); hip.position.y = 0.92; g.add(hip);
-  const torso = new THREE.Mesh(BG.torso, pm(o.shirt)); torso.position.y = 0.3; torso.castShadow = true; hip.add(torso);
-  if (o.vest) { const v = new THREE.Mesh(BG.vest, pm(o.vest)); v.position.y = 0.33; hip.add(v); }
-  const legs = [], arms = [];
-  for (const s of [-1, 1]) {
-    const th = new THREE.Group(); th.position.set(s * 0.1, 0, 0); hip.add(th);
-    const t1 = new THREE.Mesh(BG.thigh, pm(o.pants)); t1.position.y = -0.23; t1.castShadow = true; th.add(t1);
-    const kn = new THREE.Group(); kn.position.y = -0.46; th.add(kn);
-    const s1 = new THREE.Mesh(BG.shin, pm(o.pants)); s1.position.y = -0.21; kn.add(s1);
-    const ft = new THREE.Mesh(BG.foot, pm(0x15100c)); ft.position.set(0, -0.43, 0.05); kn.add(ft);
-    legs.push({ th, kn });
-    const sh = new THREE.Group(); sh.position.set(s * 0.26, 0.54, 0); hip.add(sh);
-    const a1 = new THREE.Mesh(BG.arm1, pm(o.shirt)); a1.position.y = -0.15; sh.add(a1);
-    const el = new THREE.Group(); el.position.y = -0.3; sh.add(el);
-    const a2 = new THREE.Mesh(BG.arm2, pm(o.shirt)); a2.position.y = -0.13; el.add(a2);
-    const hd = new THREE.Mesh(BG.hand, skin); hd.position.y = -0.3; el.add(hd);
-    arms.push({ sh, el, hand: hd });
-  }
-  const head = new THREE.Group(); head.position.y = 0.6; hip.add(head);
-  const nk = new THREE.Mesh(BG.neck, skin); nk.position.y = 0.03; head.add(nk);
-  const hh = new THREE.Mesh(BG.head, skin); hh.scale.set(0.95, 1.12, 1); hh.position.y = 0.17; hh.castShadow = true; head.add(hh);
-  if (o.hairStyle !== 1) {
-    const hair = new THREE.Mesh(o.hairStyle === 2 ? BG.hairLong : BG.hair, pm(o.hair)); hair.scale.set(0.95, 1.12, 1.02); hair.position.set(0, o.hairStyle === 2 ? 0.16 : 0.18, -0.008); hair.rotation.x = o.hairStyle === 2 ? -0.35 : 0; head.add(hair);
-    if (o.hairStyle === 3) for (let i = 0; i < 9; i++) { const c = new THREE.Mesh(BG.curl, pm(o.hair)); const a = i / 9 * Math.PI * 2; c.position.set(Math.cos(a) * 0.1, 0.26 + Math.sin(i * 1.7) * 0.02, Math.sin(a) * 0.1 - 0.01); head.add(c); }
-  }
-  if (o.cap) { const c = new THREE.Mesh(BG.cap, pm(o.cap)); c.position.y = 0.29; head.add(c); const v = new THREE.Mesh(BG.visor, pm(o.cap)); v.position.set(0, 0.26, 0.13); head.add(v); }
-  if (o.mustache) { const mu = new THREE.Mesh(BG.must, pm(o.hair === 0x9a9a9a || o.hair === 0xb0b0b0 ? o.hair : 0x1a120c)); mu.position.set(0, 0.12, 0.115); head.add(mu); }
-  if (o.beard) { const b = new THREE.Mesh(BG.beard, pm(o.hair)); b.scale.set(0.98, 1.05, 1.05); b.position.set(0, 0.17, 0.008); head.add(b); }
-  for (const s of [-1, 1]) { const e = new THREE.Mesh(BG.eye, pm(0x120c08)); e.position.set(s * 0.04, 0.19, 0.11); head.add(e); if (o.glasses) { const l = new THREE.Mesh(BG.lens, pm(0x111111)); l.position.set(s * 0.042, 0.19, 0.118); head.add(l); } }
-  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8), new THREE.MeshBasicMaterial({ map: texBlob, transparent: true, depthWrite: false })); shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.005; g.add(shadow);
-  // eldeki çay bardağı
-  const cup = teaGlass(arms[1].hand, 0, -0.03, 0.05); cup.rotation.x = Math.PI / 2; cup.scale.setScalar(0.9); cup.visible = false;
-  g.userData = { hip, legs, arms, head, shadow, cup, av: o, act: null, actT: 0 };
-  dyn(g); scene.add(g); return g;
+  const a = createAvatar(o, { blob: texBlob }), g = a.root;
+  g.userData = { a, cup: a.cup, look: o };
+  dyn(g); scene.add(g); AVS.add(g); return g;
 }
-function disposePerson(p) { scene.remove(p); p.traverse(o => { if (o.material && o.material.map && o.material.map !== texBlob) o.material.map.dispose(); }); }
+function disposePerson(p) { scene.remove(p); AVS.delete(p); if (p.userData.a) p.userData.a.dispose(); }
 function pose(p, mode, t = 0, amt = 0, sitH = 0.5) {
-  const u = p.userData;
-  if (mode === 'sit') {
-    u.hip.position.y = sitH; u.legs.forEach(l => { l.th.rotation.x = -Math.PI / 2 + 0.05; l.kn.rotation.x = Math.PI / 2 - 0.1; });
-    u.arms.forEach(a => { a.sh.rotation.x = -0.55; a.el.rotation.x = -0.9; }); u.shadow.visible = false;
-  } else {
-    u.hip.position.y = 0.92 + Math.abs(Math.sin(t)) * 0.025 * amt; u.shadow.visible = true;
-    u.legs.forEach((l, i) => { const s = Math.sin(t + i * Math.PI); l.th.rotation.x = s * 0.5 * amt; l.kn.rotation.x = Math.max(0, -Math.sin(t + i * Math.PI + 1.2)) * 0.7 * amt; });
-    u.arms.forEach((a, i) => { a.sh.rotation.x = -Math.sin(t + i * Math.PI) * 0.4 * amt; a.el.rotation.x = -0.15 - 0.2 * amt; });
-    if (u.cup.visible) { u.arms[1].sh.rotation.x = -0.35; u.arms[1].el.rotation.x = -1.2; }
-  }
+  const a = p.userData.a; if (!a) return;
+  if (mode === 'sit') { if (a.mode !== 'sit') a.setMode('sit', 0, sitH); }
+  else if (amt > 0.12) a.setMode('walk', 1.45 * amt + (amt > 1.6 ? 1 : 0));
+  else if (a.mode !== 'idle') a.setMode('idle');
 }
-// eylem animasyonu: yudum (çay), çekiş (nargile)
-function actAnim(p, now) {
-  const u = p.userData; if (!u.act) return;
-  const k = (now - u.actT) / (u.act === 'sip' ? 1400 : 1800);
-  if (k >= 1) { u.act = null; u.head.rotation.x = 0; return; }
-  const e = Math.sin(Math.min(1, k) * Math.PI);
-  u.arms[1].sh.rotation.x = -0.6 - e * 1.1; u.arms[1].el.rotation.x = -1.0 - e * 0.9; u.arms[1].sh.rotation.z = e * 0.25;
-  u.head.rotation.x = u.act === 'sip' ? -e * 0.25 : -e * 0.1;
-}
+const avAct = (p, name) => { if (p && p.userData.a) p.userData.a.act(name); };
 function nameSprite(p, name, color) {
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: nameTex(name, color), transparent: true, depthWrite: false, depthTest: false }));
   sp.scale.set(0.9, 0.225, 1); sp.position.y = 2.05; sp.renderOrder = 10; p.add(sp); p.userData.label = sp; return sp;
@@ -758,7 +720,7 @@ function bubble(p, text) {
   const c = cvs(640, 150, x => { x.font = '600 46px -apple-system,Segoe UI,Roboto,sans-serif'; const w = Math.min(620, x.measureText(text).width + 60); x.fillStyle = '#fff'; x.beginPath(); x.roundRect((640 - w) / 2, 10, w, 100, 34); x.fill(); x.beginPath(); x.moveTo(300, 108); x.lineTo(320, 140); x.lineTo(340, 108); x.fill(); x.fillStyle = '#2a1810'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(text, 320, 62); });
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: mkTex(c), transparent: true, depthWrite: false, depthTest: false })); sp.scale.set(1.2, 0.28, 1); sp.position.y = 2.35; sp.renderOrder = 11; p.add(sp); u.bub = sp; u.bubT = performance.now() + 4500;
 }
-function sitAt(p, seat) { p.position.set(seat.x, 0, seat.z); p.rotation.y = seat.yaw; pose(p, 'sit', 0, 0, seat.h || 0.5); }
+function sitAt(p, seat) { p.position.set(seat.x - Math.sin(seat.yaw) * 0.06, 0, seat.z - Math.cos(seat.yaw) * 0.06); p.rotation.y = seat.yaw; pose(p, 'sit', 0, 0, seat.h || 0.5); }
 // müdavimler
 const NPCS = [];
 function npc(o, seatIdx, extra) { const s = seats[seatIdx]; s.npc = true; const p = makePerson(o); sitAt(p, s); p.userData.npc = { ph: rnd() * 6, next: 4000 + rnd() * 9000 }; NPCS.push(p); if (extra) extra(p, s); return p; }
@@ -771,7 +733,13 @@ npc({ shirt: 0x8a8a90, pants: 0x2a2a30, mustache: 1, hair: 0xb0b0b0, glasses: 1 
   for (let i = 0; i < 14; i++) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.008, 12), i % 2 ? M.white : M.black); c.position.set(-0.14 + (i % 7) * 0.045, 0.034, i < 7 ? -0.2 : 0.2); tb.add(c); }
 }
 npc({ shirt: 0x2a3a5a, pants: 0x222226, mustache: 1, hair: 0x2a1a10 }, seatOf(1, 1), (p) => {
-  const np = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.3), std({ color: 0xd8d2c4, roughness: 0.9, side: THREE.DoubleSide })); np.position.set(0, 1.05, 0.32); np.rotation.x = -0.5; p.add(np);
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 184; const c = cv.getContext('2d');
+  c.fillStyle = '#e4dccb'; c.fillRect(0, 0, 256, 184); c.fillStyle = '#1b1712'; c.font = 'bold 26px Georgia,serif'; c.textAlign = 'center'; c.fillText('GURBET POSTASI', 128, 30);
+  c.fillRect(10, 38, 236, 2); c.font = 'bold 15px Georgia,serif'; c.fillText('Stuttgart\'ta kıraathane gecesi', 128, 58);
+  c.fillStyle = '#7a7266'; c.fillRect(12, 68, 110, 64); c.fillStyle = '#4a443a';
+  for (let y = 70; y < 178; y += 6) { if (y < 134) c.fillRect(130, y, 114, 2); else { c.fillRect(12, y, 110, 2); c.fillRect(130, y, 114, 2); } }
+  const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4;
+  const np = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.32), std({ map: tx, roughness: 0.92, side: THREE.DoubleSide })); np.position.set(0, 1.0, 0.36); np.rotation.set(-0.35, 0, 0); p.add(np);
   teaGlass(tableGroups[1], 0.15, 0.79, -0.25);
 });
 npc({ shirt: 0x6a2020, vest: 0x1a1a1a, pants: 0x2a2a30, mustache: 1, hair: 0x6a6a6a }, seatOf(10, 2), p => { p.userData.cup.visible = true; });
@@ -781,7 +749,7 @@ const CAYCI_HOME = { x: -8.05, z: 5.4 };
 const cayci = makePerson({ shirt: 0xf2efe8, vest: 0x2a1a12, pants: 0x1a1a1e, mustache: 1, hair: 0x1a120c });
 cayci.position.set(CAYCI_HOME.x, 0, CAYCI_HOME.z); cayci.rotation.y = Math.PI / 2; pose(cayci, 'walk', 0, 0);
 const cayTray = new THREE.Group(); { const t = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.01, 20), M.steel); cayTray.add(t); const gl = teaGlass(cayTray, 0, 0.005, 0); gl.scale.setScalar(1.2); }
-cayTray.position.set(0, -0.32, 0.18); cayci.userData.arms[1].el.add(cayTray); cayTray.visible = false;
+cayTray.position.set(0.18, 1.08, 0.32); cayci.add(cayTray); cayTray.visible = false;
 const orders = []; let cayJob = null;
 
 /* ============================================================ yürünebilir alan + yol bulma */
@@ -849,7 +817,7 @@ const RING = [seatOf(OKEY_T, 0), seatOf(OKEY_T, 2), seatOf(OKEY_T, 1), seatOf(OK
 let NET = null; const others = new Map();
 const okey = createOkey({
   THREE, scene, M, T, toast, esc, camera, seats, ring: RING, table: tableGroups[OKEY_T], makePerson, sitAt,
-  standUp: () => standUp(), net: () => NET, netId: () => (NET ? NET.room.id : 'me'), myName: () => myName || T('Sen'), others: () => others,
+  standUp: () => standUp(), disposePerson, net: () => NET, netId: () => (NET ? NET.room.id : 'me'), myName: () => myName || T('Sen'), others: () => others,
   setCam: p => { me.x = p.x; me.eye = p.y; me.z = p.z; me.yaw = p.yaw; me.pitch = p.pitch; }
 });
 
@@ -885,11 +853,19 @@ function subText() {
 }
 
 /* ============================================================ ekran boyutu (WebGL ve TV katmanı aynı ölçüde) */
-let prCap = 1.5, prNow = 1.5;
+let prCap = 1.5, prNow = 1.5, composer = null, bloom = null;
+function makeComposer() {
+  try {
+    composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera));
+    bloom = new UnrealBloomPass(new THREE.Vector2(VW / 2, VH / 2), 0.32, 0.55, 0.82); composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+  } catch (e) { composer = null; }
+}
 function resize() {
   const r = document.documentElement; VW = r.clientWidth || innerWidth; VH = r.clientHeight || innerHeight;
   prCap = Math.min(window.devicePixelRatio || 1, lowQ() ? 1 : 1.6); prNow = Math.min(prNow, prCap) || prCap;
   renderer.setPixelRatio(prNow); renderer.setSize(VW, VH, true); css.setSize(VW, VH);
+  if (!composer && !lowQ()) makeComposer(); if (composer) { composer.setPixelRatio(prNow); composer.setSize(VW, VH); if (bloom) bloom.resolution.set(VW * prNow / 2, VH * prNow / 2); }
   camera.aspect = VW / VH; camera.fov = VW < VH ? 76 : 60; camera.updateProjectionMatrix();
   handTea.userData.x = Math.min(0.24, 0.5 * Math.tan(camera.fov * Math.PI / 360) * camera.aspect * 0.62); handTea.position.x = handTea.userData.x;
   okey.resize();
@@ -903,7 +879,7 @@ const joy = { id: null, ox: 0, oy: 0, x: 0, y: 0 }, looks = new Map(), keys = {}
 let lastInput = performance.now();
 const freeWalk = () => me.seat < 0 && !me.watch && me.narg < 0;
 tl.addEventListener('pointerdown', e => {
-  lastInput = performance.now();
+  lastInput = performance.now(); tvUnmuteOnTap(); audioUnlockTap();
   tl.setPointerCapture(e.pointerId);
   const leftSide = e.clientX < VW * 0.42 && e.clientY > VH * 0.3;
   if (leftSide && joy.id == null && freeWalk() && !okey.active) { joy.id = e.pointerId; joy.ox = e.clientX; joy.oy = e.clientY; joy.x = joy.y = 0; joyEl.hidden = false; joyEl.style.left = e.clientX + 'px'; joyEl.style.top = e.clientY + 'px'; knob.style.transform = ''; me.auto = null; me.path = null; hideHint(); return; }
@@ -1049,7 +1025,7 @@ function sip() {
   const t = me.tea === 2 && tableTea ? tableTea : handTea.children[0];
   if (me.sips >= 3) { toast('🍵 ' + T('Çay bitti. Bir tane daha?')); if (t.userData.tea) t.userData.tea.visible = false; setTimeout(() => { if (tableTea) { tableTea.parent.remove(tableTea); tableTea = null; } me.tea = null; sendState(true); ui(); }, 1500); }
   else { if (t.userData.tea) t.userData.tea.scale.y = 1 - me.sips * 0.3; toast(me.sips === 1 ? T('Oh, tavşan kanı…') : T('Bir yudum daha')); }
-  sipAnim = performance.now(); if (meAv) { meAv.userData.act = 'sip'; meAv.userData.actT = sipAnim; }
+  sipAnim = performance.now(); avAct(meAv, 'sip');
   if (NET) NET.room.send('x', { a: 'sip' }); ui();
 }
 // çaycı: oturduğun masaya çay getirir
@@ -1064,7 +1040,7 @@ function cayciUpdate(now, dt) {
     const tx = s.x - Math.sin(s.yaw + 0.9) * 0.55, tz = s.z - Math.cos(s.yaw + 0.9) * 0.55;
     cayJob = { s, path: findPath(cayci.position.x, cayci.position.z, tx, tz), phase: 'go', ph: 0 }; cayTray.visible = true;
   }
-  if (!cayJob) { cayci.userData.head.rotation.y = Math.sin(now / 2600) * 0.4; return; }
+  if (!cayJob) { cayci.userData.a.headYaw = Math.sin(now / 2600) * 0.4; return; }
   const j = cayJob, wp = j.path[0];
   if (j.phase === 'serve') {
     if (now > j.until) { j.phase = 'back'; j.path = findPath(cayci.position.x, cayci.position.z, CAYCI_HOME.x, CAYCI_HOME.z); cayTray.visible = false; }
@@ -1084,7 +1060,7 @@ function cayciUpdate(now, dt) {
   if (d < 0.08) { j.path.shift(); return; }
   cayci.position.x += dx / d * Math.min(sp, d); cayci.position.z += dz / d * Math.min(sp, d);
   const ty = Math.atan2(dx, dz); let dy = ty - cayci.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); cayci.rotation.y += dy * Math.min(1, dt * 8);
-  j.ph += sp * 4.2; pose(cayci, 'walk', j.ph, 1); cayci.userData.arms[1].sh.rotation.x = -0.5; cayci.userData.arms[1].el.rotation.x = -1.3;
+  j.ph += sp * 4.2; pose(cayci, 'walk', j.ph, 1);
 }
 
 /* ============================================================ bağlam düğmesi */
@@ -1096,21 +1072,23 @@ function nearestCtx() {
   let best = null, bs = 0;
   for (const s of seats) {
     if (s.npc || s.by || s.bot) continue; const dx = s.x - me.x, dz = s.z - me.z, d = Math.hypot(dx, dz); if (d > 1.35) continue;
-    const dot = (dx * fx + dz * fz) / (d || 1), sc = (1.4 - d) + dot * 0.5; if (dot > -0.2 && sc > bs) { bs = sc; best = { k: 'seat', s, l: s.okey ? '🀄 ' + T('Okey oyna') : s.sedir ? '💨 ' + T('Sedire otur') : '🪑 ' + T('Otur') }; }
+    const dot = (dx * fx + dz * fz) / (d || 1), sc = (1.4 - d) + dot * 0.5; if (dot > -0.2 && sc > bs) { bs = sc; best = { k: 'seat', s, p: [s.x, 1.05, s.z], l: s.okey ? '🀄 ' + T('Okey oyna') : s.sedir ? '💨 ' + T('Sedire otur') : '🪑 ' + T('Otur') }; }
   }
-  const look = (x, z, maxD, minDot, k, l, base) => { const dx = x - me.x, dz = z - me.z, d = Math.hypot(dx, dz), dot = (dx * fx + dz * fz) / (d || 1); if (d < maxD && dot > minDot) { const sc = base + dot; if (sc > bs) { bs = sc; best = { k, l }; } } };
-  look(TV.x, TV.z, 5, 0.8, 'tv', '📺 ' + T('TV'), 1);
+  let y_ = 1.2; const look = (x, z, maxD, minDot, k, l, base) => { const dx = x - me.x, dz = z - me.z, d = Math.hypot(dx, dz), dot = (dx * fx + dz * fz) / (d || 1); if (d < maxD && dot > minDot) { const sc = base + dot; if (sc > bs) { bs = sc; best = { k, l, p: [x, y_, z] }; } } };
+  y_ = TV.y + 0.62; look(TV.x, TV.z, 5, 0.8, 'tv', '📺 ' + T('TV'), 1); y_ = 1.5;
   if (!me.tea) look(teaSpot.x, teaSpot.z, 2.1, 0.3, 'tea', '🍵 ' + T('Çay al'), 1.6);
-  look(PLAK.x, PLAK.z, 2.4, 0.5, 'plak', '🎵 ' + T('Plak çalar'), 1.5);
-  look(POOL.x, POOL.z, 2.4, 0.3, 'pool', '🎱 ' + T('Bilardo oyna'), 1.7);
+  y_ = 1.1; look(PLAK.x, PLAK.z, 2.4, 0.5, 'plak', '🎵 ' + T('Plak çalar'), 1.5);
+  y_ = 1.15; look(POOL.x, POOL.z, 2.4, 0.3, 'pool', '🎱 ' + T('Bilardo oyna'), 1.7);
   return best;
 }
 const actEl = $('act'), act2 = $('act2'), sipBtn = $('sip');
 function ui() {
   ctx = nearestCtx();
-  const l = ctx ? ctx.l : '';
-  if (actEl.textContent !== l) actEl.textContent = l; actEl.hidden = !ctx;
-  const a2 = me.watch || okey.active || me.narg >= 0 ? '' : me.seat >= 0 ? '⬆ ' + esc(T('Kalk')) : me.tea ? '🍵 ' + esc(T('Yudumla')) : '';
+  const l = ctx ? ctx.l : '', sp_ = l.indexOf(' '), ico = sp_ > 0 ? l.slice(0, sp_) : '●', txt = sp_ > 0 ? l.slice(sp_ + 1) : l;
+  const ah = `<i>${ico}</i><span>${esc(txt)}</span>`;
+  if (actEl.innerHTML !== ah) actEl.innerHTML = ah; actEl.hidden = !ctx; actEl.classList.toggle('pulse', !!ctx && ctx.k === 'seat' && !!ctx.s.okey);
+  const wpEl = $('wp'); wpEl.hidden = !(ctx && ctx.p); if (ctx && ctx.p) { wpEl.querySelector('i').textContent = ico; const s_ = wpEl.querySelector('span'); if (s_.textContent !== txt) s_.textContent = txt; wpPos = ctx.p; }
+  const a2 = me.watch || okey.active || me.narg >= 0 ? '' : me.seat >= 0 ? '<i>⬆</i><span>' + esc(T('Kalk')) + '</span>' : me.tea ? '<i>🍵</i><span>' + esc(T('Yudumla')) + '</span>' : '';
   if (act2.innerHTML !== a2) act2.innerHTML = a2;
   act2.hidden = !act2.innerHTML;
   sipBtn.hidden = !(me.tea && me.seat >= 0 && !me.watch && !okey.active);
@@ -1119,7 +1097,10 @@ function ui() {
   $('bcam').classList.toggle('on', P.cam === 3);
   $('sub').textContent = subText();
   document.body.classList.toggle('okey', okey.active);
+  document.body.classList.toggle('tp', !!camera.userData.tpOn);
 }
+let wpPos = null; const _wv = new THREE.Vector3();
+function placeWp() { const el = $('wp'); if (el.hidden || !wpPos) return; _wv.set(...wpPos).project(camera); if (_wv.z > 1 || Math.abs(_wv.x) > 1.1 || Math.abs(_wv.y) > 1.1) { el.style.opacity = 0; return; } el.style.opacity = 1; el.style.transform = `translate(${(_wv.x + 1) / 2 * VW}px,${(1 - _wv.y) / 2 * VH - 8}px) translate(-50%,-100%)`; }
 function doAct() {
   if (!ctx) return;
   if (ctx.k === 'seat') sitDown(ctx.s);
@@ -1142,14 +1123,73 @@ function ytId(s) {
   s = String(s || '').trim(); if (/^[\w-]{11}$/.test(s)) return s;
   const m = s.match(/(?:youtu\.be\/|v=|\/shorts\/|\/embed\/|\/live\/)([\w-]{11})/); return m ? m[1] : '';
 }
-function setVideo(id, share = true, title = '') {
-  tvId = id || ''; tvTitle = title || '';
-  if (!tvId) { tvEl.innerHTML = ''; tvObj.visible = false; tvHole.visible = false; tvIdle.visible = true; if (share && NET) NET.room.send('tv', { id: '' }); exitWatch(); return; }
-  tvEl.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${tvId}?autoplay=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3" style="width:1280px;height:720px;border:0;display:block" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
-  tvObj.visible = true; tvHole.visible = true; tvIdle.visible = false;
-  if (share && NET) NET.room.send('tv', { id: tvId, n: tvTitle });
-  P.tv = [{ id: tvId, n: tvTitle || tvId }].concat((P.tv || []).filter(h => h.id !== tvId)).slice(0, 12); save();
+// YouTube oynatıcı API'si: odadaki herkes aynı saniyede izler. Son dokunan (aç/durdur/sar) TV'nin sahibidir, 4 sn'de bir zamanı yayar.
+let ytApi = null, ytP = null, tvOwner = null, tvSup = 0, tvWant = null, tvMuted = false;
+function loadYtApi() {
+  if (ytApi) return ytApi;
+  ytApi = new Promise(res => { if (window.YT && window.YT.Player) return res(window.YT); window.onYouTubeIframeAPIReady = () => res(window.YT); const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; s.onerror = () => res(null); document.head.appendChild(s); });
+  return ytApi;
 }
+const ytTime = () => { try { return ytP && ytP.getCurrentTime ? ytP.getCurrentTime() || 0 : 0; } catch (e) { return 0; } };
+const ytPlaying = () => { try { return ytP && ytP.getPlayerState && ytP.getPlayerState() === 1; } catch (e) { return false; } };
+const myNetId = () => (NET ? NET.room.id : 'me');
+function tvState() { return { id: tvId, n: tvTitle, t: +ytTime().toFixed(2), p: ytPlaying() || (tvWant ? tvWant.p : true), o: myNetId() }; }
+function tvBroadcast(force) { if (!NET || !tvId) return; if (!force && tvOwner !== myNetId()) return; NET.room.send('tv', tvState()); }
+async function setVideo(id, share = true, title = '', start = 0, playing = true) {
+  const changed = id !== tvId; tvId = id || ''; tvTitle = title || tvTitle || '';
+  if (!tvId) { try { ytP && ytP.destroy(); } catch (e) {} ytP = null; tvEl.innerHTML = ''; tvObj.visible = false; tvHole.visible = false; tvIdle.visible = true; if (share && NET) NET.room.send('tv', { id: '', o: myNetId() }); exitWatch(); return; }
+  if (share) tvOwner = myNetId();
+  tvWant = { t: start, p: playing, at: performance.now() };
+  tvObj.visible = true; tvHole.visible = true; tvIdle.visible = false;
+  if (changed || !ytP) {
+    try { ytP && ytP.destroy(); } catch (e) {} ytP = null;
+    tvEl.innerHTML = '<div id="ytbox" style="width:1280px;height:720px"></div>';
+    const YT = await loadYtApi();
+    if (!YT) { tvEl.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${tvId}?autoplay=1&playsinline=1&rel=0&start=${Math.floor(start)}" style="width:1280px;height:720px;border:0" allow="autoplay; encrypted-media"></iframe>`; }
+    else {
+      tvSup = performance.now() + 2500;
+      ytP = new YT.Player('ytbox', { width: 1280, height: 720, videoId: tvId, host: 'https://www.youtube-nocookie.com',
+        playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, iv_load_policy: 3, start: Math.floor(start) },
+        events: {
+          onReady: e => { tvSup = performance.now() + 1500; const w = tvWant; if (w) { const t = w.t + (w.p ? (performance.now() - w.at) / 1000 : 0); if (t > 1) e.target.seekTo(t, true); w.p ? e.target.playVideo() : e.target.pauseVideo(); }
+            setTimeout(() => { if (tvWant && tvWant.p && !ytPlaying() && ytP) { try { ytP.mute(); ytP.playVideo(); tvMuted = true; toast('🔇 ' + T('TV sessiz başladı. Sesi açmak için ekrana dokun')); } catch (er) {} } }, 1800); },
+          onStateChange: e => {
+            if (performance.now() < tvSup) return;
+            if (e.data === 1 || e.data === 2) { tvOwner = myNetId(); tvWant = { t: ytTime(), p: e.data === 1, at: performance.now() }; tvBroadcast(true); }
+          }
+        } });
+    }
+  } else if (ytP && ytP.seekTo) {
+    tvSup = performance.now() + 1500;
+    if (Math.abs(ytTime() - start) > 1.5) ytP.seekTo(start, true);
+    playing ? ytP.playVideo() : ytP.pauseVideo();
+  }
+  if (share && NET) NET.room.send('tv', { id: tvId, n: tvTitle, t: start, p: playing, o: myNetId() });
+  if (changed) { P.tv = [{ id: tvId, n: tvTitle || tvId }].concat((P.tv || []).filter(h => h.id !== tvId)).slice(0, 12); save(); }
+}
+function onTvMsg(d, from) {
+  if (!d.id) { if (tvId) { setVideo('', false); toast(`📺 ${from.name} ${T('TV\'yi kapattı')}`); } return; }
+  tvOwner = d.o || from.id;
+  const t = (d.t || 0) + (d.p ? 0.35 : 0);
+  if (d.id !== tvId) { setVideo(d.id, false, d.n, t, d.p !== false); toast(`📺 ${from.name} ${T('TV\'de video açtı')}`); return; }
+  tvWant = { t, p: d.p !== false, at: performance.now() };
+  if (!ytP || !ytP.getPlayerState) return;
+  const drift = Math.abs(ytTime() - t);
+  tvSup = performance.now() + 1500;
+  if (drift > 1.2) ytP.seekTo(t, true);
+  if (d.p !== false && !ytPlaying()) ytP.playVideo(); else if (d.p === false && ytPlaying()) ytP.pauseVideo();
+}
+// sahip her 4 sn'de zamanı yayar; kendi oynatıcısı elle sarıldıysa da yayar
+let tvLastT = 0, tvLastAt = 0;
+setInterval(() => {
+  if (!tvId || !ytP || !ytP.getCurrentTime) return;
+  const t = ytTime(), now = performance.now(), exp = tvLastT + (ytPlaying() ? (now - tvLastAt) / 1000 : 0);
+  if (tvLastAt && Math.abs(t - exp) > 2.5 && now > tvSup) tvOwner = myNetId();
+  tvLastT = t; tvLastAt = now;
+  tvBroadcast(false);
+}, 4000);
+// iOS: ses ancak dokununca açılır
+function tvUnmuteOnTap() { if (tvMuted && ytP && ytP.unMute) { try { ytP.unMute(); ytP.playVideo(); } catch (e) {} tvMuted = false; } }
 function enterWatch() {
   if (!tvId) return;
   me.watch = true; me.preWatch = { x: me.x, z: me.z, eye: me.eye, yaw: me.yaw, pitch: me.pitch };
@@ -1165,7 +1205,7 @@ function exitWatch() {
 }
 $('tvbar').addEventListener('click', e => {
   const b = e.target.closest('[data-tv]'); if (!b) return;
-  if (b.dataset.tv === 'pick') openTvPick(); else if (b.dataset.tv === 'off') setVideo(''); else if (b.dataset.tv === 'up') exitWatch();
+  if (b.dataset.tv === 'pick') openTvPick(); else if (b.dataset.tv === 'sync') { tvUnmuteOnTap(); if (NET && tvOwner && tvOwner !== myNetId()) NET.room.send('tvq', {}, tvOwner); else tvBroadcast(true); toast(T('TV eşitlendi')); } else if (b.dataset.tv === 'off') setVideo(''); else if (b.dataset.tv === 'up') exitWatch();
 });
 // arama: YouTube Data API anahtarı varsa onu, yoksa herkese açık arama sunucularını dener
 const CFG = window.GP_CONFIG || {};
@@ -1221,58 +1261,143 @@ async function doSearch(q) {
   }
 }
 
-/* ============================================================ plak çalar: uygulamanın müzik çalarıyla konuşur, odadaki herkes duyar */
-let np = null, npAt = 0, plakSpin = 0, roomSong = null, shareAudio = null, urlCache = {};
+/* ============================================================ plak çalar: şarkı dosyası arkadaşlara gönderilir, herkes aynı anda dinler
+   DJ (çalan kişi) dosyayı uygulamadan alır, her arkadaşa WebRTC ile doğrudan yollar (olmazsa oda sunucusu üzerinden parça parça).
+   Arkadaşın telefonunda dosya hazır olunca DJ'in zamanına göre çalar; 4 sn'de bir eşitlenir. */
+let np = null, npAt = 0, plakSpin = 0, roomSong = null, shareAudio = null;
+const songCache = new Map();   // id → { url, size }
+let myBlob = null;             // DJ: şu an çalan şarkının dosyası
 function openPlak() {
-  const n = np;
+  const n = np, rs = roomSong && roomSong.by !== myNetId() ? roomSong : null;
+  const playing = (n && n.playing) || (rs && rs.playing);
   openModal(`<h2>🎵 ${T('Plak çalar')}</h2>
-    <div class="nowp">${n ? `<b>${esc(n.title || T('Şarkı'))}</b><small>${esc(n.artist || '')}</small><span>${n.playing ? '▶ ' + T('çalıyor') : '⏸ ' + T('duraklatıldı')}</span>` : `<small>${T('Şu an bir şey çalmıyor')}</small>`}</div>
+    <div class="nowp ${playing ? 'on' : ''}"><i class="disc"></i><div>${rs ? `<b>${esc(rs.title)}</b><small>${esc(rs.artist || '')}</small><span>🎧 ${esc(rs.name)} ${T('çalıyor')} · ${rs.ready ? T('sende de çalıyor') : rs.prog != null ? T('iniyor') + ' %' + Math.round(rs.prog * 100) : T('bekleniyor')}</span>` : n ? `<b>${esc(n.title || T('Şarkı'))}</b><small>${esc(n.artist || '')}</small><span>${n.playing ? '▶ ' + T('çalıyor') : '⏸ ' + T('duraklatıldı')}</span>` : `<small>${T('Şu an bir şey çalmıyor')}</small>`}</div></div>
     <button class="btn" data-v="pick">🎶 ${T('Şarkı seç (Gönül Plak)')}</button>
     ${n ? `<button class="btn sec" data-v="${n.playing ? 'pause' : 'resume'}">${n.playing ? '⏸ ' + T('Duraklat') : '▶ ' + T('Devam et')}</button>` : ''}
-    ${NET ? `<button class="btn sec" data-v="dj">${me.dj ? '📡 ' + T('Odaya çalıyorsun (kapat)') : '📡 ' + T('Odadaki herkese çal')}</button><div class="ovs">${T('Açıkken çaldığın şarkıyı odadaki herkes duyar. Şarkı arkadaşında da varsa onunkinden, bulutundaysa senden çalar.')}</div>` : ''}
-    ${roomSong && roomSong.by !== (NET && NET.room.id) ? `<div class="ovs">🎧 ${esc(roomSong.name)}: ${esc(roomSong.title)}${roomSong.miss ? ' · ' + T('sende yok') : ''}</div>` : ''}`, b => {
+    ${NET ? `<button class="btn sec" data-v="dj">${me.dj ? '📡 ' + T('Odaya çalıyorsun (kapat)') : '📡 ' + T('Odadaki herkese çal')}</button><div class="ovs">${T('Açıkken çaldığın şarkı arkadaşlarının telefonuna gönderilir ve herkeste aynı anda çalar. Arkadaşlarında şarkının olması gerekmez.')}</div>` : ''}
+    ${rs ? `<button class="btn sec" data-v="leave">🔇 ${T('Bu şarkıyı dinleme')}</button>` : ''}`, b => {
     const v = b.dataset.v;
     if (v === 'pick') { closeModal(); if (NET) me.dj = true; toParent({ type: 'gp-open', view: 'now' }); if (parent === window) toast(T('Müzik çalar sadece uygulamanın içinde açılır')); return; }
     if (v === 'pause') { toParent({ type: 'gp-pause' }); closeModal(); return; }
     if (v === 'resume') { toParent({ type: 'gp-resume' }); closeModal(); return; }
-    if (v === 'dj') { me.dj = !me.dj; if (me.dj) shareNp(true); else if (NET) NET.room.send('pk', { stop: 1 }); openPlak(); }
+    if (v === 'leave') { if (shareAudio) shareAudio.pause(); roomSong = null; closeModal(); return; }
+    if (v === 'dj') { me.dj = !me.dj; if (me.dj) djStart(); else if (NET) NET.room.send('pk', { stop: 1 }); openPlak(); }
   });
 }
-function shareNp(force) {
-  if (!NET || !me.dj || !np) return;
-  const m = { id: np.id, title: np.title, artist: np.artist, playing: np.playing, pos: np.pos + (Date.now() - npAt) / 1000 * (np.playing ? 1 : 0), url: urlCache[np.id] || null };
-  NET.room.send('pk', m);
-  if (np.cloud && !(np.id in urlCache)) { urlCache[np.id] = null; toParent({ type: 'gp-url', id: np.id }); }
+const npPos = () => np ? np.pos + (np.playing ? (Date.now() - npAt) / 1000 : 0) : 0;
+function djStart() { if (!np) return; myBlob = null; toParent({ type: 'gp-blob', id: np.id }); djBeat(); }
+function djBeat() { if (!NET || !me.dj || !np) return; NET.room.send('pk', { id: np.id, title: np.title, artist: np.artist, playing: np.playing, pos: +npPos().toFixed(2), size: myBlob && myBlob.id === np.id ? myBlob.blob.size : 0 }); }
+// ---- WebRTC aktarım
+const ICE = { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }] };
+const rtc = new Map(); // peerId → { pc, dc, sending }
+const CH = 16 * 1024;
+function rtcPeer(pid, initiator) {
+  let r = rtc.get(pid); if (r) return r;
+  const pc = new RTCPeerConnection(ICE); r = { pc, dc: null, q: [] }; rtc.set(pid, r);
+  pc.onicecandidate = e => { if (e.candidate) NET.room.send('rtc', { c: e.candidate.toJSON() }, pid); };
+  pc.onconnectionstatechange = () => { if (/failed|closed/.test(pc.connectionState)) { rtc.delete(pid); } };
+  const setup = dc => { r.dc = dc; dc.binaryType = 'arraybuffer'; dc.onmessage = e => onChunk(pid, e.data); dc.onopen = () => { const f = r.q.splice(0); f.forEach(fn => fn()); }; };
+  if (initiator) { setup(pc.createDataChannel('plak', { ordered: true })); pc.createOffer().then(o => pc.setLocalDescription(o)).then(() => NET.room.send('rtc', { sdp: pc.localDescription.toJSON() }, pid)); }
+  else pc.ondatachannel = e => setup(e.channel);
+  return r;
+}
+async function onRtc(d, from) {
+  if (!NET || typeof RTCPeerConnection === 'undefined') return;
+  const r = rtcPeer(from.id, false), pc = r.pc;
+  try {
+    if (d.sdp) { await pc.setRemoteDescription(d.sdp); if (d.sdp.type === 'offer') { await pc.setLocalDescription(await pc.createAnswer()); NET.room.send('rtc', { sdp: pc.localDescription.toJSON() }, from.id); } }
+    else if (d.c) await pc.addIceCandidate(d.c);
+  } catch (e) {}
+}
+// DJ: arkadaş dosyayı istedi → gönder
+async function sendSong(pid, via) {
+  if (!myBlob) return;
+  const { id, blob } = myBlob, buf = new Uint8Array(await blob.arrayBuffer()), total = buf.length;
+  const head = JSON.stringify({ id, size: total, mime: blob.type || 'audio/mpeg' });
+  if (via !== 'mq' && typeof RTCPeerConnection !== 'undefined') {
+    const r = rtcPeer(pid, true);
+    const go = async () => {
+      const dc = r.dc; dc.send(head);
+      for (let o = 0; o < total; o += CH) {
+        while (dc.bufferedAmount > 1 << 20) await new Promise(res => setTimeout(res, 30));
+        if (dc.readyState !== 'open') return; dc.send(buf.subarray(o, Math.min(total, o + CH)));
+      }
+    };
+    if (r.dc && r.dc.readyState === 'open') go(); else r.q.push(go);
+    return;
+  }
+  // yedek yol: oda sunucusu üzerinden base64 parçalar
+  const MQ = 24 * 1024; let i = 0;
+  NET.room.send('pkh', { id, size: total, mime: blob.type || 'audio/mpeg' }, pid);
+  for (let o = 0; o < total; o += MQ, i++) {
+    let s = ''; const part = buf.subarray(o, Math.min(total, o + MQ)); for (let j = 0; j < part.length; j++) s += String.fromCharCode(part[j]);
+    NET.room.send('pkc', { id, i, b: btoa(s) }, pid);
+    await new Promise(res => setTimeout(res, 70));
+  }
+}
+// dinleyen: gelen parçaları birleştir
+const incoming = new Map(); // id → { size, mime, parts:[], got }
+function onChunk(pid, data) {
+  if (typeof data === 'string') { try { const h = JSON.parse(data); incoming.set(h.id, { size: h.size, mime: h.mime, parts: [], got: 0, from: pid }); cur_in = h.id; } catch (e) {} return; }
+  const inc = incoming.get(cur_in); if (!inc) return;
+  inc.parts.push(new Uint8Array(data)); inc.got += data.byteLength; progress(cur_in, inc);
+}
+let cur_in = null;
+function onMqHead(d) { incoming.set(d.id, { size: d.size, mime: d.mime, parts: [], got: 0, mq: [] }); }
+function onMqChunk(d) {
+  const inc = incoming.get(d.id); if (!inc) return;
+  const bin = atob(d.b), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  inc.mq[d.i] = u; inc.got += u.length; progress(d.id, inc);
+}
+function progress(id, inc) {
+  if (roomSong && roomSong.id === id) roomSong.prog = inc.got / inc.size;
+  if (inc.got >= inc.size) {
+    const parts = inc.mq ? inc.mq : inc.parts, blob = new Blob(parts, { type: inc.mime });
+    incoming.delete(id);
+    if (songCache.size > 4) { const [k0, v0] = songCache.entries().next().value; URL.revokeObjectURL(v0.url); songCache.delete(k0); }
+    songCache.set(id, { url: URL.createObjectURL(blob), size: blob.size });
+    if (roomSong && roomSong.id === id) { roomSong.ready = true; playRoomSong(); }
+  }
+}
+function requestSong(d, from) {
+  if (songCache.has(d.id) || incoming.has(d.id)) return;
+  incoming.set(d.id, { size: d.size, mime: '', parts: [], got: 0, from: from.id });
+  const hasRtc = typeof RTCPeerConnection !== 'undefined';
+  NET.room.send('pkr', { id: d.id, via: hasRtc ? 'rtc' : 'mq' }, from.id);
+  // 9 sn içinde hiç parça gelmezse yedek yola geç
+  setTimeout(() => { const inc = incoming.get(d.id); if (inc && inc.got === 0 && NET) { incoming.delete(d.id); NET.room.send('pkr', { id: d.id, via: 'mq' }, from.id); } }, 9000);
 }
 function onRoomSong(d, from) {
   if (d.stop) { if (roomSong && roomSong.by === from.id) { roomSong = null; if (shareAudio) shareAudio.pause(); } return; }
-  const prev = roomSong; roomSong = { by: from.id, name: from.name, title: d.title, artist: d.artist, playing: d.playing, pos: d.pos, url: d.url, at: Date.now() };
-  me.dj = false;
-  const changed = !prev || prev.title !== d.title || prev.artist !== d.artist;
-  if (changed) toast(`🎵 ${from.name}: ${d.title}${d.artist ? ' · ' + d.artist : ''}`, 3200);
-  if (d.url) { playShared(d); return; }
-  if (shareAudio && !shareAudio.paused) shareAudio.pause();
-  if (changed || (prev && prev.playing !== d.playing)) toParent({ type: 'gp-match', title: d.title, artist: d.artist, pos: d.pos + 0.4, playing: d.playing });
+  const prev = roomSong; me.dj = false;
+  roomSong = Object.assign(prev && prev.id === d.id ? prev : {}, { by: from.id, name: from.name, id: d.id, title: d.title, artist: d.artist, playing: d.playing, pos: d.pos, at: performance.now() });
+  if (!prev || prev.id !== d.id) { toast(`🎵 ${from.name}: ${d.title}${d.artist ? ' · ' + d.artist : ''}`, 3200); toParent({ type: 'gp-pause' }); }
+  if (songCache.has(d.id)) { roomSong.ready = true; playRoomSong(); }
+  else if (d.size) requestSong(d, from);
 }
-function playShared(d) {
+let audioLocked = false;
+function playRoomSong() {
+  const rs = roomSong; if (!rs || !songCache.has(rs.id)) return;
   if (!shareAudio) { shareAudio = new Audio(); shareAudio.setAttribute('playsinline', ''); }
-  if (shareAudio.src !== d.url) shareAudio.src = d.url;
-  try { if (Math.abs(shareAudio.currentTime - d.pos) > 2) shareAudio.currentTime = d.pos + 0.4; } catch (e) {}
-  if (d.playing) shareAudio.play().catch(() => toast(T('Sesi açmak için ekrana bir kez dokun'))); else shareAudio.pause();
-  toParent({ type: 'gp-pause' });
+  const c = songCache.get(rs.id); if (shareAudio.src !== c.url) shareAudio.src = c.url;
+  const want = rs.pos + (rs.playing ? (performance.now() - rs.at) / 1000 + 0.25 : 0);
+  try { if (Math.abs(shareAudio.currentTime - want) > 1.0) shareAudio.currentTime = want; } catch (e) {}
+  if (rs.playing) shareAudio.play().then(() => { audioLocked = false; }).catch(() => { if (!audioLocked) toast('🔊 ' + T('Şarkıyı duymak için ekrana bir kez dokun')); audioLocked = true; });
+  else shareAudio.pause();
 }
+function audioUnlockTap() { if (audioLocked && roomSong) playRoomSong(); }
 addEventListener('message', e => {
   if (e.source !== parent) return;
   const d = e.data; if (!d || !d.type) return;
   if (d.type === 'gp-np') {
     const was = np; np = d.np; npAt = Date.now();
     if (np) drawPlakLabel(np.title || 'Gönül Plak', np.artist || ''); else drawPlakLabel('Gönül Plak', '');
-    if (me.dj && np && (!was || was.id !== np.id || was.playing !== np.playing || Math.abs((was.pos || 0) - np.pos) > 3)) shareNp();
-  } else if (d.type === 'gp-url') { urlCache[d.id] = d.url; if (me.dj && np && np.id === d.id && d.url) shareNp(); }
-  else if (d.type === 'gp-match') { if (!d.ok && roomSong) { roomSong.miss = true; toast(`🎵 ${T('Bu şarkı sende yok')}: ${d.title}`); } }
+    if (me.dj && np && (!was || was.id !== np.id)) djStart();
+    else if (me.dj && np && (was.playing !== np.playing || Math.abs((was.pos || 0) - np.pos) > 3)) djBeat();
+  } else if (d.type === 'gp-blob') { if (np && d.id === np.id && d.blob) { myBlob = { id: d.id, blob: d.blob }; djBeat(); } }
 });
-setInterval(() => { if (me.dj && np && np.playing) shareNp(); }, 15000);
-const plakPlaying = () => (np && np.playing) || (shareAudio && !shareAudio.paused) || (roomSong && roomSong.playing && !roomSong.miss);
+setInterval(() => { if (me.dj && np) djBeat(); if (roomSong && roomSong.ready && shareAudio && !audioLocked) playRoomSong(); }, 4000);
+const plakPlaying = () => (np && np.playing) || (shareAudio && !shareAudio.paused);
 
 /* ============================================================ bilardo (yan oda): bizim bilardo, kıraathane temasıyla */
 let subFrame = null;
@@ -1343,7 +1468,7 @@ function exhale(dur) {
   const hx = s.x + Math.sin(s.yaw) * 0.08, hz = s.z + Math.cos(s.yaw) * 0.08;
   const dir = camera.getWorldDirection(new THREE.Vector3()); dir.y = 0; dir.normalize();
   puff(camera.position.x + dir.x * 0.55, camera.position.y - 0.1, camera.position.z + dir.z * 0.55, dir.x, dir.z, Math.round(10 + dur * 6), fl[2], 1.1);
-  if (meAv) { meAv.userData.act = 'pull'; meAv.userData.actT = performance.now(); }
+  avAct(meAv, 'pull');
   if (NET) NET.room.send('x', { a: 'puff', x: +hx.toFixed(2), z: +hz.toFixed(2), d: +dur.toFixed(1), c: fl[2], dx: +Math.sin(s.yaw).toFixed(2), dz: +Math.cos(s.yaw).toFixed(2) });
 }
 function startBubble() {
@@ -1407,7 +1532,7 @@ function netOpts(code) {
     onPeers: list => {
       const ids = new Set(list.map(p => p.id)); for (const id of [...others.keys()]) if (!ids.has(id)) removeOther(id);
       let neu = false; list.forEach(p => { if (!others.has(p.id) && p.id !== NET?.room?.id) { addOther(p); neu = true; } });
-      if (neu && NET) { sendState(true); NET.room.send('av', { av: P.av }); if (tvId) NET.room.send('tv', { id: tvId, n: tvTitle }); if (me.dj) shareNp(true); okey.onPeers(list); }
+      if (neu && NET) { sendState(true); NET.room.send('av', { av: P.av }); if (tvId && (tvOwner === myNetId() || !tvOwner)) tvBroadcast(true); if (me.dj) djBeat(); okey.onPeers(list); }
       ui(); saveSession();
     },
     onMsg: (t, d, from) => {
@@ -1418,13 +1543,18 @@ function netOpts(code) {
         if (d.s !== o.seat) { if (o.seat >= 0 && seats[o.seat] && seats[o.seat].by === from.id) seats[o.seat].by = null; o.seat = d.s; if (d.s >= 0 && seats[d.s]) seats[d.s].by = from.id; }
         o.av.userData.cup.visible = o.tea === 1;
       } else if (t === 'av') { addOther(from, d.av); }
-      else if (t === 'tv') { if (d.id !== tvId) { setVideo(d.id, false, d.n); if (d.id) toast(`📺 ${from.name} ${T('TV\'de video açtı')}`); } }
+      else if (t === 'tv') onTvMsg(d, from);
+      else if (t === 'tvq') tvBroadcast(true);
       else if (t === 'say') { bubble(o.av, d.t); }
       else if (t === 'pk') onRoomSong(d, from);
+      else if (t === 'pkr') sendSong(from.id, d.via);
+      else if (t === 'pkh') onMqHead(d);
+      else if (t === 'pkc') onMqChunk(d);
+      else if (t === 'rtc') onRtc(d, from);
       else if (t === 'x') {
-        if (d.a === 'sip') { o.av.userData.act = 'sip'; o.av.userData.actT = performance.now(); }
+        if (d.a === 'sip') avAct(o.av, 'sip');
         else if (d.a === 'order') orderTea(d.s, false);
-        else if (d.a === 'puff') { o.av.userData.act = 'pull'; o.av.userData.actT = performance.now(); setTimeout(() => puff(d.x, 1.25, d.z, d.dx || 0, d.dz || 0, Math.round(6 + d.d * 4), d.c || 0xffffff), 900); }
+        else if (d.a === 'puff') { avAct(o.av, 'pull'); setTimeout(() => puff(d.x, 1.25, d.z, d.dx || 0, d.dz || 0, Math.round(6 + d.d * 4), d.c || 0xffffff), 900); }
         else if (d.a === 'narg') { const n = NARG[d.n]; if (n) { n.flavor = d.f; n.coals.forEach(c => c.visible = true); n.lit = performance.now() + 8 * 60000; } }
         else if (d.a === 'pool') toast(`🎱 ${from.name} ${T('bilardo oynuyor')}`);
       }
@@ -1544,7 +1674,7 @@ function bakeStatic() {
 }
 
 /* ============================================================ döngü (kare hızına göre çözünürlük ayarı + boşta yavaşlama) */
-let last = performance.now(), walkPh = 0, bob = 0, fN = 0, ftAvg = 16, ftN = 0, skip = 0;
+let avTick = 0, last = performance.now(), walkPh = 0, bob = 0, fN = 0, ftAvg = 16, ftN = 0, skip = 0;
 const cross = $('cross');
 function frame(now) { requestAnimationFrame(frame); tick(now); }
 function tick(now) {
@@ -1554,7 +1684,7 @@ function tick(now) {
   const idle = now - lastInput > 4000 && !anim.on && !me.auto && !okey.busy && joy.id == null && !nargHold;
   if (idle && (skip++ % 2)) return;
   const dt = Math.min(0.05, raw / 1000); last = now;
-  if (!idle && !TEST) { ftAvg = ftAvg * 0.95 + raw * 0.05; if (++ftN > 90) { ftN = 0; if (ftAvg > 24 && prNow > 0.75) { prNow = Math.max(0.75, prNow - 0.2); renderer.setPixelRatio(prNow); } else if (ftAvg < 15 && prNow < prCap) { prNow = Math.min(prCap, prNow + 0.1); renderer.setPixelRatio(prNow); } } }
+  if (!idle && !TEST) { ftAvg = ftAvg * 0.95 + raw * 0.05; if (++ftN > 90) { ftN = 0; if (ftAvg > 24 && prNow > 0.75) { prNow = Math.max(0.75, prNow - 0.2); renderer.setPixelRatio(prNow); if (composer) composer.setPixelRatio(prNow); } else if (ftAvg < 15 && prNow < prCap) { prNow = Math.min(prCap, prNow + 0.1); renderer.setPixelRatio(prNow); if (composer) composer.setPixelRatio(prNow); } } }
   if (anim.on) {
     const k = Math.max(0, Math.min(1, (now - anim.t0) / anim.dur)), e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2, f = anim.f, t = anim.to;
     let dyaw = t.yaw - f.yaw; dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
@@ -1583,7 +1713,6 @@ function tick(now) {
   }
   const by = freeWalk() && !anim.on && !third() ? Math.sin(walkPh) * 0.025 * bob : 0;
   placeCamera(by);
-  if (meAv && meAv.visible) actAnim(meAv, now);
   if (sipAnim) { const k = (now - sipAnim) / 900; handTea.position.set(handTea.userData.x - Math.sin(Math.min(1, k) * Math.PI) * 0.17, -0.27 + Math.sin(Math.min(1, k) * Math.PI) * 0.15, -0.5); handTea.rotation.z = Math.sin(Math.min(1, k) * Math.PI) * 0.6; if (k >= 1) sipAnim = 0; }
   // diğer oyuncular
   for (const o of others.values()) {
@@ -1596,17 +1725,16 @@ function tick(now) {
       o.av.position.set(o.x, 0, o.z); o.av.rotation.y = o.yaw + Math.PI; pose(o.av, 'walk', o.ph, Math.min(1, sp / 1.5));
       if (sp > 0.05) lastInput = now;
     }
-    actAnim(o.av, now);
     const u = o.av.userData; if (u.bub && now > u.bubT) { o.av.remove(u.bub); u.bub = null; }
   }
   if (meAv && meAv.userData.bub && now > meAv.userData.bubT) { meAv.remove(meAv.userData.bub); meAv.userData.bub = null; }
   // müdavimler: kıpırtı, arada çay yudumu
   for (const p of NPCS) {
-    const n = p.userData.npc; p.userData.head.rotation.y = Math.sin(now / 2300 + n.ph) * 0.35;
-    if (!p.userData.act) p.userData.arms[0].el.rotation.x = -0.9 + Math.sin(now / 1500 + n.ph) * 0.12;
-    if (p.userData.cup.visible && now > n.next) { p.userData.act = 'sip'; p.userData.actT = now; n.next = now + 7000 + Math.random() * 12000; }
-    actAnim(p, now);
+    const n = p.userData.npc; p.userData.a.headYaw = Math.sin(now / 2300 + n.ph) * 0.35;
+    if (now > n.next) { avAct(p, p.userData.cup.visible ? 'sip' : 'nod'); n.next = now + 7000 + Math.random() * 12000; }
   }
+  avTick = (avTick + 1) % 2;
+  for (const g of AVS) { if (!g.visible) continue; const far = Math.hypot(g.position.x - camera.position.x, g.position.z - camera.position.z) > 9; if (far && avTick) continue; g.userData.a.update(far ? dt * 2 : dt); }
   cayciUpdate(now, dt);
   okey.update(now, dt);
   { const g = tableGroups[OKEY_T], d = Math.hypot(g.position.x - me.x, g.position.z - me.z); okeyRing.material.opacity = me.seat < 0 && d < 4 ? (0.25 + Math.sin(now / 400) * 0.12) * Math.min(1, (4 - d)) : 0; }
@@ -1619,7 +1747,8 @@ function tick(now) {
   updateSmoke(dt);
   if ((fN++ % 6) === 0) { ui(); const h = me.watch || okey.active ? null : pick(VW / 2, VH / 2); cross.classList.toggle('hot', !!h && h.k !== 'full' && h.d < 6); }
   sendState(false);
-  renderer.render(scene, camera);
+  placeWp();
+  if (composer && !lowQ() && !tvObj.visible) composer.render(); else renderer.render(scene, camera);
   if (tvObj.visible) css.render(cssScene, camera);
 }
 
@@ -1643,6 +1772,6 @@ function boot() {
     if (ss.code) setTimeout(() => (ss.host ? netHost(ss.code) : netJoin(ss.code, true)), 600);
     if (ss.tv) setTimeout(() => setVideo(ss.tv, false), 900);
   }
-  window.__kh = { me, seats, okey, sitDown: i => sitDown(seats[i]), standUp, setVideo, enterWatch, exitWatch, takeTea, sip, orderTea, startNarg, setTime: t => { P.time = t; applyEnv(); }, setSnow: v => { P.snow = v; applyEnv(); }, setSeason: v => { P.season = v; applyEnv(); }, setCam: v => { P.cam = v; }, tp: (x, z, yaw, pitch = -0.06) => { me.x = x; me.z = z; me.yaw = yaw; me.pitch = pitch; }, renderer, scene, camera, net: () => NET, others, tapAt, openAvatar, openTvPick, openPlak, NARG, puff, gp: msg => window.postMessage(msg, '*'), tick: (n = 1, ms = 33) => { for (let i = 0; i < n; i++) { lastInput = performance.now(); const t = Math.max(last + ms, performance.now()); tick(t); } } };
+  window.__kh = { tvSt: () => ({ tvId, tvOwner }), netHost, netJoin, rs: () => roomSong, sa: () => shareAudio, cache: songCache, me, seats, okey, sitDown: i => sitDown(seats[i]), standUp, setVideo, enterWatch, exitWatch, takeTea, sip, orderTea, startNarg, setTime: t => { P.time = t; applyEnv(); }, setSnow: v => { P.snow = v; applyEnv(); }, setSeason: v => { P.season = v; applyEnv(); }, setCam: v => { P.cam = v; }, tp: (x, z, yaw, pitch = -0.06) => { me.x = x; me.z = z; me.yaw = yaw; me.pitch = pitch; }, renderer, scene, camera, net: () => NET, others, tapAt, openAvatar, openTvPick, openPlak, NARG, puff, gp: msg => window.postMessage(msg, '*'), tick: (n = 1, ms = 33) => { for (let i = 0; i < n; i++) { lastInput = performance.now(); const t = Math.max(last + ms, performance.now()); tick(t); } } };
 }
 boot();

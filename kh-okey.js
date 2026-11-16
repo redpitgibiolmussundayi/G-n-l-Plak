@@ -205,7 +205,7 @@ export function createOkey(ctx) {
     for (let g = 0; g < 4; g++) {
       const need = playing && G && !humans[g] && g !== myG;
       if (need && !bots[g]) { const p = ctx.makePerson(BOT_AV[g]); ctx.sitAt(p, ctx.seats[RING[g]]); bots[g] = p; ctx.seats[RING[g]].bot = true; }
-      if (!need && bots[g]) { scene.remove(bots[g]); bots[g] = null; ctx.seats[RING[g]].bot = false; }
+      if (!need && bots[g]) { (ctx.disposePerson || (p => scene.remove(p)))(bots[g]); bots[g] = null; ctx.seats[RING[g]].bot = false; }
     }
   }
 
