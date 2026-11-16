@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 48;
+const VERSION = 49;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -769,6 +769,9 @@ const Engine = (() => {
       dirtyT = setTimeout(() => { if (playing || seg) prepare(curPos(), playing); }, 380);
     }
   }
+  // radyo sesleri (jingle, parazit, saat sinyali) için ayrı çıkış
+  let auxN = null;
+  function aux() { unlockCtx(); if (!ctx) return null; if (!auxN || auxN.context !== ctx) { auxN = ctx.createGain(); auxN.connect(ctx.destination); } return auxN; }
   function setDuck(v) { duck = v; fadeTick(); if (mode === 'render' && el) { try { el.volume = Math.max(0, Math.min(1, v)); } catch (e) {} } }
   function refresh() { if (graph) graph.apply(fx, true); if (mode === 'render' && loadedId && (playing || seg)) { clearTimeout(dirtyT); dirtyT = setTimeout(() => prepare(curPos(), playing), 380); } }
   function setMode() {}
@@ -777,7 +780,7 @@ const Engine = (() => {
       session: navigator.audioSession ? navigator.audioSession.type : 'yok', ua: navigator.userAgent.replace(/^Mozilla\/5\.0 /, ''), events: diag.slice() };
   }
   return {
-    fx, unlock, load, play, pause, seek, setFx, setMode, info, log, setDuck, refresh, levels, get bridge() { return !!bridge; }, get bridgeActive() { return !!(bridge && mode === 'live' && el && el.srcObject); }, setBridge(v) { LS.set('gp-bridge', v); location.reload(); },
+    fx, unlock, load, play, pause, seek, setFx, setMode, info, log, setDuck, aux, get ctx() { return ctx; }, get duck() { return duck; }, refresh, levels, get bridge() { return !!bridge; }, get bridgeActive() { return !!(bridge && mode === 'live' && el && el.srcObject); }, setBridge(v) { LS.set('gp-bridge', v); location.reload(); },
     on(ev, fn) { L[ev] = fn; },
     get mode() { return mode; }, get duration() { return duration; }, get pos() { return mode === 'render' && seg ? curPos() : pos; },
     get playing() { return playing; }, get loadedId() { return loadedId; }
@@ -1491,6 +1494,7 @@ const signed = (v, d) => (v > 0.0001 ? '+' : '') + (Math.abs(v) < Math.pow(10, -
 let loadToken = 0;
 async function playSong(id, queue) {
   const s = App.byId(id); if (!s) return;
+  if (typeof Radio !== 'undefined' && Radio.on && !Radio.own) Radio.stop(true);
   Engine.unlock();
   if (queue) App.queue = queue;
   if (!App.queue.includes(id)) App.queue = App.all().map(x => x.id);
@@ -1552,6 +1556,7 @@ function nextId(dir) {
   return q[n];
 }
 function step(dir, auto) {
+  if (dir > 0 && !auto && typeof Radio !== 'undefined' && Radio.on) return Radio.skip();
   if (auto && App.prefs.repeat === 'one') { Engine.seek(0); Engine.play(); UI.now(); return; }
   if (dir < 0 && Engine.pos > 3 && Engine.loadedId === App.curId) { Engine.seek(0); Media.pos(); return; }
   if (dir > 0) { const qid = Q.next(); if (qid) return playSong(qid); }
@@ -1560,7 +1565,7 @@ function step(dir, auto) {
   if (auto && App.prefs.repeat === 'off' && q.indexOf(App.curId) === q.length - 1) { UI.now(); return; }
   const id = nextId(dir); if (id) playSong(id);
 }
-Engine.on('end', () => step(1, true));
+Engine.on('end', () => { if (typeof Radio !== 'undefined' && Radio.on) Radio.onEnd(); else step(1, true); });
 Engine.on('hint', m => toast(m));
 Engine.on('state', () => { UI.now(); Wave.state(); Media.state(); if (Lamp.on) Lamp.upd(); });
 Engine.on('busy', t => UI.busy(t));
@@ -2258,8 +2263,8 @@ $('tAcct').onclick = () => setView('acct');
 $('tSb').onclick = () => setView('sb');
 $('tPool').onclick = () => setView('pool');
 SB.bind();
-$('miniOpen').onclick = () => setView('now');
-$('miniTh').onclick = () => setView('now');
+$('miniOpen').onclick = () => { if (typeof Radio !== 'undefined' && Radio.on) Radio.open(); else setView('now'); };
+$('miniTh').onclick = () => $('miniOpen').onclick();
 $('miniPlay').onclick = toggle;
 $('miniNext').onclick = () => { Engine.unlock(); step(1); };
 matchMedia('(min-width:920px)').addEventListener('change', () => setView(App.view));
@@ -4529,5 +4534,532 @@ const Resume = (() => {
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if (Engine.mode === 'live') { if ('requestIdleCallback' in window) requestIdleCallback(() => stretchLib().catch(() => {})); else setTimeout(() => stretchLib().catch(() => {}), 1500); }
 })();
+
+/* Gönül Plak · Gönül FM 98.7 — kendi arabesk radyon
+   Spiker (iPhone'un Türkçe sesi) şarkı girişlerinde müziğin üstüne konuşur, müzik o sırada kısılır.
+   Saat başı sinyali, saate göre kuşaklar, Stuttgart'ın gerçek havası, jingle, ithaf ve istekler.
+   Jingle, parazit, fon müziği ve saat sinyali uygulamanın içinde üretilir (dosya yok, internet yok, para yok). */
+const Radio = (() => {
+  const FREQ = 98.7;
+  const cfg = Object.assign({ talk: 1, oldRadio: false, voice: '', rate: 1, intro: true }, LS.get('gp-radio', {}));
+  const saveCfg = () => LS.set('gp-radio', cfg);
+  let on = false, own = false, ready = false;
+  let recent = LS.get('gp-radio-recent', []);
+  let cur = null, last = null, songN = 0, outroDone = false, segBusy = false, lastPipHour = -1, lastBlock = null, prevRadioFx = null;
+  let dedQ = LS.get('gp-radio-ded', []);        // { from, to, msg, id }
+  const rnd = a => a[Math.floor(Math.random() * a.length)];
+  const chance = p => Math.random() < p;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  /* ---------------------------------------------------------------- Türkçe sayılar ve saat */
+  const BIR = ['', 'bir', 'iki', 'üç', 'dört', 'beş', 'altı', 'yedi', 'sekiz', 'dokuz'], ON = ['', 'on', 'yirmi', 'otuz', 'kırk', 'elli'];
+  const num = n => n === 0 ? 'sıfır' : [ON[Math.floor(n / 10)], BIR[n % 10]].filter(Boolean).join(' ');
+  const ACC = { bir: 'biri', iki: 'ikiyi', üç: 'üçü', dört: 'dördü', beş: 'beşi', altı: 'altıyı', yedi: 'yediyi', sekiz: 'sekizi', dokuz: 'dokuzu', on: 'onu' };
+  const DAT = { bir: 'bire', iki: 'ikiye', üç: 'üçe', dört: 'dörde', beş: 'beşe', altı: 'altıya', yedi: 'yediye', sekiz: 'sekize', dokuz: 'dokuza', on: 'ona' };
+  const suf = (w, T) => { const p = w.split(' '), l = p.pop(); return [...p, T[l] || l].join(' '); };
+  const h12 = h => num(h % 12 === 0 ? 12 : h % 12);
+  function dayPart(h) { return h < 5 ? 'gece' : h < 11 ? 'sabah' : h < 15 ? 'öğle' : h < 18 ? 'öğleden sonra' : h < 22 ? 'akşam' : 'gece'; }
+  function timeWords(d = new Date()) {
+    const h = d.getHours(), m = d.getMinutes();
+    if (m === 0) return h === 0 ? 'Saat tam gece yarısı' : `Saat tam ${h12(h)}`;
+    if (m <= 30) return `Saat ${dayPart(h) === 'gece' && h < 5 ? 'gece ' : ''}${suf(h12(h), ACC)} ${num(m)} geçiyor`;
+    return `Saat ${suf(h12(h + 1), DAT)} ${num(60 - m)} var`;
+  }
+  function freqWords() { return 'doksan sekiz nokta yedi'; }
+  const DAYS = ['pazar', 'pazartesi', 'salı', 'çarşamba', 'perşembe', 'cuma', 'cumartesi'];
+
+  /* ---------------------------------------------------------------- kuşaklar */
+  function block(d = new Date()) {
+    const h = d.getHours(), wd = d.getDay();
+    if (wd === 6 && h >= 18) return { id: 'gurbet', n: 'Gurbet Saati', mood: 'gurbet' };
+    if (wd === 0 && h >= 9 && h < 13) return { id: 'pazar', n: 'Pazar Kahvaltısı', mood: 'sabah' };
+    if (h >= 5 && h < 10) return { id: 'sabah', n: 'Sabah Keyfi', mood: 'sabah' };
+    if (h >= 10 && h < 14) return { id: 'gonul', n: 'Gönülden Gönüle', mood: 'gun' };
+    if (h >= 14 && h < 18) return { id: 'ikindi', n: 'İkindi Sohbeti', mood: 'gun' };
+    if (h >= 18 && h < 21) return { id: 'aksam', n: 'Akşam Üstü Arabesk', mood: 'aksam' };
+    if (h >= 21 || h < 2) return { id: 'gece', n: 'Gece Yarısı Arabesk', mood: 'gece' };
+    return { id: 'uykusuz', n: 'Sabaha Karşı', mood: 'gece' };
+  }
+  function selam(d = new Date()) {
+    const h = d.getHours();
+    if (h >= 5 && h < 11) return rnd(['Günaydın', 'Hayırlı sabahlar', 'Günaydın, güzel insanlar']);
+    if (h >= 11 && h < 18) return rnd(['İyi günler', 'Merhabalar', 'Tünaydın']);
+    if (h >= 18 && h < 22) return rnd(['İyi akşamlar', 'Hayırlı akşamlar', 'Akşamınız hayırlı olsun']);
+    return rnd(['İyi geceler', 'Gecenin bu saatinde merhaba', 'Hayırlı geceler']);
+  }
+
+  /* ---------------------------------------------------------------- hava (uygulamanın Stuttgart hava verisi) */
+  function weather() {
+    const w = LS.get('gp-wx', null); if (!w || Date.now() - (w.at || 0) > 3 * 3600e3) return null;
+    const c = w.code, t = w.t, h = new Date().getHours(), night = h < 6 || h >= 20;
+    const deg = (t < 0 ? 'eksi ' + num(-t) : num(t)) + ' derece';
+    const sky = c === 0 ? (night ? 'gökyüzü açık' : 'güneş tepede') : c <= 2 ? 'parçalı bulutlu' : c === 3 ? 'gökyüzü kapalı' : c <= 48 ? 'sis var' : c <= 57 ? 'yağmur çiseliyor' : c <= 67 ? 'yağmur yağıyor' : c <= 77 ? 'kar yağıyor' : c <= 82 ? 'sağanak var' : c <= 86 ? 'lapa lapa kar yağıyor' : 'fırtına var';
+    const kind = c <= 2 ? 'acik' : c === 3 ? 'kapali' : c <= 48 ? 'sis' : c <= 67 || (c >= 80 && c <= 82) ? 'yagmur' : c <= 86 ? 'kar' : 'firtina';
+    const flavor = {
+      acik: night ? ['Yıldızlar Stuttgart\'ın üstünde, Fernsehturm ışıl ışıl.', 'Gökyüzü tertemiz, ay da bizimle.'] : ['Pencereyi açın, biraz güneş alın.', 'Böyle havada Killesberg\'de bir çay içilir.'],
+      kapali: ['Bulutlar Stuttgart\'ın üstüne çökmüş, tam bir arabesk havası.', 'Hava kapalı, gönüller de biraz kapalı.'],
+      sis: ['Sis Neckar\'ın üstüne çökmüş, yola çıkanlar dikkatli olsun.'],
+      yagmur: ['Camlara yağmur vuruyor, şarkılar daha bir derinden geliyor.', 'Yağmurun sesi, arabeskin en iyi arkadaşıdır.', 'Şemsiyesini unutanlar, bu şarkı size gelsin.'],
+      kar: ['Kar yağıyor, sobanın başına geçin, çayı demleyin.', 'Lapa lapa kar, sıcacık bir şarkı.'],
+      firtina: ['Dışarısı fırtına, siz içeride kalın, biz size şarkı çalalım.']
+    }[kind];
+    const cold = t <= 2 ? ' Soğuk var, sıkı giyinin.' : t >= 28 ? ' Sıcak bunaltıyor, bol su için.' : '';
+    return `Stuttgart'ta hava ${deg}, ${sky}. ${rnd(flavor)}${cold}`;
+  }
+
+  /* ---------------------------------------------------------------- sanatçılar (bilinen lakaplar) */
+  const LORE = [
+    [/müslüm|muslum/i, ['Müslüm Baba', 'Babamız Müslüm Gürses'], ['Müslüm Baba söylüyor, gönüller susuyor.', 'Müslüm Baba\'nın sesi gibisi yok.']],
+    [/ferdi tayfur/i, ['Ferdi Baba', 'Ferdi Tayfur'], ['Ferdi Baba geliyor, mendilleri hazırlayın.']],
+    [/orhan gencebay/i, ['Orhan Baba', 'Orhan Gencebay'], ['Bağlamanın ustası Orhan Baba geliyor.']],
+    [/tatl[ıi]ses/i, ['İmparator', 'İbrahim Tatlıses'], ['İmparator geliyor, sesi biraz açın.']],
+    [/bergen/i, ['Bergen', 'Acıların Kadını Bergen'], ['Acıların Kadını Bergen söylüyor.']],
+    [/kibariye/i, ['Kibariye'], ['Kibariye\'nin o yanık sesi.']],
+    [/emrah/i, ['Emrah'], []],
+    [/azer b[üu]lb[üu]l/i, ['Azer Bülbül'], ['Azer Bülbül geliyor, dertliler toplansın.']],
+    [/hakk[ıi] bulut/i, ['Hakkı Bulut'], []],
+    [/[üu]mit besen/i, ['Ümit Besen'], []],
+    [/cengiz kurto[ğg]lu/i, ['Cengiz Kurtoğlu'], []],
+    [/mahsun/i, ['Mahsun Kırmızıgül'], []]
+  ];
+  function artistName(s) {
+    const a = (s.artist || '').trim(); if (!a) return '';
+    for (const [re, names] of LORE) if (re.test(a)) return chance(0.5) ? rnd(names) : a;
+    return a;
+  }
+  function artistLore(s) { const a = s.artist || ''; for (const [re, , lines] of LORE) if (re.test(a) && lines.length) return rnd(lines); return null; }
+  const title = s => (s.title || 'isimsiz bir parça').replace(/\s*[\(\[].*?(official|video|klip|audio|lyric|hd|remaster|şarkı sözü).*?[\)\]]/ig, '').trim();
+
+  /* ---------------------------------------------------------------- spikerin cümleleri */
+  function introLine(s) {
+    const a = artistName(s), t = title(s), b = block(), nm = App.userName;
+    const both = a ? `${a}, ${t}` : t;
+    const L = [
+      `Şimdi sırada ${both}.`, `Sıradaki parçamız ${both}.`, `${both}. Buyrun efendim.`,
+      `Dinliyoruz: ${both}.`, `Şimdi bir parça geliyor ki, gönlü yanık olanlara gelsin. ${both}.`,
+      `Ve şimdi ${both}. Sesi biraz açın.`, `Bu parça hepimize gelsin. ${both}.`,
+      `Lafı uzatmayalım. ${both}.`, `Yolda olanlara, gurbette olanlara. ${both}.`
+    ];
+    if (b.mood === 'gece') L.push(`Gecenin bu saatinde uyuyamayanlar için: ${both}.`, `Gece uzun, dert uzun. ${both}.`, `Işıkları kısın. ${both}.`);
+    if (b.mood === 'sabah') L.push(`Çaylar demlendiyse başlıyoruz. ${both}.`, `Güne güzel bir parçayla devam: ${both}.`);
+    if (b.mood === 'gurbet') L.push(`Gurbette olan bütün dostlarımıza: ${both}.`, `Memleket burnunda tütenlere gelsin. ${both}.`);
+    if (b.mood === 'aksam') L.push(`İşten dönenlere, yolda olanlara: ${both}.`);
+    let line = rnd(L);
+    const lore = artistLore(s); if (lore && chance(0.45)) line = lore + ' ' + (a ? t : both) + '.';
+    if (nm && chance(0.08)) line = `${nm}, bu da senin için. ` + line;
+    return line;
+  }
+  function outroLine(s) {
+    const a = (s.artist || '').trim(), t = title(s);
+    return rnd(a ? [
+      `${t}. Yorumlayan ${a}.`, `Dinlediğiniz parça ${t}, seslendiren ${a}.`, `${a} imzalı ${t} idi.`,
+      `Ne güzel söyledi değil mi? ${a}, ${t}.`, `${t}… Ah ah. ${a} yorumuyla dinlediniz.`
+    ] : [`${t} idi.`, `Dinlediğiniz parça ${t}.`]);
+  }
+  const LINERS = ['Gönül FM. Gönülden gönüle.', `${freqWords()}. Gönül FM.`, 'Arabeskin adresi, Gönül FM.', 'Stuttgart\'tan bütün gurbete, Gönül FM.', 'Gönül FM. Dertler paylaşılınca azalır.'];
+  const MUSINGS = {
+    gece: ['Gece yarısı herkes biraz şairdir, biraz da dertli.', 'Uyuyamayanlar, burdayız. Yalnız değilsiniz.', 'Bu saatte çalan şarkılar başka türlü dokunur insana.', 'Gece kuşları, telefonları kapatın, bu saat şarkının saati.'],
+    sabah: ['Günaydın Stuttgart. S-Bahn\'a yetişenlere selam, yetişemeyenlere bir sonraki tren.', 'Sabah sabah arabesk mi olur demeyin, olur. Hem de nasıl olur.', 'Bir bardak çay, bir güzel şarkı. Güne başlamak için başka ne lazım?'],
+    gun: ['İşte olanlara, okulda olanlara, yolda olanlara selam olsun.', 'Hayat koşturmaca, ama bir şarkılık mola herkesin hakkı.', 'Öğle arası çay molası verenler, bu kuşak sizin.'],
+    aksam: ['Akşam oldu, Stuttgart\'ın ışıkları yanıyor.', 'Günün yorgunluğunu şarkılara bırakın.', 'Eve dönen herkese hayırlı akşamlar.'],
+    gurbet: ['Gurbet zor iş dostlar, ama bir şarkı bazen bir mektup kadar yakın.', 'Burası Stuttgart, ama gönül hep memlekette.', 'Kimimiz Hemmingen\'de, kimimiz Bad Cannstatt\'ta. Ama hepimiz aynı şarkıda buluşuyoruz.']
+  };
+  function opening() {
+    const b = block(), w = weather(), d = new Date();
+    const p = [`${selam(d)} sevgili dinleyiciler.`, `Burası Gönül FM, frekansımız ${freqWords()}.`, `${b.n} kuşağıyla karşınızdayız.`];
+    p.push(`${timeWords(d)}, bugün ${DAYS[d.getDay()]}.`);
+    if (w) p.push(w);
+    p.push(rnd(['Haydi başlayalım.', 'Arkanıza yaslanın, başlıyoruz.', 'Şarkılarımız sizinle.']));
+    return p.join(' ');
+  }
+  function blockChange(b) { return rnd([`${b.n} kuşağına hoş geldiniz.`, `Ve şimdi ${b.n}.`, `Saatler ilerledi, ${b.n} başlıyor.`]); }
+  function segment() {
+    const b = block(), w = weather(), r = Math.random();
+    if (r < 0.35 && w) return w;
+    if (r < 0.6) return `${timeWords()}. Gönül FM\'de ${b.n} devam ediyor.`;
+    return rnd(MUSINGS[b.mood] || MUSINGS.gun);
+  }
+  function dedLine(d, s) {
+    const from = d.from || 'Bir dinleyicimiz', to = d.to || 'sevdikleri';
+    const msg = d.msg ? ` Diyor ki: ${d.msg}.` : '';
+    return rnd([`Bir ithafımız var. ${from}, bu şarkıyı ${to} için istedi.${msg} ${to}, bu şarkı sana gelsin.`,
+      `İstek hattımızdan bir mesaj. ${from} yazmış, ${to} için.${msg} Şimdi şarkısı geliyor.`]) + ` ${s.artist ? s.artist + ', ' : ''}${title(s)}.`;
+  }
+
+  /* ---------------------------------------------------------------- ses: spiker */
+  const TTS = 'speechSynthesis' in window ? window.speechSynthesis : null;
+  let voices = [];
+  function loadVoices() { if (!TTS) return; voices = TTS.getVoices().filter(v => /^tr/i.test(v.lang)); }
+  if (TTS) { loadVoices(); TTS.addEventListener ? TTS.addEventListener('voiceschanged', loadVoices) : (TTS.onvoiceschanged = loadVoices); }
+  const good = v => /enhanced|premium|gelişmiş|geliştirilmiş|neural|natural/i.test(v.name + ' ' + v.voiceURI);
+  function voice() {
+    if (cfg.voice) { const v = voices.find(x => x.voiceURI === cfg.voice); if (v) return v; }
+    return voices.find(good) || voices.find(v => /yelda/i.test(v.name)) || voices[0] || null;
+  }
+  let sayTok = 0;
+  // cümle cümle okur (iPhone uzun metinde takılıyor); bitince çözülür
+  function say(text, opt = {}) {
+    const my = ++sayTok;
+    sub(text);
+    if (!text) return Promise.resolve();
+    if (!TTS || document.hidden || !voices.length && !TTS.getVoices().length) return sleep(opt.silentMs != null ? opt.silentMs : Math.min(5000, 900 + text.length * 35)).then(() => { if (my === sayTok) sub(''); });
+    if (!voices.length) loadVoices();
+    const wasPl = Engine.playing;
+    try { TTS.cancel(); } catch (e) {}
+    const parts = text.match(/[^.!?…]+[.!?…]*/g) || [text];
+    lamp(true);
+    return new Promise(res => {
+      let i = 0, done = false;
+      const fin = () => { if (done) return; done = true; clearTimeout(guard); if (on && wasPl && !Engine.playing && my === sayTok) { Engine.log('spiker sonrası ses geri açılıyor'); Engine.play(); } if (my === sayTok) { lamp(false); setTimeout(() => { if (my === sayTok) sub(''); }, 1800); } res(); };
+      const guard = setTimeout(fin, 2500 + text.length * 110);
+      const next = () => {
+        if (my !== sayTok || !on) return fin();
+        if (i >= parts.length) return fin();
+        const u = new SpeechSynthesisUtterance(parts[i++].trim());
+        const v = voice(); if (v) u.voice = v; u.lang = (v && v.lang) || 'tr-TR';
+        u.rate = cfg.rate; u.pitch = 1; u.volume = 1;
+        u.onend = next; u.onerror = next;
+        TTS.speak(u);
+      };
+      next();
+    });
+  }
+  function hush() { sayTok++; try { TTS && TTS.cancel(); } catch (e) {} lamp(false); }
+
+  /* ---------------------------------------------------------------- ses: üretilen radyo sesleri */
+  const C = () => Engine.ctx;
+  const OUT = () => Engine.aux();
+  let duckT = 0;
+  function rampDuck(to, ms = 900) {
+    clearInterval(duckT);
+    const from = Engine.duck, t0 = performance.now();
+    duckT = setInterval(() => { const k = Math.min(1, (performance.now() - t0) / ms), e = k * k * (3 - 2 * k); Engine.setDuck(from + (to - from) * e); if (k >= 1) clearInterval(duckT); }, 40);
+  }
+  function noiseBuf(sec, crackle) {
+    const c = C(), n = Math.floor(c.sampleRate * sec), b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) { d[i] = Math.random() * 2 - 1; if (crackle && Math.random() < 0.00025) d[i] = (Math.random() < 0.5 ? -1 : 1) * 6; }
+    return b;
+  }
+  // frekans arama paraziti
+  function tuneStatic(sec = 2.2) {
+    const c = C(), o = OUT(); if (!c || !o) return;
+    const t = c.currentTime, src = c.createBufferSource(); src.buffer = noiseBuf(sec + 0.2);
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.7; bp.frequency.setValueAtTime(900, t);
+    for (let k = 0; k < 8; k++) bp.frequency.linearRampToValueAtTime(400 + Math.random() * 3500, t + (k + 1) * sec / 9);
+    const g = c.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.22, t + 0.08); g.gain.setValueAtTime(0.22, t + sec - 0.5); g.gain.linearRampToValueAtTime(0.0001, t + sec);
+    src.connect(bp).connect(g).connect(o); src.start(t); src.stop(t + sec + 0.1);
+    // geçerken yakalanan istasyon ıslıkları
+    for (let k = 0; k < 3; k++) {
+      const os = c.createOscillator(), og = c.createGain(), t1 = t + 0.2 + k * sec / 3.6;
+      os.frequency.setValueAtTime(300 + Math.random() * 1500, t1); os.frequency.exponentialRampToValueAtTime(2000 + Math.random() * 2500, t1 + 0.35);
+      og.gain.setValueAtTime(0, t1); og.gain.linearRampToValueAtTime(0.035, t1 + 0.05); og.gain.linearRampToValueAtTime(0, t1 + 0.4);
+      os.connect(og).connect(o); os.start(t1); os.stop(t1 + 0.45);
+    }
+  }
+  function sweep() {
+    const c = C(), o = OUT(); if (!c || !o) return;
+    const t = c.currentTime, src = c.createBufferSource(); src.buffer = noiseBuf(1);
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 2.2; bp.frequency.setValueAtTime(350, t); bp.frequency.exponentialRampToValueAtTime(7000, t + 0.65);
+    const g = c.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.16, t + 0.45); g.gain.linearRampToValueAtTime(0, t + 0.85);
+    src.connect(bp).connect(g).connect(o); src.start(t); src.stop(t + 0.9);
+  }
+  // saat başı sinyali: 5 kısa, 1 uzun bip (son bip tam saatte)
+  function pips(atMs) {
+    const c = C(), o = OUT(); if (!c || !o) return;
+    const base = c.currentTime + Math.max(0, atMs) / 1000;
+    for (let k = 0; k < 6; k++) {
+      const os = c.createOscillator(), g = c.createGain(), t = base + k, len = k === 5 ? 0.5 : 0.1;
+      os.frequency.value = 1000; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.22, t + 0.005); g.gain.setValueAtTime(0.22, t + len - 0.01); g.gain.linearRampToValueAtTime(0, t + len);
+      os.connect(g).connect(o); os.start(t); os.stop(t + len + 0.02);
+    }
+  }
+  // fon müziği: spiker konuşurken altta yumuşak bir hicaz akoru
+  let bed = null;
+  function bedOn() {
+    const c = C(), o = OUT(); if (!c || !o || bed) return;
+    const t = c.currentTime, g = c.createGain(), lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 650; lp.Q.value = 0.4;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05, t + 1.4);
+    const oscs = [73.42, 110, 146.83, 185].map((f, i) => { const os = c.createOscillator(); os.type = i === 3 ? 'sine' : 'sawtooth'; os.frequency.value = f; os.detune.value = (i % 2 ? 6 : -5); const og = c.createGain(); og.gain.value = i === 3 ? 0.4 : 0.22; os.connect(og).connect(lp); os.start(t); return os; });
+    const lfo = c.createOscillator(), lg = c.createGain(); lfo.frequency.value = 0.18; lg.gain.value = 180; lfo.connect(lg).connect(lp.frequency); lfo.start(t);
+    lp.connect(g).connect(o); bed = { g, oscs: oscs.concat(lfo) };
+  }
+  function bedOff(ms = 1200) {
+    if (!bed) return; const c = C(), b = bed; bed = null;
+    try { const t = c.currentTime; b.g.gain.cancelScheduledValues(t); b.g.gain.setValueAtTime(b.g.gain.value, t); b.g.gain.linearRampToValueAtTime(0, t + ms / 1000); b.oscs.forEach(x => x.stop(t + ms / 1000 + 0.1)); } catch (e) {}
+  }
+  // eski radyo cızırtısı
+  let hiss = null;
+  function hissOn() {
+    const c = C(), o = OUT(); if (!c || !o || hiss) return;
+    const src = c.createBufferSource(); src.buffer = noiseBuf(3, true); src.loop = true;
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2200; const g = c.createGain(); g.gain.value = 0.012;
+    src.connect(hp).connect(g).connect(o); src.start(); hiss = src;
+  }
+  function hissOff() { if (hiss) { try { hiss.stop(); } catch (e) {} hiss = null; } }
+  // jingle: hicaz makamında bağlama tınısı + darbuka + yaylı akor (her açılışta bir kez üretilir)
+  let jingleBuf = null;
+  function makeJingle() {
+    const c = C(); if (!c) return null; if (jingleBuf && jingleBuf.sampleRate === c.sampleRate) return jingleBuf;
+    const sr = c.sampleRate, dur = 5.4, n = Math.floor(sr * dur), Lc = new Float32Array(n), Rc = new Float32Array(n);
+    const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+    const pluck = (t0, m, amp, pan, len = 1.4) => {
+      const f = hz(m), N = Math.max(2, Math.round(sr / f)), buf = new Float32Array(N);
+      for (let i = 0; i < N; i++) buf[i] = Math.random() * 2 - 1;
+      const s0 = Math.floor(t0 * sr), sl = Math.min(n - s0, Math.floor(len * sr)); let idx = 0;
+      for (let i = 0; i < sl; i++) {
+        const a = buf[idx], b = buf[(idx + 1) % N]; buf[idx] = (a + b) * 0.4985 + (a - b) * 0.02; idx = (idx + 1) % N;
+        const env = Math.min(1, i / (sr * 0.002)); const v = a * amp * env;
+        Lc[s0 + i] += v * (1 - pan * 0.5); Rc[s0 + i] += v * (1 + pan * 0.5);
+      }
+    };
+    const pad = (t0, t1, ms, amp) => {
+      const s0 = Math.floor(t0 * sr), s1 = Math.min(n, Math.floor(t1 * sr));
+      for (let i = s0; i < s1; i++) {
+        const t = (i - s0) / sr, len = (s1 - s0) / sr, env = Math.min(1, t / 0.9) * Math.min(1, (len - t) / 1.2);
+        let v = 0; ms.forEach((m, k) => { const f = hz(m) * (1 + 0.003 * Math.sin(t * 5.2 + k)); v += Math.sin(2 * Math.PI * f * t) * 0.6 + Math.sin(4 * Math.PI * f * t) * 0.15; });
+        Lc[i] += v * amp * env; Rc[i] += v * amp * env * 0.92;
+      }
+    };
+    const dum = (t0, amp) => { const s0 = Math.floor(t0 * sr); for (let i = 0; i < sr * 0.35 && s0 + i < n; i++) { const t = i / sr, f = 95 - 40 * Math.min(1, t / 0.12); const v = Math.sin(2 * Math.PI * f * t) * Math.exp(-t * 11) * amp; Lc[s0 + i] += v; Rc[s0 + i] += v; } };
+    const tek = (t0, amp) => { const s0 = Math.floor(t0 * sr); let p = 0; for (let i = 0; i < sr * 0.07 && s0 + i < n; i++) { const t = i / sr, w = Math.random() * 2 - 1, v = (w - p) * Math.exp(-t * 60) * amp; p = w; Lc[s0 + i] += v * 0.8; Rc[s0 + i] += v; } };
+    // hicaz (re): Re Mi♭ Fa♯ Sol La Si♭ Do Re
+    const D = 62, Eb = 63, Fs = 66, G = 67, A = 69, Bb = 70, Cc = 72, D2 = 74;
+    let t = 0.15; [D, Eb, Fs, G, A].forEach(m => { pluck(t, m, 0.42, -0.3); t += 0.085; });
+    pluck(t, A, 0.5, -0.2, 1.0); pluck(t, D2, 0.25, 0.4, 1.0); t += 0.34;
+    [Cc, Bb, A, G, Fs].forEach(m => { pluck(t, m, 0.46, -0.1); t += 0.13; });
+    pluck(t, Eb, 0.46, 0); t += 0.2;
+    const tEnd = t; for (let k = 0; k < 16; k++) pluck(tEnd + k * 0.058, D, 0.36 * (1 - k / 22), (k % 2 ? 0.25 : -0.25), 0.5);
+    pluck(tEnd + 16 * 0.058, D, 0.5, 0, 2.2); pluck(tEnd + 16 * 0.058, A - 12, 0.3, 0.3, 2.2);
+    pad(0.1, dur, [50, 57, 62, 66], 0.035);
+    [0, 0.6, 1.2, 1.8].forEach(x => { dum(0.15 + x, 0.55); tek(0.15 + x + 0.3, 0.32); tek(0.15 + x + 0.45, 0.2); });
+    dum(tEnd + 16 * 0.058, 0.7);
+    // oda yankısı (Schroeder)
+    const rev = (x) => {
+      const out = new Float32Array(n), combs = [1557, 1617, 1491, 1422].map(d => ({ d: Math.round(d * sr / 44100), b: null, i: 0 })), aps = [225, 556].map(d => ({ d: Math.round(d * sr / 44100), b: null, i: 0 }));
+      combs.forEach(cb => cb.b = new Float32Array(cb.d)); aps.forEach(a => a.b = new Float32Array(a.d));
+      for (let i = 0; i < n; i++) {
+        let s = 0; for (const cb of combs) { const y = cb.b[cb.i]; cb.b[cb.i] = x[i] + y * 0.8; cb.i = (cb.i + 1) % cb.d; s += y; }
+        s *= 0.25; for (const a of aps) { const y = a.b[a.i]; const v = -s + y; a.b[a.i] = s + y * 0.5; a.i = (a.i + 1) % a.d; s = v; }
+        out[i] = s;
+      }
+      return out;
+    };
+    const rl = rev(Lc), rr = rev(Rc);
+    let pk = 0; for (let i = 0; i < n; i++) { Lc[i] += rl[i] * 0.3; Rc[i] += rr[i] * 0.3; pk = Math.max(pk, Math.abs(Lc[i]), Math.abs(Rc[i])); }
+    const k = 0.75 / (pk || 1), fadeN = Math.floor(sr * 0.6);
+    for (let i = 0; i < n; i++) { const f = i > n - fadeN ? (n - i) / fadeN : 1; Lc[i] *= k * f; Rc[i] *= k * f; }
+    jingleBuf = c.createBuffer(2, n, sr); jingleBuf.copyToChannel(Lc, 0); jingleBuf.copyToChannel(Rc, 1);
+    return jingleBuf;
+  }
+  async function jingle(withLiner = true) {
+    const c = C(), o = OUT(), b = makeJingle(); if (!c || !o || !b) return;
+    const s = c.createBufferSource(), g = c.createGain(); g.gain.value = 0.9; s.buffer = b; s.connect(g).connect(o); s.start();
+    await sleep(2400);
+    if (withLiner) await Promise.all([say(rnd(LINERS)), sleep(1800)]); else await sleep(2000);
+  }
+
+  /* ---------------------------------------------------------------- şarkı seçimi */
+  const playable = () => App.songs.filter(s => s.blob || (s.audioPath && Cloud.user));
+  function pick() {
+    const all = playable(); if (!all.length) return null;
+    const keep = Math.min(30, Math.max(0, all.length - 2));
+    const rec = recent.slice(-keep);
+    let pool = all.filter(s => !rec.includes(s.id));
+    if (last && pool.length > 2) { const np = pool.filter(s => (s.artist || '').toLowerCase() !== (last.artist || '').toLowerCase()); if (np.length) pool = np; }
+    if (!pool.length) pool = all;
+    return rnd(pool);
+  }
+  function remember(id) { recent.push(id); recent = recent.slice(-60); LS.set('gp-radio-recent', recent); }
+
+  /* ---------------------------------------------------------------- yayın akışı */
+  const P = () => [[0.4, 0.25, 5, 4], [0.65, 0.45, 3, 3], [0.88, 0.7, 2, 2]][cfg.talk] || [0.65, 0.45, 3, 3]; // [giriş, kapanış, ara konuşma her N, jingle her N]
+  let flowTok = 0;
+  async function playNext(first) {
+    const my = ++flowTok;
+    let ded = null, s = null;
+    if (dedQ.length) { ded = dedQ.shift(); LS.set('gp-radio-ded', dedQ); s = (ded.id && App.byId(ded.id)) || pick(); }
+    else s = pick();
+    if (!s) { toast('Radyo için arşivinde şarkı olmalı'); stop(); return; }
+    const [pIn, , pSeg, pJin] = P();
+    // şarkılar arası: jingle, kuşak değişimi, hava/saat, ithaf
+    if (!first) {
+      const b = block();
+      if (lastBlock && b.id !== lastBlock) { bedOn(); await jingle(false); if (my !== flowTok) return; await say(blockChange(b)); }
+      else if (songN % pJin === 0) { await jingle(true); }
+      else if (chance(0.35)) sweep();
+      lastBlock = b.id;
+      if (my !== flowTok || !on) return;
+      if (!ded && songN % pSeg === 0) { bedOn(); await say(segment()); }
+    }
+    if (my !== flowTok || !on) return;
+    cur = s; songN++; outroDone = false; remember(s.id); paint();
+    const talk = ded ? dedLine(ded, s) : (cfg.intro && (first || chance(pIn)) ? introLine(s) : null);
+    if (talk) Engine.setDuck(0.22);
+    own = true; const p = playSong(s.id); own = false;
+    await p; bedOff(900);
+    if (my !== flowTok || !on) { Engine.setDuck(1); return; }
+    if (talk) { await say(talk); if (my !== flowTok) return; rampDuck(1, 1400); }
+    else rampDuck(1, 300);
+    last = s; paint();
+  }
+  function onEnd() {
+    if (!on) return;
+    hush(); playNext(false);
+  }
+  // her çeyrek saniye: şarkı bitimine doğru kapanış anonsu, saat başı sinyali
+  let tickT = 0;
+  function tick() {
+    if (!on) return;
+    const d = new Date();
+    if (Engine.playing && cur && Engine.loadedId === cur.id && Engine.duration > 40) {
+      const rem = (Engine.duration - Engine.pos) / (Engine.fx.rate || 1);
+      if (!outroDone && rem < 10 && rem > 3) {
+        outroDone = true;
+        if (chance(P()[1])) { rampDuck(0.3, 1200); say(outroLine(cur)); }
+      }
+    }
+    // saat başı (59:54'te hazırlan)
+    if (Engine.playing && d.getMinutes() === 59 && d.getSeconds() >= 53 && d.getSeconds() < 56 && lastPipHour !== d.getHours()) {
+      lastPipHour = d.getHours();
+      const ms = (60 - d.getSeconds() - 5) * 1000 - d.getMilliseconds();
+      rampDuck(0.12, 900); pips(ms);
+      setTimeout(async () => { if (!on) return; const h = new Date(); await say(`Gönül FM. ${timeWords(h)}. ${block(h).n} devam ediyor.`); rampDuck(1, 1600); }, ms + 5600);
+    }
+    if (document.getElementById('fmClock')) { const c = $('fmClock'); const s = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }); if (c.textContent !== s) c.textContent = s; }
+  }
+  async function start() {
+    if (on) { open(); return; }
+    if (!playable().length) { toast('Radyo için önce arşivine şarkı ekle'); return; }
+    Engine.unlock();
+    // iPhone konuşmayı ancak dokunuşla açar: ilk sessiz cümle
+    if (TTS) { try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; u.lang = 'tr-TR'; TTS.speak(u); } catch (e) {} loadVoices(); }
+    on = true; songN = 0; last = null; lastBlock = block().id; lastPipHour = new Date().getMinutes() === 59 ? new Date().getHours() : -1;
+    document.documentElement.classList.add('fm-on');
+    if (Engine.playing) Engine.pause();
+    if (cfg.oldRadio) { prevRadioFx = Engine.fx.radioOn; Engine.setFx({ radioOn: true }, true); hissOn(); }
+    clearInterval(tickT); tickT = setInterval(tick, 250);
+    open(); paint(); needle(true);
+    tuneStatic(2.1); await sleep(2100); if (!on) return;
+    needle(false);
+    const my = ++flowTok;
+    bedOn(); jingle(false);
+    await sleep(2600); if (!on || my !== flowTok) return;
+    await say(opening()); if (!on || my !== flowTok) return;
+    playNext(true);
+  }
+  function stop(quiet) {
+    if (!on) return;
+    on = false; flowTok++; hush(); bedOff(400); hissOff(); clearInterval(tickT); clearInterval(duckT); Engine.setDuck(1);
+    if (prevRadioFx !== null) { Engine.setFx({ radioOn: prevRadioFx }, true); prevRadioFx = null; }
+    document.documentElement.classList.remove('fm-on');
+    if (!quiet && Engine.playing) Engine.pause();
+    cur = null; paint(); if (!quiet) close();
+  }
+  function skip() { if (!on) return; hush(); clearInterval(duckT); Engine.setDuck(1); sweep(); playNext(false); }
+
+  /* ---------------------------------------------------------------- arayüz */
+  let built = false;
+  function build() {
+    if (built) return; built = true;
+    const card = document.createElement('button'); card.className = 'fmcard'; card.id = 'fmCard'; card.type = 'button';
+    card.innerHTML = `<span class="fmc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="8" width="18" height="12" rx="2.5"/><path d="M7 8l9-5"/><circle cx="15.5" cy="14" r="3"/><path d="M6.5 12.5h3M6.5 15.5h3"/></svg></span>
+      <span class="fmc-t"><b>Gönül FM <small>${String(FREQ).replace('.', ',')}</small></b><span id="fmCardSub">Kendi arabesk radyon · spiker, jingle, ithaf</span></span><span class="fmc-live">CANLI</span>`;
+    card.onclick = () => start();
+    const lib = $('vLib'), srch = lib && lib.querySelector('.search'); if (srch) lib.insertBefore(card, srch);
+    const el = document.createElement('div'); el.className = 'fm'; el.id = 'fm'; el.hidden = true;
+    el.innerHTML = `<div class="fm-in">
+      <div class="fm-top"><button class="iconbtn" id="fmMin" aria-label="Küçült"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        <div class="fm-brand">Gönül FM<small>gönülden gönüle</small></div>
+        <button class="iconbtn" id="fmSet" aria-label="Radyo ayarları"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button></div>
+      <div class="fm-box">
+        <div class="fm-dial"><div class="fm-scale"><span>88</span><span>92</span><span>96</span><span>100</span><span>104</span><span>108</span></div><i class="fm-needle" id="fmNeedle"></i><div class="fm-band">FM · MHz</div></div>
+        <div class="fm-row"><div class="fm-grill"></div>
+          <div class="fm-side"><div class="fm-onair" id="fmOnAir"><i></i>MİKROFON</div><div class="fm-clock" id="fmClock">--:--</div><div class="fm-knobs"><i></i><i></i></div></div></div>
+      </div>
+      <div class="fm-prog"><span id="fmBlock"></span></div>
+      <div class="fm-now"><div class="fm-cov" id="fmCov"></div><div><div class="fm-t" id="fmT">Frekans aranıyor…</div><div class="fm-a" id="fmA"></div></div></div>
+      <div class="fm-sub" id="fmSub" aria-live="polite"></div>
+      <div class="fm-ctl">
+        <button class="fm-b" id="fmDed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 3z"/><path d="M12 9.5c-.8-1.2-3-1-3 .8 0 1.6 3 3.2 3 3.2s3-1.6 3-3.2c0-1.8-2.2-2-3-.8z"/></svg>İthaf / İstek</button>
+        <button class="fm-b" id="fmPlay"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg><span>Duraklat</span></button>
+        <button class="fm-b" id="fmSkip"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5.5v13l9.5-6.5zM16 5h2.5v14H16z"/></svg>Sonraki</button>
+        <button class="fm-b off" id="fmOff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v8"/><path d="M6.3 7.5a8 8 0 1 0 11.4 0"/></svg>Radyoyu kapat</button>
+      </div>
+      <div class="fm-panel" id="fmPanel" hidden></div>
+    </div>`;
+    document.body.appendChild(el);
+    $('fmMin').onclick = close; $('fmOff').onclick = () => stop();
+    $('fmSkip').onclick = () => { Engine.unlock(); skip(); };
+    $('fmPlay').onclick = () => { Engine.unlock(); if (Engine.playing) { Engine.pause(); hush(); } else Engine.play(); paint(); };
+    $('fmSet').onclick = () => panel('set'); $('fmDed').onclick = () => panel('ded');
+    setInterval(() => { if (on) paintPlay(); }, 600);
+    const box = el.querySelector('.fm-box');
+    setInterval(() => { if (el.hidden) return; const lv = Engine.levels(); const v = lv ? Math.min(1, (lv[0][0] + lv[1][0]) * 2.2) : 0; box.style.setProperty('--lv', v.toFixed(2)); }, 110);
+  }
+  function panel(kind) {
+    const p = $('fmPanel');
+    if (!p.hidden && p.dataset.k === kind) { p.hidden = true; return; }
+    p.dataset.k = kind; p.hidden = false;
+    if (kind === 'set') {
+      loadVoices();
+      const opts = voices.length ? voices.map(v => `<option value="${esc(v.voiceURI)}" ${voice() === v ? 'selected' : ''}>${esc(v.name)}${good(v) ? ' ★' : ''}</option>`).join('') : '<option value="">Türkçe ses bulunamadı</option>';
+      p.innerHTML = `<h4>Radyo ayarları</h4>
+        <label class="fm-f"><span>Spiker sesi</span><select id="fmVoice">${opts}</select></label>
+        <div class="fm-hint">${voices.some(good) ? '★ olan ses daha doğal.' : 'Daha doğal ses için: iPhone Ayarlar → Erişilebilirlik → Seslendirilen İçerik → Sesler → Türkçe → Yelda (Gelişmiş) indir.'}</div>
+        <label class="fm-f"><span>Konuşma hızı</span><input type="range" id="fmRate" min="0.8" max="1.2" step="0.05" value="${cfg.rate}"></label>
+        <div class="fm-f"><span>Spiker ne kadar konuşsun?</span><div class="seg" id="fmTalk"><button data-v="0">Az</button><button data-v="1">Normal</button><button data-v="2">Çok</button></div></div>
+        <label class="fm-tg"><input type="checkbox" id="fmOld" ${cfg.oldRadio ? 'checked' : ''}><span>Eski radyo tınısı (cızırtı, dar ses)</span></label>
+        <button class="btn" id="fmTest">Spikeri dene</button>`;
+      $('fmVoice').onchange = e => { cfg.voice = e.target.value; saveCfg(); };
+      $('fmRate').oninput = e => { cfg.rate = +e.target.value; saveCfg(); };
+      const segs = p.querySelectorAll('#fmTalk button'); segs.forEach(b => { b.setAttribute('aria-pressed', +b.dataset.v === cfg.talk); b.onclick = () => { cfg.talk = +b.dataset.v; saveCfg(); segs.forEach(x => x.setAttribute('aria-pressed', x === b)); }; });
+      $('fmOld').onchange = e => {
+        cfg.oldRadio = e.target.checked; saveCfg();
+        if (!on) return;
+        if (cfg.oldRadio) { if (prevRadioFx === null) prevRadioFx = Engine.fx.radioOn; Engine.setFx({ radioOn: true }, true); hissOn(); }
+        else { hissOff(); if (prevRadioFx !== null) { Engine.setFx({ radioOn: prevRadioFx }, true); prevRadioFx = null; } }
+      };
+      $('fmTest').onclick = () => { const was = on; if (!was) on = true; Engine.unlock(); if (Engine.playing) rampDuck(0.25, 500); say(`${selam()}. Burası Gönül FM, ${freqWords()}. ${timeWords()}.`).then(() => { if (!was) on = false; rampDuck(1, 800); }); };
+    } else {
+      const songs = App.all();
+      p.innerHTML = `<h4>İthaf / İstek</h4>
+        <label class="fm-f"><span>Kimden</span><input id="fmFrom" maxlength="24" value="${esc(App.userName || '')}" placeholder="Adın"></label>
+        <label class="fm-f"><span>Kime</span><input id="fmTo" maxlength="24" placeholder="Örn. Stuttgart'taki dostlarım"></label>
+        <label class="fm-f"><span>Mesajın (spiker okuyacak)</span><input id="fmMsg" maxlength="120" placeholder="Bu şarkı sana gelsin…"></label>
+        <label class="fm-f"><span>Şarkı</span><select id="fmSong"><option value="">Radyo seçsin</option>${songs.map(s => `<option value="${esc(s.id)}">${esc(s.title || '')}${s.artist ? ' · ' + esc(s.artist) : ''}</option>`).join('')}</select></label>
+        <button class="btn primary" id="fmSend">Sıraya al</button>`;
+      $('fmSend').onclick = () => {
+        const d = { from: $('fmFrom').value.trim(), to: $('fmTo').value.trim(), msg: $('fmMsg').value.trim().replace(/[.!?]+$/, ''), id: $('fmSong').value || null };
+        if (!d.to && !d.msg && !d.id) { toast('Kime ya da şarkı seç'); return; }
+        dedQ.push(d); LS.set('gp-radio-ded', dedQ); p.hidden = true;
+        toast(on ? 'İthafın sırada, bir sonraki şarkıda okunacak' : 'İthafın sırada. Radyoyu açınca okunacak');
+      };
+    }
+  }
+  function open() { build(); $('fm').hidden = false; document.body.style.overflow = 'hidden'; paint(); }
+  function close() { if ($('fm')) $('fm').hidden = true; document.body.style.overflow = ''; }
+  function sub(t) { const s = $('fmSub'); if (s) { s.textContent = t ? '🎙 ' + t : ''; s.classList.toggle('on', !!t); } }
+  function lamp(v) { const l = $('fmOnAir'); if (l) l.classList.toggle('on', v); }
+  function needle(tuning) {
+    const n = $('fmNeedle'); if (!n) return; const pos = f => ((f - 88) / 20 * 100).toFixed(2) + '%';
+    if (tuning) { n.style.transition = 'none'; n.style.left = pos(89); requestAnimationFrame(() => { n.style.transition = 'left 2s cubic-bezier(.3,.1,.2,1)'; n.style.left = pos(FREQ); }); }
+    else { n.style.left = pos(FREQ); }
+  }
+  function paintPlay() { const b = $('fmPlay'); if (!b) return; const pl = Engine.playing; const sp = b.querySelector('span'); const want = pl ? 'Duraklat' : 'Devam'; if (sp.textContent !== want) { sp.textContent = want; b.querySelector('svg').innerHTML = pl ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>' : '<path d="M7 4.5v15l12.5-7.5z"/>'; } }
+  function paint() {
+    const card = $('fmCard'); if (card) { card.classList.toggle('on', on); const cs = $('fmCardSub'); if (cs) cs.textContent = on ? 'Yayında · ' + block().n + (cur ? ' · ' + (cur.title || '') : '') : 'Kendi arabesk radyon · spiker, jingle, ithaf'; }
+    if (!$('fm')) return;
+    $('fmBlock').textContent = on ? block().n : 'Kapalı';
+    $('fmT').textContent = cur ? (cur.title || 'İsimsiz') : on ? 'Frekans aranıyor…' : 'Radyo kapalı';
+    $('fmA').textContent = cur ? (cur.artist || '') : '';
+    const cv = $('fmCov'), u = cur && Img.url(cur); cv.style.backgroundImage = u ? `url("${u}")` : ''; cv.classList.toggle('none', !u);
+    paintPlay(); needle(false);
+  }
+
+  setTimeout(build, 0);
+  return { get on() { return on; }, get own() { return own; }, start, stop, skip, onEnd, open, say, block, timeWords, opening, introLine, outroLine, segment, _cfg: cfg };
+})();
+
+if (/[?&]fmtest=1/.test(location.search)) window.__gp = { App, Engine, Radio };
 
 })();

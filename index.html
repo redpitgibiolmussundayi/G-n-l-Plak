@@ -323,6 +323,81 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .scene.wet .rainveil{background:rgba(12,16,26,.18)}
 .scene .veil{position:absolute;inset:0;background:linear-gradient(180deg,rgba(19,11,15,.5) 0%,rgba(19,11,15,0) 26%,rgba(19,11,15,0) 82%,var(--bg) 100%)}
 .scene.day .veil{background:linear-gradient(180deg,rgba(19,11,15,.62) 0%,rgba(19,11,15,.08) 28%,rgba(19,11,15,0) 82%,var(--bg) 100%)}
+
+/* ---------- Gönül FM ---------- */
+.fmcard{display:flex;align-items:center;gap:12px;width:100%;margin:10px 0 12px;padding:12px 14px;border-radius:18px;text-align:left;
+  background:linear-gradient(135deg,#3a1e12 0%,#24120c 60%,#1e1217 100%);border:1px solid #5a3622;box-shadow:inset 0 1px 0 #ffffff10,0 6px 20px #0006;position:relative;overflow:hidden}
+.fmcard::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,#ffffff05 0 2px,transparent 2px 7px);pointer-events:none}
+.fmc-ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--amber-soft);color:var(--amber);flex:none}
+.fmc-ic svg{width:24px;height:24px}
+.fmc-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.fmc-t b{font-family:var(--slab);font-weight:400;font-size:1.15rem;color:var(--cream)}
+.fmc-t b small{font-family:var(--body);font-size:.72rem;color:var(--amber);letter-spacing:.08em;margin-left:4px}
+.fmc-t span{font-size:.8rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fmc-live{font-size:.62rem;font-weight:700;letter-spacing:.14em;padding:4px 8px;border-radius:999px;color:var(--dim);border:1px solid var(--line);flex:none}
+.fmcard.on .fmc-live{color:#fff;background:var(--neon);border-color:var(--neon);box-shadow:0 0 12px var(--glow);animation:fmblink 1.6s infinite}
+@keyframes fmblink{50%{opacity:.55}}
+.fm{position:fixed;inset:0;z-index:70;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  background:radial-gradient(120% 60% at 50% 0%,#3a1a0e 0%,transparent 70%),#120a08;animation:fade .2s ease;
+  padding:calc(env(safe-area-inset-top,0px) + 10px) max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 24px) max(16px,env(safe-area-inset-left,0px))}
+.fm-in{max-width:480px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.fm-top{display:flex;align-items:center;justify-content:space-between}
+.fm-brand{font-family:var(--logo);font-size:1.7rem;color:#ffd9a0;text-align:center;line-height:1;text-shadow:0 0 8px rgba(244,177,62,.55),0 0 24px rgba(244,177,62,.3)}
+.fm-brand small{display:block;font-family:var(--hand);font-size:1rem;color:var(--neon);text-shadow:none;margin-top:3px}
+.fm-box{border-radius:22px;padding:16px;position:relative;
+  background:linear-gradient(180deg,#6b3b20 0%,#4a2714 45%,#341a0d 100%);border:1px solid #7a4a2a;
+  box-shadow:inset 0 2px 0 #ffffff1c,inset 0 -3px 0 #00000055,0 14px 40px #000a}
+.fm-box::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:.35;
+  background:repeating-linear-gradient(172deg,#00000000 0 6px,#0000002a 6px 7px,#00000000 7px 13px,#ffffff0c 13px 14px)}
+.fm-dial{position:relative;height:74px;filter:brightness(calc(.9 + var(--lv,0) * .35));border-radius:12px;overflow:hidden;
+  background:linear-gradient(180deg,#2a1708,#1a0d05);border:2px solid #1a0c06;box-shadow:inset 0 0 22px rgba(244,177,62,.35),inset 0 0 2px #000}
+.fm-dial::before{content:"";position:absolute;left:4%;right:4%;top:36px;height:14px;
+  background:repeating-linear-gradient(90deg,rgba(255,214,150,.75) 0 1px,transparent 1px 2.4%);opacity:.75}
+.fm-dial::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,#ffffff18,transparent 40%);pointer-events:none}
+.fm-scale{position:absolute;left:4%;right:4%;top:10px;display:flex;justify-content:space-between;font:600 .78rem/1 var(--body);color:#ffd9a0;text-shadow:0 0 6px rgba(244,177,62,.7)}
+.fm-scale span{width:0;display:flex;justify-content:center}
+.fm-band{position:absolute;right:10px;bottom:6px;font-size:.58rem;letter-spacing:.18em;color:#c99a5a}
+.fm-needle{position:absolute;top:6px;bottom:6px;width:3px;margin-left:-1.5px;left:54.25%;border-radius:2px;background:#ff3f2a;box-shadow:0 0 10px #ff3f2a,0 0 2px #fff}
+.fm-dial{margin:0 0 14px}
+.fm-row{display:flex;gap:14px;align-items:stretch}
+.fm-grill{flex:1;min-height:96px;filter:brightness(calc(1 + var(--lv,0) * .45));transition:filter .1s;border-radius:12px;border:2px solid #24120a;
+  background:radial-gradient(circle,#0d0705 1.6px,transparent 1.9px) 0 0/7px 7px,linear-gradient(180deg,#3a2414,#22140b);box-shadow:inset 0 3px 10px #000a}
+.fm-side{width:118px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:8px}
+.fm-onair{display:flex;align-items:center;gap:6px;font-size:.6rem;font-weight:700;letter-spacing:.14em;color:#8a5a40;padding:5px 9px;border-radius:7px;background:#1a0d06;border:1px solid #00000080}
+.fm-onair i{width:9px;height:9px;border-radius:50%;background:#4a1810}
+.fm-onair.on{color:#ffb4a8}.fm-onair.on i{background:#ff3a2a;box-shadow:0 0 10px #ff3a2a}
+.fm-clock{font:600 1.35rem/1 ui-monospace,Menlo,monospace;color:#ffcf7a;text-shadow:0 0 8px rgba(244,177,62,.6);background:#140a04;border-radius:8px;padding:6px 10px;border:1px solid #00000080;letter-spacing:.06em}
+.fm-knobs{display:flex;gap:12px}
+.fm-knobs i{width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#d9c3a0,#7a6448 60%,#3a2c1c);box-shadow:0 3px 6px #000a,inset 0 -2px 3px #0006;position:relative}
+.fm-knobs i::after{content:"";position:absolute;left:50%;top:4px;width:2px;height:9px;margin-left:-1px;background:#2a1c10;border-radius:1px}
+.fm-knobs i:last-child{transform:rotate(130deg)}
+.fm-prog{text-align:center}
+.fm-prog span{display:inline-block;font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);border:1px solid #5a3622;border-radius:999px;padding:5px 12px;background:#1e1008}
+.fm-now{display:flex;align-items:center;gap:12px;padding:0 4px}
+.fm-cov{width:58px;height:58px;border-radius:10px;flex:none;background:#2a1920 center/cover;border:1px solid var(--line)}
+.fm-cov.none{background:radial-gradient(circle,#111 18%,#2a1920 19%,#2a1920 40%,#3a242c 41%,#1e1217 70%)}
+.fm-t{font-family:var(--slab);font-size:1.25rem;line-height:1.2}
+.fm-a{color:var(--muted);font-size:.9rem;margin-top:2px}
+.fm-sub{min-height:3.6em;padding:12px 14px;border-radius:14px;background:#1a0f0b;border:1px dashed #4a2c20;font-family:var(--hand);font-size:1.15rem;line-height:1.35;color:#ffe2b8;opacity:.4;transition:opacity .3s}
+.fm-sub.on{opacity:1}
+.fm-sub:empty::before{content:"🎙 Spiker birazdan araya girecek…";font-size:.95rem;color:var(--dim)}
+.fm-ctl{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.fm-b{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px;border-radius:14px;background:var(--card);border:1px solid var(--line);font-size:.78rem;color:var(--cream)}
+.fm-b svg{width:24px;height:24px}
+.fm-b.off{grid-column:1/-1;flex-direction:row;justify-content:center;color:#ffb0c0;border-color:#5a2a36}
+.fm-b.off svg{width:18px;height:18px}
+.fm-panel{display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:16px;background:var(--card);border:1px solid var(--line)}
+.fm-panel h4{margin:0;font-family:var(--slab);font-weight:400;font-size:1.2rem}
+.fm-f{display:flex;flex-direction:column;gap:6px;font-size:.82rem;color:var(--muted)}
+.fm-f input:not([type=range]),.fm-f select{font:inherit;font-size:16px;color:var(--cream);background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.fm-f input[type=range]{width:100%;accent-color:var(--amber)}
+.fm-hint{font-size:.76rem;color:var(--dim);margin-top:-4px}
+.fm-tg{display:flex;align-items:center;gap:10px;font-size:.88rem}
+.fm-tg input{width:20px;height:20px;accent-color:var(--amber)}
+.fm-panel .seg{display:flex;gap:6px}
+.fm-panel .seg button{flex:1;padding:9px;border-radius:10px;background:var(--card2);border:1px solid var(--line);font-size:.85rem}
+.fm-panel .seg button[aria-pressed=true]{background:var(--amber);color:#2b1b14;border-color:var(--amber)}
+.fm-on #miniA::before{content:"📻 Gönül FM · ";color:var(--amber)}
 @media (prefers-reduced-motion: reduce){ .scene img{transition:none} }
 .cact{align-self:center;font-size:.78rem;color:var(--amber);background:var(--amber-soft);padding:5px 12px;border-radius:999px;max-width:90%;text-align:center}
 .csrc{display:flex;flex-wrap:wrap;gap:6px}

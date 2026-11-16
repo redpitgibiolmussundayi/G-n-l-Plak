@@ -17,6 +17,7 @@
 
   var D = {
     /* ---------- index.html ---------- */
+    "Gönül FM": "Gönül FM", "Kendi arabesk radyon · spiker, jingle, ithaf": "Dein eigenes Arabesk-Radio · Moderator, Jingles, Widmungen", "İthaf / İstek": "Widmung / Wunsch", "Radyoyu kapat": "Radio ausschalten", "Radyo ayarları": "Radioeinstellungen", "Spiker sesi": "Moderatorstimme", "Konuşma hızı": "Sprechtempo", "Spiker ne kadar konuşsun?": "Wie viel soll der Moderator reden?", "Az": "Wenig", "Normal": "Normal", "Çok": "Viel", "Eski radyo tınısı (cızırtı, dar ses)": "Alter Radioklang (Rauschen, schmaler Ton)", "Spikeri dene": "Moderator testen", "Kimden": "Von", "Kime": "An", "Mesajın (spiker okuyacak)": "Deine Nachricht (wird vorgelesen)", "Radyo seçsin": "Radio wählt", "Sıraya al": "In die Warteschlange", "Frekans aranıyor…": "Sender wird gesucht…", "Radyo kapalı": "Radio aus", "MİKROFON": "MIKROFON", "CANLI": "LIVE",
     "30 dk sonra kapat": "In 30 Min ausschalten", "Arşive ekle": "Zum Archiv hinzufügen", "Bir şey yaz…": "Schreib etwas…", "Doğal vokal": "Natürliche Stimme",
     "Döngüyü kaldır": "Schleife entfernen", "Efektleri uygula": "Effekte anwenden", "Ekolayzır": "Equalizer", "Gönder": "Senden", "Karışık": "Zufall",
     "Ses dalgası: sağa sola kaydırarak şarkıda ilerle": "Wellenform: nach links/rechts wischen, um im Lied zu springen", "Sonraki": "Weiter", "Sırala": "Sortieren", "Tekrarla": "Wiederholen",
