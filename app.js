@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 57;
+const VERSION = 58;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -4731,7 +4731,34 @@ onmessage=async e=>{const m=e.data;try{
     if (cache.size > 40) cache.delete(cache.keys().next().value);
     return p;
   }
-  const clean = t => String(t).replace(/[“”"«»]/g, '').replace(/\s+/g, ' ').trim();
+  /* Almanca kelimeleri Türkçe sesin doğru okuyacağı şekilde yaz (sadece seslendirme için; ekranda asıl yazım kalır) */
+  const DE = {
+    'Hauptbahnhof': 'Hauptbaanhof', 'Hbf': 'Hauptbaanhof', 'Bahnhof': 'Baanhof', 'S-Bahn': 'Es-Baan', 'U-Bahn': 'U-Baan', 'Stadtbahn': 'Ştatbaan', 'Stammstrecke': 'Ştamştreke',
+    'Stuttgart': 'Ştutgart', 'Ludwigsburg': 'Ludviğsburg', 'Hemmingen': 'Hemingen', 'Zuffenhausen': 'Tsufenhauzen', 'Feuerbach': 'Foyerbah', 'Bad Cannstatt': 'Bad Kanştat', 'Cannstatt': 'Kanştat',
+    'Vaihingen': 'Fayhingen', 'Degerloch': 'Degerloh', 'Möhringen': 'Möringen', 'Leonberg': 'Leonberg', 'Ditzingen': 'Ditsingen', 'Korntal': 'Korntaal', 'Kornwestheim': 'Kornvesthaym',
+    'Herrenberg': 'Herenberg', 'Backnang': 'Baknang', 'Schorndorf': 'Şorndorf', 'Kirchheim': 'Kirhhaym', 'Weil der Stadt': 'Vayl der Ştat', 'Bietigheim': 'Bitiğhaym', 'Bietigheim-Bissingen': 'Bitiğhaym Bisingen',
+    'Marbach': 'Marbah', 'Böblingen': 'Böblingen', 'Esslingen': 'Eslingen', 'Plochingen': 'Plohingen', 'Filderstadt': 'Filderştat', 'Flughafen': 'Fluukhaafen', 'Neckar': 'Nekar', 'Killesberg': 'Kilesberg',
+    'Fernsehturm': 'Fernzeeturm', 'Schlossplatz': 'Şlosplats', 'Königstraße': 'Könikştrase', 'Feuersee': 'Foyerzee', 'Schwabstraße': 'Şvaapştrase', 'Universität': 'Univerzitet', 'Rohr': 'Roor',
+    'Gerlingen': 'Gerlingen', 'Schwieberdingen': 'Şviberdingen', 'Markgröningen': 'Markgröningen', 'Freiberg': 'Frayberg', 'Pleidelsheim': 'Playdelshaym', 'Engelberg': 'Engelberg',
+    'Autobahn': 'Autobaan', 'Stau': 'Ştau', 'Polizei': 'Politsay', 'Polizeieinsatz': 'Politsay ayntsats', 'Feuerwehr': 'Foyerveer', 'VVS': 'Fau Fau Es', 'DB': 'De Be', 'NINA': 'Nina',
+    'Wilhelma': 'Vilhelma', 'Mercedes': 'Mertsedes', 'Porsche': 'Porşe', 'Bosch': 'Boş', 'VfB': 'Fau ef Be', 'Cannstatter Wasen': 'Kanştater Vazen', 'Wasen': 'Vazen', 'Weihnachtsmarkt': 'Vaynahtsmarkt'
+  };
+  const DE_RE = new RegExp('(^|[^\\p{L}])(' + Object.keys(DE).sort((a, b) => b.length - a.length).map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')(?=$|[^\\p{L}])', 'gu');
+  // tanınmayan Almanca kelimeler için kurallar (sadece açıkça Almanca görünen kelimelere)
+  const deWord = w => {
+    const lw = w.toLowerCase();
+    if (/[çğışıâ]/.test(lw) || !/sch|ei|ie|eu|äu|ß|ck|tz|ph|ung$|heim$|hausen$|stadt$|straße$|strasse$|verkehr|^st[aeiou]|^sp[aeiou]|w/.test(lw)) return w;
+    let x = w.replace(/(?<![sS])s(?=[aeiouöü])/g, '\u0001').replace(/^S(?=[aeiouöü])/, '\u0002');
+    x = x.replace(/tsch/g, 'ç').replace(/sch/g, 'ş').replace(/Sch/g, 'Ş').replace(/^St/, 'Şt').replace(/^Sp/, 'Şp').replace(/^st/, 'şt').replace(/^sp/, 'şp')
+      .replace(/(?<=[aou])ch/g, 'h').replace(/ch/g, 'h').replace(/ei/g, 'ay').replace(/Ei/g, 'Ay').replace(/ie/g, 'i').replace(/eu|äu/g, 'oy').replace(/Eu/g, 'Oy')
+      .replace(/ß/g, 's').replace(/ck/g, 'k').replace(/tz/g, 'ts').replace(/z/g, 'ts').replace(/Z/g, 'Ts').replace(/ph/g, 'f').replace(/th/g, 't').replace(/qu/g, 'kv')
+      .replace(/v/g, 'f').replace(/V/g, 'F').replace(/w/g, 'v').replace(/W/g, 'V').replace(/ä/g, 'e').replace(/Ä/g, 'E').replace(/j/g, 'y').replace(/J/g, 'Y')
+      .replace(/(?<=[aeiouöü])h(?=[^aeiouöü]|$)/g, '').replace(/([bdfgklmnprst])\1/g, '$1').replace(/\u0001/g, 'z').replace(/\u0002/g, 'Z');
+    return x;
+  };
+  const deSay = t => String(t).replace(DE_RE, (m, p, w) => p + DE[w]).replace(/\p{L}{4,}/gu, w => DE[w] || deWord(w));
+  const clean = t => deSay(String(t).replace(/[“”"«»]/g, '').replace(/\s+/g, ' ').trim());
+
   return {
     VOICES, get, plan, boot, install, drop, on(f) { listeners.add(f); return () => listeners.delete(f); },
     get state() { return state; }, get prog() { return prog; }, get err() { return err; }, get voice() { return st.voice; },
