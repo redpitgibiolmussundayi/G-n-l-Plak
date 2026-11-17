@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 52;
+const VERSION = 53;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -5137,18 +5137,18 @@ Kurallar:
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST', signal: ctl.signal,
         headers: { 'content-type': 'application/json', 'x-api-key': AI.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: AIM, max_tokens: maxT, temperature: 1, system: SYS, messages: [{ role: 'user', content: prompt }, { role: 'assistant', content: '{' }] })
+        body: JSON.stringify({ model: AIM, max_tokens: maxT, system: SYS, messages: [{ role: 'user', content: prompt + '\n\nCevabın sadece JSON nesnesi olsun, { ile başlayıp } ile bitsin.' }] })
       });
       if (!r.ok) {
         let m = ''; try { m = ((await r.json()).error || {}).message || ''; } catch (e) {}
-        aiErr = r.status === 401 ? 'Claude anahtarı geçersiz' : /credit|balance|billing/i.test(m) ? 'Claude hesabında kredi kalmamış' : 'Claude şu an cevap vermiyor (' + r.status + ')';
+        aiErr = r.status === 401 ? 'Claude anahtarı geçersiz' : /credit|balance|billing/i.test(m) ? 'Claude hesabında kredi kalmamış' : 'Claude hata verdi (' + r.status + (m ? ': ' + m.slice(0, 120) : '') + ')';
         aiPause = Date.now() + (r.status === 401 || /credit|balance|billing/i.test(m) ? 30 : 2) * 60000;
         Engine.log('Claude spiker: ' + aiErr); return null;
       }
       const j = await r.json();
       if (j.usage) { use.usd += (j.usage.input_tokens || 0) * PRICE.in + (j.usage.output_tokens || 0) * PRICE.out; use.n++; LS.set('gp-fm-ai', use); }
-      const txt = '{' + (j.content || []).map(c => c.text || '').join('');
-      const o = JSON.parse(txt.slice(0, txt.lastIndexOf('}') + 1));
+      const txt = (j.content || []).map(c => c.text || '').join('');
+      const o = JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1));
       aiErr = '';
       const lines = Object.values(o).filter(v => typeof v === 'string' && v.trim());
       aiSaid = aiSaid.concat(lines.map(x => x.slice(0, 140))).slice(-10); LS.set('gp-fm-said', aiSaid);
