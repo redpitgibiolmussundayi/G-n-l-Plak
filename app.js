@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 53;
+const VERSION = 54;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -5130,32 +5130,44 @@ Kurallar:
     const d = new Date(), b = block(d), w = weather();
     return `Şu an: ${DAYS[d.getDay()]}, ${timeWords(d).toLowerCase()} (${d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}). Kuşak: ${b.n}. ${w ? 'Hava: ' + w : 'Hava bilgisi yok.'}${App.userName ? ` Dinleyicinin adı: ${App.userName} (Hemmingen'de oturuyor, Stuttgart'ı çok seviyor).` : ''}`;
   }
-  async function claude(prompt, maxT = 420) {
-    if (!aiOk()) return null;
-    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 10000);
+  let aiModel = LS.get('gp-fm-model', AIM);
+  async function claude(prompt, maxT = 420, force) {
+    if (!force && !aiOk()) return null;
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 12000);
     try {
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
+      const send = model => fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST', signal: ctl.signal,
         headers: { 'content-type': 'application/json', 'x-api-key': AI.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: AIM, max_tokens: maxT, system: SYS, messages: [{ role: 'user', content: prompt + '\n\nCevabın sadece JSON nesnesi olsun, { ile başlayıp } ile bitsin.' }] })
+        body: JSON.stringify({ model, max_tokens: maxT, system: SYS, messages: [{ role: 'user', content: prompt + '\n\nCevabın sadece JSON nesnesi olsun, { ile başlayıp } ile bitsin.' }] })
       });
+      let r = await send(aiModel);
+      // bu model olmazsa Gönül Dostu'nun kullandığı modellerle dene
+      if (r.status === 400 || r.status === 404) {
+        for (const m of [AIM, 'claude-sonnet-5-5']) { if (m === aiModel) continue; const r2 = await send(m); if (r2.ok) { aiModel = m; LS.set('gp-fm-model', m); r = r2; break; } }
+      }
       if (!r.ok) {
         let m = ''; try { m = ((await r.json()).error || {}).message || ''; } catch (e) {}
         aiErr = r.status === 401 ? 'Claude anahtarı geçersiz' : /credit|balance|billing/i.test(m) ? 'Claude hesabında kredi kalmamış' : 'Claude hata verdi (' + r.status + (m ? ': ' + m.slice(0, 120) : '') + ')';
-        aiPause = Date.now() + (r.status === 401 || /credit|balance|billing/i.test(m) ? 30 : 2) * 60000;
+        aiPause = Date.now() + (r.status === 401 || /credit|balance|billing/i.test(m) ? 30 : 1) * 60000; paintAiSrc(false);
         Engine.log('Claude spiker: ' + aiErr); return null;
       }
       const j = await r.json();
-      if (j.usage) { use.usd += (j.usage.input_tokens || 0) * PRICE.in + (j.usage.output_tokens || 0) * PRICE.out; use.n++; LS.set('gp-fm-ai', use); }
+      if (j.usage) { const k = /sonnet/.test(aiModel) ? 3 : 1; use.usd += ((j.usage.input_tokens || 0) * PRICE.in + (j.usage.output_tokens || 0) * PRICE.out) * k; use.n++; LS.set('gp-fm-ai', use); }
       const txt = (j.content || []).map(c => c.text || '').join('');
       const o = JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1));
-      aiErr = '';
+      aiErr = ''; aiPause = 0;
       const lines = Object.values(o).filter(v => typeof v === 'string' && v.trim());
       aiSaid = aiSaid.concat(lines.map(x => x.slice(0, 140))).slice(-10); LS.set('gp-fm-said', aiSaid);
-      for (const k in o) if (typeof o[k] === 'string') o[k] = o[k].replace(/[*_#"“”()]/g, '').replace(/\s+/g, ' ').trim() || null;
+      for (const k in o) if (typeof o[k] === 'string') { o[k] = o[k].replace(/[*_#"“”()]/g, '').replace(/\s+/g, ' ').trim() || null; if (o[k]) aiLines.add(o[k]); }
       return o;
-    } catch (e) { if (e.name !== 'AbortError') Engine.log('Claude spiker: ' + e.message); return null; }
+    } catch (e) { aiErr = e.name === 'AbortError' ? 'Claude geç cevap verdi' : 'Claude: ' + e.message; Engine.log('Claude spiker: ' + aiErr); return null; }
     finally { clearTimeout(to); }
+  }
+  function paintAiSrc() {}
+  async function aiTest() {
+    aiPause = 0; aiErr = '';
+    const o = await claude(`${ctxText()}\nBu bir deneme. Şu alanla JSON yaz:\n"test": dinleyiciye mikrofonun çalıştığını söyleyen tek kısa cümle`, 120, true);
+    return o && o.test ? { ok: true, text: o.test, model: aiModel } : { ok: false, err: aiErr || 'Cevap okunamadı' };
   }
   const avoid = () => aiSaid.length ? `\nSon söylediklerin (bunları ve benzerlerini tekrar etme):\n- ${aiSaid.slice(-6).join('\n- ')}` : '';
   // şarkılar arası konuşma
@@ -5367,7 +5379,8 @@ Kurallar:
           <div class="seg" id="fmAi"><button data-v="1" aria-pressed="${cfg.ai !== false}">Açık</button><button data-v="0" aria-pressed="${cfg.ai === false}">Kapalı (hazır cümleler)</button></div>
           <div class="fm-f"><span>Aylık sınır</span><div class="seg" id="fmAiLim">${[1, 2, 5].map(v => `<button data-v="${v}" aria-pressed="${(cfg.aiLimit || 2) === v}">${v} €</button>`).join('')}</div></div>
           <div class="fm-hint">Bu ay: ${u.n} konuşma, yaklaşık ${(u.usd).toFixed(2).replace('.', ',')} €${u.usd * 0.95 >= (cfg.aiLimit || 2) ? ' · sınıra ulaşıldı, ay sonuna kadar hazır cümleler' : ''}</div>
-          ${u.err ? `<div class="fm-err">${esc(u.err)}</div>` : ''}</div>`
+          ${u.err ? `<div class="fm-err">${esc(u.err)}</div>` : ''}
+          <button class="btn" id="fmAiTest">Claude'u dene</button><div class="fm-hint" id="fmAiRes"></div></div>`
         : `<div class="fm-nv"><b>🧠 Claude spiker</b><div class="fm-hint">Spikerin her seferinde farklı ve o ana özel konuşması için Ben sekmesinde Gönül Dostu'na Claude anahtarını gir.</div></div>`;
       p.innerHTML = `<h4>Radyo ayarları</h4>${aiBox}<div id="fmNvBox">${nvBox()}</div>
         <label class="fm-f" id="fmIph" ${NV.use ? 'hidden' : ''}><span>iPhone sesi</span><select id="fmVoice">${opts}</select></label>
@@ -5376,6 +5389,12 @@ Kurallar:
         <label class="fm-tg"><input type="checkbox" id="fmOld" ${cfg.oldRadio ? 'checked' : ''}><span>Eski radyo tınısı (cızırtı, dar ses)</span></label>
         <button class="btn" id="fmTest">Spikeri dene</button>`;
       $('fmVoice').onchange = e => { cfg.voice = e.target.value; saveCfg(); };
+      const tb = $('fmAiTest'); if (tb) tb.onclick = async () => {
+        const out = $('fmAiRes'); out.textContent = 'Deneniyor…'; tb.disabled = true;
+        const r = await Radio.aiTest(); tb.disabled = false;
+        out.innerHTML = r.ok ? `✓ Çalışıyor (${esc(r.model)}): <i>${esc(r.text)}</i>` : `<span class="fm-err">✗ ${esc(r.err)}</span>`;
+        if (r.ok) say(r.text);
+      };
       p.querySelectorAll('#fmAi button').forEach(b => b.onclick = () => { cfg.ai = b.dataset.v === '1'; saveCfg(); p.querySelectorAll('#fmAi button').forEach(x => x.setAttribute('aria-pressed', x === b)); });
       p.querySelectorAll('#fmAiLim button').forEach(b => b.onclick = () => { cfg.aiLimit = +b.dataset.v; saveCfg(); p.querySelectorAll('#fmAiLim button').forEach(x => x.setAttribute('aria-pressed', x === b)); });
       const wireNv = () => {
@@ -5417,7 +5436,8 @@ Kurallar:
   }
   function open() { build(); $('fmNvBan').hidden = NV.installed; if (NV.use) NV.boot().catch(() => {}); $('fm').hidden = false; document.body.style.overflow = 'hidden'; paint(); }
   function close() { if ($('fm')) $('fm').hidden = true; document.body.style.overflow = ''; }
-  function sub(t) { const s = $('fmSub'); if (s) { s.textContent = t ? '🎙 ' + t : ''; s.classList.toggle('on', !!t); } }
+  const aiLines = new Set();
+  function sub(t) { const s = $('fmSub'); if (s) { s.textContent = t ? (aiLines.has(t) ? '🧠 ' : '🎙 ') + t : ''; s.classList.toggle('on', !!t); } }
   function lamp(v) { const l = $('fmOnAir'); if (l) l.classList.toggle('on', v); }
   function needle(tuning) {
     const n = $('fmNeedle'); if (!n) return; const pos = f => ((f - 88) / 20 * 100).toFixed(2) + '%';
@@ -5436,7 +5456,7 @@ Kurallar:
   }
 
   setTimeout(build, 0);
-  return { aiUse: () => ({ usd: use.usd, n: use.n, err: aiErr, ok: aiOk() }), get on() { return on; }, get own() { return own; }, start, stop, skip, onEnd, open, say, block, timeWords, opening, introLine, outroLine, segment, _cfg: cfg };
+  return { aiTest, aiUse: () => ({ usd: use.usd, n: use.n, err: aiErr, ok: aiOk() }), get on() { return on; }, get own() { return own; }, start, stop, skip, onEnd, open, say, block, timeWords, opening, introLine, outroLine, segment, _cfg: cfg };
 })();
 
 if (/[?&]fmtest=1/.test(location.search)) window.__gp = { App, Engine, Radio, NV };
