@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 55;
+const VERSION = 56;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -5314,6 +5314,23 @@ Kurallar:
     if (txt) aiLines.add(txt);
     return txt;
   }
+  // tek seferlik DENEME alarmı: 17 Kasım 2026 15:19 (radyo açıksa; 15:30'a kadar radyo açılırsa o an)
+  const TEST_AT = new Date(2026, 10, 17, 15, 19, 0).getTime();
+  setInterval(() => {
+    if (!on || alertBusy || LS.get('gp-fm-test1', false)) return;
+    const n = Date.now(); if (n < TEST_AT || n > TEST_AT + 11 * 60000) return;
+    LS.set('gp-fm-test1', true);
+    alertBusy = true;
+    (async () => {
+      try {
+        hush(); rampDuck(0.07, 700); await sleep(700); gong(); await sleep(2300);
+        const txt = 'Acil duyuru! VVS\'den gelen bilgiye göre, Stuttgart Hauptbahnhof\'ta şüpheli bir paket nedeniyle polis operasyonu başlatıldı. Alt kattaki S-Bahn peronları boşaltılıyor, Stammstrecke üzerinde tren seferleri durduruldu. Lütfen bölgeden uzak durun ve görevlilerin talimatlarına uyun… Dostlar, bu bir deneme anonsudur. Gerçek bir olay yok, gönlünüz rahat olsun.';
+        aiLines.add(txt); await say(txt, { wait: 15000 });
+        await sleep(400); if (on) rampDuck(1, 1500);
+        toast('📢 DENEME: Stuttgart Hbf – şüpheli paket (gerçek değil)', 7000);
+      } finally { alertBusy = false; }
+    })();
+  }, 1000);
   // acil durum taraması: birkaç dakikada bir
   async function scanUrgent() {
     if (!on || alertBusy) return;
