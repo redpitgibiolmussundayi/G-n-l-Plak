@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 51;
+const VERSION = 52;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -4738,7 +4738,7 @@ onmessage=async e=>{const m=e.data;try{
    Jingle, parazit, fon müziği ve saat sinyali uygulamanın içinde üretilir (dosya yok, internet yok, para yok). */
 const Radio = (() => {
   const FREQ = 98.7;
-  const cfg = Object.assign({ talk: 1, oldRadio: false, voice: '', rate: 1, intro: true }, LS.get('gp-radio', {}));
+  const cfg = Object.assign({ talk: 1, oldRadio: false, voice: '', rate: 1, intro: true, ai: true, aiLimit: 2 }, LS.get('gp-radio', {}));
   const saveCfg = () => LS.set('gp-radio', cfg);
   let on = false, own = false, ready = false;
   let recent = LS.get('gp-radio-recent', []);
@@ -5100,6 +5100,83 @@ const Radio = (() => {
   }
   function remember(id) { recent.push(id); recent = recent.slice(-60); LS.set('gp-radio-recent', recent); }
 
+  /* ---------------------------------------------------------------- Claude spiker
+     Her araya girişte Claude, Selim Ağabey olarak o ana özel konuşmayı yazar (şarkı, sanatçı, saat, hava, dinleme geçmişi).
+     Anahtar Gönül Dostu'nunkiyle aynı (telefonda saklı). Aylık harcama sınırı var; aşılırsa, internet yoksa
+     ya da cevap geç kalırsa hazır cümlelerle devam eder, radyo hiç susmaz. */
+  const AIM = 'claude-haiku-5-5', PRICE = { in: 1 / 1e6, out: 5 / 1e6 }; // tahmini $/token
+  const mon = () => new Date().toISOString().slice(0, 7);
+  let use = LS.get('gp-fm-ai', { m: mon(), usd: 0, n: 0 });
+  if (use.m !== mon()) use = { m: mon(), usd: 0, n: 0 };
+  let aiPause = 0, aiErr = '', aiSaid = LS.get('gp-fm-said', []);
+  const aiOk = () => cfg.ai !== false && !!AI.key && Date.now() > aiPause && use.usd * 0.95 < (cfg.aiLimit || 2) && navigator.onLine !== false;
+  const SYS = `Sen "Gönül FM 98,7"nin gece-gündüz mikrofon başındaki spikeri Selim Ağabey'sin. Yaşın elliyi geçmiş, seksenlerin başında Stuttgart'a gelmişsin, yıllarca Bad Cannstatt'ta bir kahvehanenin üstündeki küçük stüdyodan yayın yapmışsın. Arabeski, gurbeti, kaset devrini, Almanya'daki Türklerin hayatını çok iyi bilirsin. Sesin sıcak, biraz buğulu; dinleyicine "dostlar", "sevgili dinleyiciler", "güzel insanlar" diye seslenirsin. Ağlak değilsin; hüzünle espriyi karıştırırsın, arada kendinle dalga geçersin, çay demlemekten, stüdyonun eski mikrofonundan, Neckar kıyısından bahsedersin. Klişe cümleleri tekrar etmezsin, her araya girişin farklı olur.
+
+Kurallar:
+- Türkçe yaz; bu metin sesli okunacak. Sayıları yazıyla yaz (yirmi üç, dört derece). Kısaltma, emoji, parantez, tırnak kullanma.
+- Doğal konuşma ritmi: kısa cümleler; duraklama için "…", coşku için "!" kullan. Konuşur gibi yaz ("ya", "bakın", "hani", "ah be").
+- Şarkılar ve sanatçılar hakkında emin olmadığın bilgiyi (yıl, albüm, film, hikâye) UYDURMA. Emin değilsen bilgi verme; şarkının duygusundan, sözlerinin anlattığı dertten, dinleyicinin o anki hâlinden bahset. Çok bilinen lakapları kullanabilirsin (Müslüm Baba, Ferdi Baba, Orhan Baba, İmparator, Acıların Kadını).
+- Dinleyicinin adını verilirse çok seyrek kullan.
+- Sadece istenen alanları içeren tek bir JSON nesnesi döndür, başka hiçbir şey yazma.`;
+  function histOf(s) {
+    const h = LS.get('gp-hist', []), now = Date.now(); let tot = 0, wk = 0, lastT = 0;
+    for (const x of h) if (x.id === s.id) { tot++; if (now - x.t < 7 * 864e5) wk++; lastT = Math.max(lastT, x.t); }
+    if (!tot) return 'dinleyici bu şarkıyı bu uygulamada daha önce hiç dinlememiş';
+    const d = Math.floor((now - lastT) / 864e5);
+    return `toplam ${tot} kez dinlenmiş, son bir haftada ${wk} kez, en son ${d === 0 ? 'bugün' : d === 1 ? 'dün' : d + ' gün önce'}`;
+  }
+  const sDesc = s => `"${title(s)}"${s.artist ? ' — ' + s.artist : ''}`;
+  function ctxText() {
+    const d = new Date(), b = block(d), w = weather();
+    return `Şu an: ${DAYS[d.getDay()]}, ${timeWords(d).toLowerCase()} (${d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}). Kuşak: ${b.n}. ${w ? 'Hava: ' + w : 'Hava bilgisi yok.'}${App.userName ? ` Dinleyicinin adı: ${App.userName} (Hemmingen'de oturuyor, Stuttgart'ı çok seviyor).` : ''}`;
+  }
+  async function claude(prompt, maxT = 420) {
+    if (!aiOk()) return null;
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 10000);
+    try {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', signal: ctl.signal,
+        headers: { 'content-type': 'application/json', 'x-api-key': AI.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model: AIM, max_tokens: maxT, temperature: 1, system: SYS, messages: [{ role: 'user', content: prompt }, { role: 'assistant', content: '{' }] })
+      });
+      if (!r.ok) {
+        let m = ''; try { m = ((await r.json()).error || {}).message || ''; } catch (e) {}
+        aiErr = r.status === 401 ? 'Claude anahtarı geçersiz' : /credit|balance|billing/i.test(m) ? 'Claude hesabında kredi kalmamış' : 'Claude şu an cevap vermiyor (' + r.status + ')';
+        aiPause = Date.now() + (r.status === 401 || /credit|balance|billing/i.test(m) ? 30 : 2) * 60000;
+        Engine.log('Claude spiker: ' + aiErr); return null;
+      }
+      const j = await r.json();
+      if (j.usage) { use.usd += (j.usage.input_tokens || 0) * PRICE.in + (j.usage.output_tokens || 0) * PRICE.out; use.n++; LS.set('gp-fm-ai', use); }
+      const txt = '{' + (j.content || []).map(c => c.text || '').join('');
+      const o = JSON.parse(txt.slice(0, txt.lastIndexOf('}') + 1));
+      aiErr = '';
+      const lines = Object.values(o).filter(v => typeof v === 'string' && v.trim());
+      aiSaid = aiSaid.concat(lines.map(x => x.slice(0, 140))).slice(-10); LS.set('gp-fm-said', aiSaid);
+      for (const k in o) if (typeof o[k] === 'string') o[k] = o[k].replace(/[*_#"“”()]/g, '').replace(/\s+/g, ' ').trim() || null;
+      return o;
+    } catch (e) { if (e.name !== 'AbortError') Engine.log('Claude spiker: ' + e.message); return null; }
+    finally { clearTimeout(to); }
+  }
+  const avoid = () => aiSaid.length ? `\nSon söylediklerin (bunları ve benzerlerini tekrar etme):\n- ${aiSaid.slice(-6).join('\n- ')}` : '';
+  // şarkılar arası konuşma
+  function aiBreak(pl) {
+    const want = [], spec = [];
+    if (pl.outroTail || pl.outroBreak) { want.push('outro'); spec.push(`"outro": biten şarkıyı ${pl.brk ? 'bitince' : 'son saniyelerinde müziğin üstünde'} kapatan 1-2 cümle (şarkının adı ve sanatçısı geçsin)`); }
+    if (pl.seg) { want.push('seg'); spec.push('"seg": 1-3 cümlelik kısa sohbet: o anki saat, hava, gün, gurbet, hayat, Stuttgart ya da sıradaki şarkıya hazırlık; her seferinde başka bir konu seç'); }
+    if (pl.intro) { want.push('intro'); spec.push(`"intro": sıradaki şarkıyı sunan ${pl.brk ? '1-3' : 'en fazla 2 kısa'} cümle; ${pl.brk ? '' : 'şarkının girişinin üstünde okunacak, 20 kelimeyi geçme; '}sanatçı ve şarkı adıyla bitsin`); }
+    if (!want.length) return Promise.resolve(null);
+    const p = `${ctxText()}\nBiten şarkı: ${cur ? sDesc(cur) : 'yok'}.\nSıradaki şarkı: ${sDesc(pl.s)} (${histOf(pl.s)}).${avoid()}\n\nŞu alanlarla JSON yaz:\n${spec.join('\n')}`;
+    return claude(p);
+  }
+  function aiOpening(first) {
+    const p = `${ctxText()}\nRadyo şimdi açıldı, yayına giriyorsun.\nİlk çalacağın şarkı: ${sDesc(first)} (${histOf(first)}).${avoid()}\n\nŞu alanlarla JSON yaz:\n"open": 3-5 cümlelik açılış: selam, Gönül FM doksan sekiz nokta yedi, kuşağın adı, saat ve varsa hava, kısa bir sohbet\n"intro": ilk şarkıyı sunan 1-2 cümle, sanatçı ve şarkı adıyla bitsin`;
+    return claude(p, 500);
+  }
+  function aiDed(d, s) {
+    const p = `${ctxText()}\nBir dinleyiciden ithaf geldi. Kimden: ${d.from || 'isim vermemiş'}. Kime: ${d.to || 'belirtmemiş'}. Mesajı: ${d.msg || 'yok'}.\nİthaf edilen şarkı: ${sDesc(s)}.${avoid()}\n\nŞu alanla JSON yaz:\n"ded": ithafı içten bir şekilde okuyan 2-4 cümle; mesajı anlamını bozmadan aynen aktar, kime gittiğini söyle, şarkıyı sanatçı ve adıyla sunarak bitir`;
+    return claude(p);
+  }
+
   /* ---------------------------------------------------------------- yayın akışı
      Her şarkı başlarken bir sonraki geçiş planlanır ve spikerin cümleleri önceden sese çevrilir
      (telefon kilitliyken de hazır olsun). Geçiş iki türlü: şarkının girişinin üstüne konuşma ya da
@@ -5113,7 +5190,15 @@ const Radio = (() => {
     const brk = chance(pBrk), outro = cur && chance(brk ? 0.85 : pOut) ? outroLine(cur) : null;
     const pl = { s, brk, jingle: songN % pJin === 0, outroTail: brk ? null : outro, outroBreak: brk ? outro : null,
       seg: brk || songN % pSeg === 0 ? segment() : null, intro: brk || chance(pIn) ? introLine(s) : null };
-    [pl.outroTail, pl.outroBreak, pl.seg, pl.intro].forEach(prep);
+    if (aiOk()) {
+      pl.aiP = aiBreak(pl).then(o => {
+        if (!o) { [pl.outroTail, pl.outroBreak, pl.seg, pl.intro].forEach(prep); return; }
+        if (o.outro) { if (pl.outroTail) pl.outroTail = o.outro; if (pl.outroBreak) pl.outroBreak = o.outro; }
+        if (o.seg && pl.seg) pl.seg = o.seg;
+        if (o.intro && pl.intro) pl.intro = o.intro;
+        pl.ai = true; [pl.outroTail, pl.outroBreak, pl.seg, pl.intro].forEach(prep);
+      });
+    } else [pl.outroTail, pl.outroBreak, pl.seg, pl.intro].forEach(prep);
     return pl;
   }
   async function startSong(s, talk, my) {
@@ -5131,8 +5216,9 @@ const Radio = (() => {
     const my = ++flowTok;
     let pl = plan || makePlan(); plan = null;
     if (!pl) { toast('Radyo için arşivinde şarkı olmalı'); stop(); return; }
-    let s = pl.s, intro = pl.intro, brk = pl.brk;
-    if (dedQ.length) { const d = dedQ.shift(); LS.set('gp-radio-ded', dedQ); s = (d.id && App.byId(d.id)) || s; intro = dedLine(d, s); brk = true; }
+    if (pl.aiP && !skipping) { bedOn(); await Promise.race([pl.aiP, sleep(3500)]); if (my !== flowTok || !on) return; }
+    let s = pl.s, intro = pl.intro, brk = pl.brk, dedP = null;
+    if (dedQ.length) { const d = dedQ.shift(); LS.set('gp-radio-ded', dedQ); s = (d.id && App.byId(d.id)) || s; intro = dedLine(d, s); brk = true; dedP = aiOk() ? aiDed(d, s) : null; }
     const b = block(), changed = lastBlock && b.id !== lastBlock; lastBlock = b.id;
     if (skipping) { sweep(); await sleep(500); }
     else if (changed) { bedOn(); await jingle(false); if (my !== flowTok) return; await say(blockChange(b)); }
@@ -5143,6 +5229,7 @@ const Radio = (() => {
       bedOn();
       if (pl.outroBreak) { await say(pl.outroBreak); if (my !== flowTok || !on) return; await sleep(250); }
       if (pl.seg) { await say(pl.seg); if (my !== flowTok || !on) return; await sleep(250); }
+      if (dedP) { const o = await Promise.race([dedP, sleep(6000)]); if (o && o.ded) intro = o.ded; if (my !== flowTok || !on) return; }
       if (intro) { await say(intro); if (my !== flowTok || !on) return; }
       await startSong(s, null, my);
     } else {
@@ -5190,12 +5277,15 @@ const Radio = (() => {
     if (cfg.oldRadio) { prevRadioFx = Engine.fx.radioOn; Engine.setFx({ radioOn: true }, true); hissOn(); }
     clearInterval(tickT); tickT = setInterval(tick, 250);
     open(); paint(); needle(true);
-    const op = prep(opening()); plan = { s: pick(), brk: false, jingle: false }; plan.intro = prep(introLine(plan.s));
+    let op = opening(); plan = { s: pick(), brk: false, jingle: false }; plan.intro = introLine(plan.s);
+    const aiO = aiOk() ? aiOpening(plan.s) : null;
+    if (aiO) { const pl0 = plan; aiO.then(o => { if (o && o.open) op = o.open; if (o && o.intro) pl0.intro = o.intro; prep(op); prep(pl0.intro); }); } else { prep(op); prep(plan.intro); }
     tuneStatic(2.1); await sleep(2100); if (!on) return;
     needle(false);
     const my = ++flowTok;
     bedOn(); jingle(false);
     await sleep(2600); if (!on || my !== flowTok) return;
+    if (aiO) { await Promise.race([aiO, sleep(4000)]); if (!on || my !== flowTok) return; }
     await say(op); if (!on || my !== flowTok) return;
     const pl = plan; plan = null;
     let s = pl.s, intro = pl.intro;
@@ -5271,13 +5361,23 @@ const Radio = (() => {
       };
       let nvSel = NV.voice;
       const opts = voices.length ? voices.map(v => `<option value="${esc(v.voiceURI)}" ${voice() === v ? 'selected' : ''}>${esc(v.name)}${good(v) ? ' ★' : ''}</option>`).join('') : '<option value="">Türkçe ses bulunamadı</option>';
-      p.innerHTML = `<h4>Radyo ayarları</h4><div id="fmNvBox">${nvBox()}</div>
+      const u = Radio.aiUse();
+      const aiBox = AI.key ? `<div class="fm-nv"><b>🧠 Claude spiker (Selim Ağabey)</b>
+          <div class="fm-hint">Her araya girişi Claude o ana özel yazar: şarkı, sanatçı, saat, hava, senin dinleme geçmişin. Gönül Dostu'nun anahtarını kullanır.</div>
+          <div class="seg" id="fmAi"><button data-v="1" aria-pressed="${cfg.ai !== false}">Açık</button><button data-v="0" aria-pressed="${cfg.ai === false}">Kapalı (hazır cümleler)</button></div>
+          <div class="fm-f"><span>Aylık sınır</span><div class="seg" id="fmAiLim">${[1, 2, 5].map(v => `<button data-v="${v}" aria-pressed="${(cfg.aiLimit || 2) === v}">${v} €</button>`).join('')}</div></div>
+          <div class="fm-hint">Bu ay: ${u.n} konuşma, yaklaşık ${(u.usd).toFixed(2).replace('.', ',')} €${u.usd * 0.95 >= (cfg.aiLimit || 2) ? ' · sınıra ulaşıldı, ay sonuna kadar hazır cümleler' : ''}</div>
+          ${u.err ? `<div class="fm-err">${esc(u.err)}</div>` : ''}</div>`
+        : `<div class="fm-nv"><b>🧠 Claude spiker</b><div class="fm-hint">Spikerin her seferinde farklı ve o ana özel konuşması için Ben sekmesinde Gönül Dostu'na Claude anahtarını gir.</div></div>`;
+      p.innerHTML = `<h4>Radyo ayarları</h4>${aiBox}<div id="fmNvBox">${nvBox()}</div>
         <label class="fm-f" id="fmIph" ${NV.use ? 'hidden' : ''}><span>iPhone sesi</span><select id="fmVoice">${opts}</select></label>
         <label class="fm-f"><span>Konuşma hızı</span><input type="range" id="fmRate" min="0.8" max="1.2" step="0.05" value="${cfg.rate}"></label>
         <div class="fm-f"><span>Spiker ne kadar konuşsun?</span><div class="seg" id="fmTalk"><button data-v="0">Az</button><button data-v="1">Normal</button><button data-v="2">Çok</button></div></div>
         <label class="fm-tg"><input type="checkbox" id="fmOld" ${cfg.oldRadio ? 'checked' : ''}><span>Eski radyo tınısı (cızırtı, dar ses)</span></label>
         <button class="btn" id="fmTest">Spikeri dene</button>`;
       $('fmVoice').onchange = e => { cfg.voice = e.target.value; saveCfg(); };
+      p.querySelectorAll('#fmAi button').forEach(b => b.onclick = () => { cfg.ai = b.dataset.v === '1'; saveCfg(); p.querySelectorAll('#fmAi button').forEach(x => x.setAttribute('aria-pressed', x === b)); });
+      p.querySelectorAll('#fmAiLim button').forEach(b => b.onclick = () => { cfg.aiLimit = +b.dataset.v; saveCfg(); p.querySelectorAll('#fmAiLim button').forEach(x => x.setAttribute('aria-pressed', x === b)); });
       const wireNv = () => {
         const g = $('fmNvGet'); if (g) g.onclick = () => { NV.install(nvSel).then(() => toast('Doğal spiker sesi hazır'), e => toast('İndirilemedi: ' + e.message)); };
         $('fmNvBox').querySelectorAll('#fmNvV button').forEach(b => b.onclick = () => {
@@ -5336,7 +5436,7 @@ const Radio = (() => {
   }
 
   setTimeout(build, 0);
-  return { get on() { return on; }, get own() { return own; }, start, stop, skip, onEnd, open, say, block, timeWords, opening, introLine, outroLine, segment, _cfg: cfg };
+  return { aiUse: () => ({ usd: use.usd, n: use.n, err: aiErr, ok: aiOk() }), get on() { return on; }, get own() { return own; }, start, stop, skip, onEnd, open, say, block, timeWords, opening, introLine, outroLine, segment, _cfg: cfg };
 })();
 
 if (/[?&]fmtest=1/.test(location.search)) window.__gp = { App, Engine, Radio, NV };
