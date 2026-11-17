@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 49;
+const VERSION = 50;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -771,7 +771,15 @@ const Engine = (() => {
   }
   // radyo sesleri (jingle, parazit, saat sinyali) için ayrı çıkış
   let auxN = null;
-  function aux() { unlockCtx(); if (!ctx) return null; if (!auxN || auxN.context !== ctx) { auxN = ctx.createGain(); auxN.connect(ctx.destination); } return auxN; }
+  // kilit ekranında da duyulsun: köprü (kilit ekranı oynatıcısı) çalıyorsa ondan, değilse doğrudan hoparlöre
+  let auxTo = null;
+  function aux() {
+    unlockCtx(); if (!ctx) return null;
+    if (!auxN || auxN.context !== ctx) { auxN = ctx.createGain(); auxTo = null; }
+    const to = bridge && bridgeOn && el && el.srcObject === bridge.stream && !el.paused ? bridge : ctx.destination;
+    if (to !== auxTo) { try { auxN.disconnect(); } catch (e) {} auxN.connect(to); auxTo = to; }
+    return auxN;
+  }
   function setDuck(v) { duck = v; fadeTick(); if (mode === 'render' && el) { try { el.volume = Math.max(0, Math.min(1, v)); } catch (e) {} } }
   function refresh() { if (graph) graph.apply(fx, true); if (mode === 'render' && loadedId && (playing || seg)) { clearTimeout(dirtyT); dirtyT = setTimeout(() => prepare(curPos(), playing), 380); } }
   function setMode() {}
@@ -4535,6 +4543,142 @@ const Resume = (() => {
   if (Engine.mode === 'live') { if ('requestIdleCallback' in window) requestIdleCallback(() => stretchLib().catch(() => {})); else setTimeout(() => stretchLib().catch(() => {}), 1500); }
 })();
 
+/* Gönül Plak · Doğal spiker sesi (yapay zekâ, telefonda çalışır, ücretsiz)
+   Piper sinir ağı ses modeli (Türkçe erkek sesleri) telefona bir kez indirilir, sonra internetsiz çalışır.
+   Metin → ses dönüşümü ayrı bir işçide (Web Worker) yapılır, uygulama donmaz. Üretilen ses Web Audio ile çalar:
+   telefon kilitliyken de duyulur. */
+const NV = (() => {
+  const VOICES = {
+    fahrettin: { n: 'Fahrettin', d: 'Tok erkek sesi', p: 'tr/tr_TR/fahrettin/medium/tr_TR-fahrettin-medium' },
+    fettah: { n: 'Fettah', d: 'Genç erkek sesi', p: 'tr/tr_TR/fettah/medium/tr_TR-fettah-medium' },
+    dfki: { n: 'Dfki', d: 'Sakin erkek sesi', p: 'tr/tr_TR/dfki/medium/tr_TR-dfki-medium' }
+  };
+  const tb = (location.search.match(/[?&]ttsbase=([^&]+)/) || [])[1];
+  const BASE = tb ? { ort: tb + 'ort/', ph: tb + 'ph/piper_phonemize', hf: tb } : {
+    ort: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/',
+    ph: 'https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/piper_phonemize',
+    hf: 'https://huggingface.co/rhasspy/piper-voices/resolve/main/'
+  };
+  const CACHE = 'gp-voice-1';
+  let st = LS.get('gp-nv', { voice: 'fahrettin', installed: false, use: true });
+  const save = () => LS.set('gp-nv', st);
+  let state = st.installed ? 'idle' : 'none', prog = 0, err = '', worker = null, readyP = null, seq = 0;
+  const wait = new Map(), cache = new Map(), listeners = new Set();
+  const emit = () => listeners.forEach(f => { try { f(); } catch (e) {} });
+  const files = v => [
+    { u: BASE.ort + 'ort.wasm.min.js', t: 'text/javascript', w: 0.15 },
+    { u: BASE.ort + 'ort-wasm-simd.wasm', t: 'application/wasm', w: 10.6 },
+    { u: BASE.ph + '.js', t: 'text/javascript', w: 0.12 },
+    { u: BASE.ph + '.wasm', t: 'application/wasm', w: 0.64 },
+    { u: BASE.ph + '.data', t: 'application/octet-stream', w: 18 },
+    { u: BASE.hf + VOICES[v].p + '.onnx.json', t: 'application/json', w: 0.01 },
+    { u: BASE.hf + VOICES[v].p + '.onnx', t: 'application/octet-stream', w: 63 }
+  ];
+  // önbellekten al, yoksa indir ve sakla (bir daha internet gerekmez)
+  async function getC(f, onBytes) {
+    const c = await caches.open(CACHE);
+    const hit = await c.match(f.u);
+    if (hit) { const b = await hit.blob(); onBytes && onBytes(f.w * 1e6); return new Blob([b], { type: f.t }); }
+    const r = await fetch(f.u, { mode: 'cors' });
+    if (!r.ok) throw new Error('İndirilemedi (' + r.status + ')');
+    const total = +r.headers.get('content-length') || f.w * 1e6, parts = []; let got = 0;
+    if (r.body && r.body.getReader) {
+      const rd = r.body.getReader();
+      for (;;) { const { done, value } = await rd.read(); if (done) break; parts.push(value); got += value.length; onBytes && onBytes(Math.min(1, got / total) * f.w * 1e6); }
+    } else parts.push(new Uint8Array(await r.arrayBuffer()));
+    const b = new Blob(parts, { type: f.t });
+    try { await c.put(f.u, new Response(b, { headers: { 'content-type': f.t } })); } catch (e) { throw new Error('Telefonda yer yok'); }
+    return b;
+  }
+  const WORKER = `
+let O=null,ph=null,sess=null,cfg=null,lines=[];
+function phonemize(text){ lines=[]; ph.callMain(['-l',cfg.espeak.voice,'--input',JSON.stringify([{text}]),'--espeak_data','/espeak-ng-data']); return lines.map(l=>{try{return JSON.parse(l).phoneme_ids}catch(e){return null}}).filter(x=>x&&x.length); }
+onmessage=async e=>{const m=e.data;try{
+ if(m.type==='init'){
+  importScripts(m.ort); O=self.ort; O.env.wasm.numThreads=1; O.env.wasm.proxy=false; O.env.wasm.wasmPaths=m.wasmPaths;
+  importScripts(m.phJs);
+  ph=await createPiperPhonemize({noInitialRun:true,print:d=>lines.push(d),printErr:()=>{},locateFile:u=>u.endsWith('.wasm')?m.phWasm:u.endsWith('.data')?m.phData:u});
+  cfg=m.cfg; sess=await O.InferenceSession.create(m.model,{executionProviders:['wasm'],graphOptimizationLevel:'all'});
+  postMessage({type:'ready'});
+ } else if(m.type==='tts'){
+  const sr=cfg.audio.sample_rate, inf=cfg.inference||{}, out=[], gap=new Float32Array(Math.round(sr*0.18));
+  for(const ids of phonemize(m.text)){
+   const feeds={input:new O.Tensor('int64',BigInt64Array.from(ids.map(BigInt)),[1,ids.length]),input_lengths:new O.Tensor('int64',BigInt64Array.from([BigInt(ids.length)]),[1]),scales:new O.Tensor('float32',Float32Array.from([inf.noise_scale??0.667,(inf.length_scale??1)*m.speed,inf.noise_w??0.8]),[3])};
+   if(cfg.speaker_id_map&&Object.keys(cfg.speaker_id_map).length) feeds.sid=new O.Tensor('int64',BigInt64Array.from([0n]),[1]);
+   const r=await sess.run(feeds); out.push(r.output.data,gap);
+  }
+  let n=0; out.forEach(a=>n+=a.length); const pcm=new Float32Array(n); let o=0; out.forEach(a=>{pcm.set(a,o);o+=a.length;});
+  postMessage({type:'audio',id:m.id,pcm,sr},[pcm.buffer]);
+ }}catch(err){postMessage({type:'error',id:m.id,msg:String(err&&err.message||err)});}};`;
+  function boot() {
+    if (readyP) return readyP;
+    if (!st.installed) return Promise.reject(new Error('kurulu değil'));
+    state = 'loading'; emit();
+    readyP = (async () => {
+      const fs = files(st.voice), bl = [];
+      for (const f of fs) bl.push(await getC(f));
+      const u = b => URL.createObjectURL(b);
+      const cfgJ = JSON.parse(await bl[5].text());
+      const model = await bl[6].arrayBuffer();
+      worker = new Worker(u(new Blob([WORKER], { type: 'text/javascript' })));
+      await new Promise((res, rej) => {
+        const to = setTimeout(() => rej(new Error('Ses motoru açılamadı')), 60000);
+        worker.onmessage = e => {
+          const m = e.data;
+          if (m.type === 'ready') { clearTimeout(to); res(); return; }
+          const w = wait.get(m.id); if (!w) { if (m.type === 'error' && m.id == null) { clearTimeout(to); rej(new Error(m.msg)); } return; }
+          wait.delete(m.id);
+          if (m.type === 'audio') w.res(m); else w.rej(new Error(m.msg));
+        };
+        worker.onerror = e => { clearTimeout(to); rej(new Error(e.message || 'işçi hatası')); };
+        worker.postMessage({ type: 'init', ort: u(bl[0]), wasmPaths: { 'ort-wasm-simd.wasm': u(bl[1]), 'ort-wasm.wasm': BASE.ort + 'ort-wasm.wasm' }, phJs: u(bl[2]), phWasm: u(bl[3]), phData: u(bl[4]), cfg: cfgJ, model }, [model]);
+      });
+      state = 'ready'; emit(); Engine.log('Doğal spiker sesi hazır (' + VOICES[st.voice].n + ')');
+    })();
+    readyP.catch(e => { state = 'error'; err = e.message; readyP = null; try { worker && worker.terminate(); } catch (x) {} worker = null; emit(); Engine.log('Doğal ses: ' + e.message); });
+    return readyP;
+  }
+  async function install(v) {
+    if (state === 'download') return;
+    v = VOICES[v] ? v : 'fahrettin';
+    if (st.installed && st.voice !== v) { await drop(true); }
+    state = 'download'; prog = 0; err = ''; emit();
+    try {
+      const fs = files(v), tot = fs.reduce((a, f) => a + f.w, 0) * 1e6, done = new Array(fs.length).fill(0);
+      for (let i = 0; i < fs.length; i++) await getC(fs[i], b => { done[i] = b; prog = done.reduce((a, x) => a + x, 0) / tot; emit(); });
+      st = { voice: v, installed: true, use: true }; save(); state = 'idle'; prog = 1; emit();
+      await boot();
+    } catch (e) { state = 'error'; err = e.message; emit(); throw e; }
+  }
+  async function drop(keepRuntime) {
+    try { worker && worker.terminate(); } catch (e) {} worker = null; readyP = null; cache.clear();
+    try { const c = await caches.open(CACHE); for (const k of await c.keys()) if (!keepRuntime || /\.onnx/.test(k.url)) await c.delete(k); } catch (e) {}
+    st = Object.assign(st, { installed: false }); save(); state = 'none'; emit();
+  }
+  // metni sese çevir (aynı metin bir kez üretilir)
+  function get(text) {
+    const key = st.voice + '|' + (Radio._cfg.rate || 1) + '|' + text;
+    if (cache.has(key)) return cache.get(key);
+    const p = boot().then(() => new Promise((res, rej) => {
+      const id = ++seq; wait.set(id, { res, rej });
+      worker.postMessage({ type: 'tts', id, text: clean(text), speed: 1 / (Radio._cfg.rate || 1) });
+    })).then(m => {
+      const c = Engine.ctx || (Engine.unlock(), Engine.ctx);
+      const b = c.createBuffer(1, m.pcm.length, m.sr); b.copyToChannel(m.pcm, 0); return b;
+    });
+    p.catch(() => cache.delete(key));
+    cache.set(key, p);
+    if (cache.size > 40) cache.delete(cache.keys().next().value);
+    return p;
+  }
+  const clean = t => String(t).replace(/[“”"«»]/g, '').replace(/\s+/g, ' ').trim();
+  return {
+    VOICES, get, boot, install, drop, on(f) { listeners.add(f); return () => listeners.delete(f); },
+    get state() { return state; }, get prog() { return prog; }, get err() { return err; }, get voice() { return st.voice; },
+    get installed() { return !!st.installed; }, get use() { return st.installed && st.use !== false; }, setUse(v) { st.use = v; save(); emit(); }
+  };
+})();
+
 /* Gönül Plak · Gönül FM 98.7 — kendi arabesk radyon
    Spiker (iPhone'un Türkçe sesi) şarkı girişlerinde müziğin üstüne konuşur, müzik o sırada kısılır.
    Saat başı sinyali, saate göre kuşaklar, Stuttgart'ın gerçek havası, jingle, ithaf ve istekler.
@@ -4698,10 +4842,41 @@ const Radio = (() => {
   }
   let sayTok = 0;
   // cümle cümle okur (iPhone uzun metinde takılıyor); bitince çözülür
+  // spiker: önce doğal ses (yapay zekâ), olmazsa iPhone sesi
+  let vSrc = null;
+  function playVoice(buf, my) {
+    const c = C(), o = OUT(); if (!c || !o) return Promise.resolve();
+    return new Promise(res => {
+      const s = c.createBufferSource(); s.buffer = buf;
+      // radyo spikeri tınısı: alt kesim, mikrofon parlaklığı, sıkıştırma
+      const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 95;
+      const lo = c.createBiquadFilter(); lo.type = 'lowshelf'; lo.frequency.value = 180; lo.gain.value = 3;
+      const pr = c.createBiquadFilter(); pr.type = 'peaking'; pr.frequency.value = 3200; pr.Q.value = 0.9; pr.gain.value = 3.5;
+      const cp = c.createDynamicsCompressor(); cp.threshold.value = -22; cp.ratio.value = 4; cp.attack.value = 0.004; cp.release.value = 0.18; cp.knee.value = 6;
+      const g = c.createGain(); g.gain.value = 1.45;
+      let tail = g;
+      if (cfg.oldRadio) { const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1500; bp.Q.value = 0.55; g.connect(bp); tail = bp; }
+      s.connect(hp).connect(lo).connect(pr).connect(cp).connect(g); tail.connect(o);
+      vSrc = s; s.onended = () => { if (vSrc === s) vSrc = null; res(); };
+      s.start();
+    });
+  }
   function say(text, opt = {}) {
     const my = ++sayTok;
     sub(text);
     if (!text) return Promise.resolve();
+    if (NV.use) {
+      lamp(true);
+      const fin = () => { if (my === sayTok) { lamp(false); setTimeout(() => { if (my === sayTok) sub(''); }, 1500); } };
+      return Promise.race([NV.get(text), sleep(opt.wait || 12000).then(() => null)]).then(buf => {
+        if (my !== sayTok || !on) return;
+        if (buf) return playVoice(buf, my).then(fin);
+        fin(); return sayIphone(text, my, opt);
+      }, () => { fin(); if (my === sayTok && on) return sayIphone(text, my, opt); });
+    }
+    return sayIphone(text, my, opt);
+  }
+  function sayIphone(text, my, opt = {}) {
     if (!TTS || document.hidden || !voices.length && !TTS.getVoices().length) return sleep(opt.silentMs != null ? opt.silentMs : Math.min(5000, 900 + text.length * 35)).then(() => { if (my === sayTok) sub(''); });
     if (!voices.length) loadVoices();
     const wasPl = Engine.playing;
@@ -4724,7 +4899,7 @@ const Radio = (() => {
       next();
     });
   }
-  function hush() { sayTok++; try { TTS && TTS.cancel(); } catch (e) {} lamp(false); }
+  function hush() { sayTok++; try { TTS && TTS.cancel(); } catch (e) {} if (vSrc) { try { vSrc.stop(); } catch (e) {} vSrc = null; } lamp(false); }
 
   /* ---------------------------------------------------------------- ses: üretilen radyo sesleri */
   const C = () => Engine.ctx;
@@ -4871,40 +5046,59 @@ const Radio = (() => {
   }
   function remember(id) { recent.push(id); recent = recent.slice(-60); LS.set('gp-radio-recent', recent); }
 
-  /* ---------------------------------------------------------------- yayın akışı */
-  const P = () => [[0.4, 0.25, 5, 4], [0.65, 0.45, 3, 3], [0.88, 0.7, 2, 2]][cfg.talk] || [0.65, 0.45, 3, 3]; // [giriş, kapanış, ara konuşma her N, jingle her N]
-  let flowTok = 0;
-  async function playNext(first) {
-    const my = ++flowTok;
-    let ded = null, s = null;
-    if (dedQ.length) { ded = dedQ.shift(); LS.set('gp-radio-ded', dedQ); s = (ded.id && App.byId(ded.id)) || pick(); }
-    else s = pick();
-    if (!s) { toast('Radyo için arşivinde şarkı olmalı'); stop(); return; }
-    const [pIn, , pSeg, pJin] = P();
-    // şarkılar arası: jingle, kuşak değişimi, hava/saat, ithaf
-    if (!first) {
-      const b = block();
-      if (lastBlock && b.id !== lastBlock) { bedOn(); await jingle(false); if (my !== flowTok) return; await say(blockChange(b)); }
-      else if (songN % pJin === 0) { await jingle(true); }
-      else if (chance(0.35)) sweep();
-      lastBlock = b.id;
-      if (my !== flowTok || !on) return;
-      if (!ded && songN % pSeg === 0) { bedOn(); await say(segment()); }
-    }
-    if (my !== flowTok || !on) return;
+  /* ---------------------------------------------------------------- yayın akışı
+     Her şarkı başlarken bir sonraki geçiş planlanır ve spikerin cümleleri önceden sese çevrilir
+     (telefon kilitliyken de hazır olsun). Geçiş iki türlü: şarkının girişinin üstüne konuşma ya da
+     şarkılar arasında fon müziğiyle "ara" (kapanış + hava/saat/sohbet + sıradaki parça). */
+  const P = () => [[0.45, 0.3, 4, 4, 0.35], [0.7, 0.5, 2, 3, 0.5], [0.9, 0.75, 1, 2, 0.65]][cfg.talk] || [0.7, 0.5, 2, 3, 0.5]; // [giriş, kapanış, ara konuşma her N, jingle her N, ara olasılığı]
+  let flowTok = 0, plan = null;
+  const prep = t => { if (t && NV.use) NV.get(t).catch(() => {}); return t; };
+  function makePlan() {
+    const s = pick(); if (!s) return null;
+    const [pIn, pOut, pSeg, pJin, pBrk] = P();
+    const brk = chance(pBrk), outro = cur && chance(brk ? 0.85 : pOut) ? outroLine(cur) : null;
+    const pl = { s, brk, jingle: songN % pJin === 0, outroTail: brk ? null : outro, outroBreak: brk ? outro : null,
+      seg: brk || songN % pSeg === 0 ? segment() : null, intro: brk || chance(pIn) ? introLine(s) : null };
+    [pl.outroTail, pl.outroBreak, pl.seg, pl.intro].forEach(prep);
+    return pl;
+  }
+  async function startSong(s, talk, my) {
     cur = s; songN++; outroDone = false; remember(s.id); paint();
-    const talk = ded ? dedLine(ded, s) : (cfg.intro && (first || chance(pIn)) ? introLine(s) : null);
-    if (talk) Engine.setDuck(0.22);
+    if (talk) Engine.setDuck(0.2);
     own = true; const p = playSong(s.id); own = false;
     await p; bedOff(900);
     if (my !== flowTok || !on) { Engine.setDuck(1); return; }
+    plan = makePlan();
     if (talk) { await say(talk); if (my !== flowTok) return; rampDuck(1, 1400); }
     else rampDuck(1, 300);
     last = s; paint();
   }
+  async function transition(skipping) {
+    const my = ++flowTok;
+    let pl = plan || makePlan(); plan = null;
+    if (!pl) { toast('Radyo için arşivinde şarkı olmalı'); stop(); return; }
+    let s = pl.s, intro = pl.intro, brk = pl.brk;
+    if (dedQ.length) { const d = dedQ.shift(); LS.set('gp-radio-ded', dedQ); s = (d.id && App.byId(d.id)) || s; intro = dedLine(d, s); brk = true; }
+    const b = block(), changed = lastBlock && b.id !== lastBlock; lastBlock = b.id;
+    if (skipping) { sweep(); await sleep(500); }
+    else if (changed) { bedOn(); await jingle(false); if (my !== flowTok) return; await say(blockChange(b)); }
+    else if (pl.jingle) await jingle(true);
+    else if (chance(0.4)) sweep();
+    if (my !== flowTok || !on) return;
+    if (brk && !skipping) {
+      bedOn();
+      if (pl.outroBreak) { await say(pl.outroBreak); if (my !== flowTok || !on) return; await sleep(250); }
+      if (pl.seg) { await say(pl.seg); if (my !== flowTok || !on) return; await sleep(250); }
+      if (intro) { await say(intro); if (my !== flowTok || !on) return; }
+      await startSong(s, null, my);
+    } else {
+      if (pl.seg && !skipping) { bedOn(); await say(pl.seg); if (my !== flowTok || !on) return; }
+      await startSong(s, intro, my);
+    }
+  }
   function onEnd() {
     if (!on) return;
-    hush(); playNext(false);
+    hush(); transition(false);
   }
   // her çeyrek saniye: şarkı bitimine doğru kapanış anonsu, saat başı sinyali
   let tickT = 0;
@@ -4913,49 +5107,56 @@ const Radio = (() => {
     const d = new Date();
     if (Engine.playing && cur && Engine.loadedId === cur.id && Engine.duration > 40) {
       const rem = (Engine.duration - Engine.pos) / (Engine.fx.rate || 1);
-      if (!outroDone && rem < 10 && rem > 3) {
+      if (!outroDone && rem < 11 && rem > 3) {
         outroDone = true;
-        if (chance(P()[1])) { rampDuck(0.3, 1200); say(outroLine(cur)); }
+        if (plan && plan.outroTail) { rampDuck(0.28, 1200); say(plan.outroTail); }
       }
     }
-    // saat başı (59:54'te hazırlan)
-    if (Engine.playing && d.getMinutes() === 59 && d.getSeconds() >= 53 && d.getSeconds() < 56 && lastPipHour !== d.getHours()) {
+    // saat başı: 59:55'ten itibaren 5 kısa + 1 uzun bip, sonra saat anonsu
+    if (Engine.playing && d.getMinutes() === 59 && d.getSeconds() >= 50 && d.getSeconds() < 55 && lastPipHour !== d.getHours()) {
       lastPipHour = d.getHours();
-      const ms = (60 - d.getSeconds() - 5) * 1000 - d.getMilliseconds();
-      rampDuck(0.12, 900); pips(ms);
-      setTimeout(async () => { if (!on) return; const h = new Date(); await say(`Gönül FM. ${timeWords(h)}. ${block(h).n} devam ediyor.`); rampDuck(1, 1600); }, ms + 5600);
+      const top = new Date(d.getTime() + 60000); top.setSeconds(0, 0);
+      const txt = prep(`Gönül FM. ${timeWords(top)}. ${block(top).n} devam ediyor.`);
+      const ms = top - d - 5000;
+      setTimeout(() => { if (on) rampDuck(0.12, 900); }, Math.max(0, ms - 1000));
+      pips(ms);
+      setTimeout(async () => { if (!on) return; await say(txt); rampDuck(1, 1600); }, ms + 5600);
     }
-    if (document.getElementById('fmClock')) { const c = $('fmClock'); const s = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }); if (c.textContent !== s) c.textContent = s; }
+    const c = $('fmClock'); if (c) { const s = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }); if (c.textContent !== s) c.textContent = s; }
   }
   async function start() {
     if (on) { open(); return; }
     if (!playable().length) { toast('Radyo için önce arşivine şarkı ekle'); return; }
     Engine.unlock();
     // iPhone konuşmayı ancak dokunuşla açar: ilk sessiz cümle
-    if (TTS) { try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; u.lang = 'tr-TR'; TTS.speak(u); } catch (e) {} loadVoices(); }
-    on = true; songN = 0; last = null; lastBlock = block().id; lastPipHour = new Date().getMinutes() === 59 ? new Date().getHours() : -1;
+    if (TTS && !NV.use) { try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; u.lang = 'tr-TR'; TTS.speak(u); } catch (e) {} loadVoices(); }
+    on = true; songN = 0; last = null; cur = null; plan = null; lastBlock = block().id; lastPipHour = new Date().getMinutes() === 59 ? new Date().getHours() : -1;
     document.documentElement.classList.add('fm-on');
     if (Engine.playing) Engine.pause();
     if (cfg.oldRadio) { prevRadioFx = Engine.fx.radioOn; Engine.setFx({ radioOn: true }, true); hissOn(); }
     clearInterval(tickT); tickT = setInterval(tick, 250);
     open(); paint(); needle(true);
+    const op = prep(opening()); plan = { s: pick(), brk: false, jingle: false }; plan.intro = prep(introLine(plan.s));
     tuneStatic(2.1); await sleep(2100); if (!on) return;
     needle(false);
     const my = ++flowTok;
     bedOn(); jingle(false);
     await sleep(2600); if (!on || my !== flowTok) return;
-    await say(opening()); if (!on || my !== flowTok) return;
-    playNext(true);
+    await say(op); if (!on || my !== flowTok) return;
+    const pl = plan; plan = null;
+    let s = pl.s, intro = pl.intro;
+    if (dedQ.length) { const d = dedQ.shift(); LS.set('gp-radio-ded', dedQ); s = (d.id && App.byId(d.id)) || s; intro = dedLine(d, s); }
+    startSong(s, intro, my);
   }
   function stop(quiet) {
     if (!on) return;
-    on = false; flowTok++; hush(); bedOff(400); hissOff(); clearInterval(tickT); clearInterval(duckT); Engine.setDuck(1);
+    on = false; flowTok++; hush(); bedOff(400); hissOff(); clearInterval(tickT); clearInterval(duckT); Engine.setDuck(1); plan = null;
     if (prevRadioFx !== null) { Engine.setFx({ radioOn: prevRadioFx }, true); prevRadioFx = null; }
     document.documentElement.classList.remove('fm-on');
     if (!quiet && Engine.playing) Engine.pause();
     cur = null; paint(); if (!quiet) close();
   }
-  function skip() { if (!on) return; hush(); clearInterval(duckT); Engine.setDuck(1); sweep(); playNext(false); }
+  function skip() { if (!on) return; hush(); clearInterval(duckT); Engine.setDuck(1); transition(true); }
 
   /* ---------------------------------------------------------------- arayüz */
   let built = false;
@@ -4979,6 +5180,7 @@ const Radio = (() => {
       <div class="fm-prog"><span id="fmBlock"></span></div>
       <div class="fm-now"><div class="fm-cov" id="fmCov"></div><div><div class="fm-t" id="fmT">Frekans aranıyor…</div><div class="fm-a" id="fmA"></div></div></div>
       <div class="fm-sub" id="fmSub" aria-live="polite"></div>
+      <button class="fm-nvban" id="fmNvBan" hidden>🎙 Spiker robot gibi mi konuşuyor? <b>Doğal sesi indir</b></button>
       <div class="fm-ctl">
         <button class="fm-b" id="fmDed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v11H8l-4 3z"/><path d="M12 9.5c-.8-1.2-3-1-3 .8 0 1.6 3 3.2 3 3.2s3-1.6 3-3.2c0-1.8-2.2-2-3-.8z"/></svg>İthaf / İstek</button>
         <button class="fm-b" id="fmPlay"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg><span>Duraklat</span></button>
@@ -4991,26 +5193,49 @@ const Radio = (() => {
     $('fmMin').onclick = close; $('fmOff').onclick = () => stop();
     $('fmSkip').onclick = () => { Engine.unlock(); skip(); };
     $('fmPlay').onclick = () => { Engine.unlock(); if (Engine.playing) { Engine.pause(); hush(); } else Engine.play(); paint(); };
-    $('fmSet').onclick = () => panel('set'); $('fmDed').onclick = () => panel('ded');
+    $('fmSet').onclick = () => panel('set'); $('fmNvBan').onclick = () => { if ($('fmPanel').hidden || $('fmPanel').dataset.k !== 'set') panel('set'); $('fmPanel').scrollIntoView({ behavior: 'smooth' }); };
+    NV.on(() => { const b = $('fmNvBan'); if (b) b.hidden = NV.installed; }); $('fmDed').onclick = () => panel('ded');
     setInterval(() => { if (on) paintPlay(); }, 600);
     const box = el.querySelector('.fm-box');
     setInterval(() => { if (el.hidden) return; const lv = Engine.levels(); const v = lv ? Math.min(1, (lv[0][0] + lv[1][0]) * 2.2) : 0; box.style.setProperty('--lv', v.toFixed(2)); }, 110);
   }
+  let nvOff = null;
   function panel(kind) {
     const p = $('fmPanel');
     if (!p.hidden && p.dataset.k === kind) { p.hidden = true; return; }
     p.dataset.k = kind; p.hidden = false;
     if (kind === 'set') {
       loadVoices();
+      const nvBox = () => {
+        const s = NV.state, vs = Object.entries(NV.VOICES);
+        const pick = `<div class="seg" id="fmNvV">${vs.map(([k, v]) => `<button data-v="${k}" aria-pressed="${k === (NV.installed ? NV.voice : nvSel)}">${v.n}</button>`).join('')}</div>`;
+        if (s === 'download') return `<div class="fm-nv"><b>Doğal ses indiriliyor… %${Math.round(NV.prog * 100)}</b><div class="fm-pb"><i style="width:${(NV.prog * 100).toFixed(1)}%"></i></div><div class="fm-hint">Bir kere iner, sonra internetsiz çalışır. Uygulamayı kapatma.</div></div>`;
+        if (!NV.installed) return `<div class="fm-nv"><b>🎙 Doğal spiker sesi</b><div class="fm-hint">Yapay zekâ ile insan gibi konuşan Türkçe ses. Ücretsiz, telefonda çalışır, telefon kilitliyken de konuşur. Bir kere yaklaşık 90 MB iner (Wi-Fi önerilir).</div>${pick}<button class="btn primary" id="fmNvGet">Doğal sesi indir</button>${s === 'error' ? `<div class="fm-err">Olmadı: ${esc(NV.err)}. İnternetini kontrol edip tekrar dene.</div>` : ''}</div>`;
+        return `<div class="fm-nv"><b>🎙 Doğal ses: ${NV.VOICES[NV.voice].n} ${s === 'ready' ? '✓' : s === 'loading' ? '(açılıyor…)' : s === 'error' ? '(hata)' : ''}</b>${s === 'error' ? `<div class="fm-err">${esc(NV.err)}</div>` : ''}
+          <div class="seg" id="fmNvUse"><button data-v="1" aria-pressed="${NV.use}">Doğal ses</button><button data-v="0" aria-pressed="${!NV.use}">iPhone sesi</button></div>
+          <div class="fm-hint">Başka ses dene (yeniden iner):</div>${pick}</div>`;
+      };
+      let nvSel = NV.voice;
       const opts = voices.length ? voices.map(v => `<option value="${esc(v.voiceURI)}" ${voice() === v ? 'selected' : ''}>${esc(v.name)}${good(v) ? ' ★' : ''}</option>`).join('') : '<option value="">Türkçe ses bulunamadı</option>';
-      p.innerHTML = `<h4>Radyo ayarları</h4>
-        <label class="fm-f"><span>Spiker sesi</span><select id="fmVoice">${opts}</select></label>
-        <div class="fm-hint">${voices.some(good) ? '★ olan ses daha doğal.' : 'Daha doğal ses için: iPhone Ayarlar → Erişilebilirlik → Seslendirilen İçerik → Sesler → Türkçe → Yelda (Gelişmiş) indir.'}</div>
+      p.innerHTML = `<h4>Radyo ayarları</h4><div id="fmNvBox">${nvBox()}</div>
+        <label class="fm-f" id="fmIph" ${NV.use ? 'hidden' : ''}><span>iPhone sesi</span><select id="fmVoice">${opts}</select></label>
         <label class="fm-f"><span>Konuşma hızı</span><input type="range" id="fmRate" min="0.8" max="1.2" step="0.05" value="${cfg.rate}"></label>
         <div class="fm-f"><span>Spiker ne kadar konuşsun?</span><div class="seg" id="fmTalk"><button data-v="0">Az</button><button data-v="1">Normal</button><button data-v="2">Çok</button></div></div>
         <label class="fm-tg"><input type="checkbox" id="fmOld" ${cfg.oldRadio ? 'checked' : ''}><span>Eski radyo tınısı (cızırtı, dar ses)</span></label>
         <button class="btn" id="fmTest">Spikeri dene</button>`;
       $('fmVoice').onchange = e => { cfg.voice = e.target.value; saveCfg(); };
+      const wireNv = () => {
+        const g = $('fmNvGet'); if (g) g.onclick = () => { NV.install(nvSel).then(() => toast('Doğal spiker sesi hazır'), e => toast('İndirilemedi: ' + e.message)); };
+        $('fmNvBox').querySelectorAll('#fmNvV button').forEach(b => b.onclick = () => {
+          nvSel = b.dataset.v;
+          if (NV.installed && nvSel !== NV.voice) { if (confirm(NV.VOICES[nvSel].n + ' sesi indirilsin mi? (~63 MB)')) NV.install(nvSel).then(() => toast('Yeni ses hazır'), e => toast('İndirilemedi: ' + e.message)); }
+          else renderNv();
+        });
+        $('fmNvBox').querySelectorAll('#fmNvUse button').forEach(b => b.onclick = () => { NV.setUse(b.dataset.v === '1'); if (NV.use) NV.boot().catch(() => {}); });
+      };
+      const renderNv = () => { const bx = $('fmNvBox'); if (!bx) return; bx.innerHTML = nvBox(); wireNv(); const ip = $('fmIph'); if (ip) ip.hidden = NV.use; };
+      wireNv(); if (nvOff) nvOff(); nvOff = NV.on(renderNv);
+      if (NV.use) NV.boot().catch(() => {});
       $('fmRate').oninput = e => { cfg.rate = +e.target.value; saveCfg(); };
       const segs = p.querySelectorAll('#fmTalk button'); segs.forEach(b => { b.setAttribute('aria-pressed', +b.dataset.v === cfg.talk); b.onclick = () => { cfg.talk = +b.dataset.v; saveCfg(); segs.forEach(x => x.setAttribute('aria-pressed', x === b)); }; });
       $('fmOld').onchange = e => {
@@ -5036,7 +5261,7 @@ const Radio = (() => {
       };
     }
   }
-  function open() { build(); $('fm').hidden = false; document.body.style.overflow = 'hidden'; paint(); }
+  function open() { build(); $('fmNvBan').hidden = NV.installed; if (NV.use) NV.boot().catch(() => {}); $('fm').hidden = false; document.body.style.overflow = 'hidden'; paint(); }
   function close() { if ($('fm')) $('fm').hidden = true; document.body.style.overflow = ''; }
   function sub(t) { const s = $('fmSub'); if (s) { s.textContent = t ? '🎙 ' + t : ''; s.classList.toggle('on', !!t); } }
   function lamp(v) { const l = $('fmOnAir'); if (l) l.classList.toggle('on', v); }
@@ -5060,6 +5285,6 @@ const Radio = (() => {
   return { get on() { return on; }, get own() { return own; }, start, stop, skip, onEnd, open, say, block, timeWords, opening, introLine, outroLine, segment, _cfg: cfg };
 })();
 
-if (/[?&]fmtest=1/.test(location.search)) window.__gp = { App, Engine, Radio };
+if (/[?&]fmtest=1/.test(location.search)) window.__gp = { App, Engine, Radio, NV };
 
 })();
