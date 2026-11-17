@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 50;
+const VERSION = 51;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -4601,11 +4601,11 @@ onmessage=async e=>{const m=e.data;try{
   cfg=m.cfg; sess=await O.InferenceSession.create(m.model,{executionProviders:['wasm'],graphOptimizationLevel:'all'});
   postMessage({type:'ready'});
  } else if(m.type==='tts'){
-  const sr=cfg.audio.sample_rate, inf=cfg.inference||{}, out=[], gap=new Float32Array(Math.round(sr*0.18));
+  const sr=cfg.audio.sample_rate, inf=cfg.inference||{}, out=[], gap=new Float32Array(Math.round(sr*0.12));
   for(const ids of phonemize(m.text)){
-   const feeds={input:new O.Tensor('int64',BigInt64Array.from(ids.map(BigInt)),[1,ids.length]),input_lengths:new O.Tensor('int64',BigInt64Array.from([BigInt(ids.length)]),[1]),scales:new O.Tensor('float32',Float32Array.from([inf.noise_scale??0.667,(inf.length_scale??1)*m.speed,inf.noise_w??0.8]),[3])};
+   const feeds={input:new O.Tensor('int64',BigInt64Array.from(ids.map(BigInt)),[1,ids.length]),input_lengths:new O.Tensor('int64',BigInt64Array.from([BigInt(ids.length)]),[1]),scales:new O.Tensor('float32',Float32Array.from([m.ns??inf.noise_scale??0.667,(inf.length_scale??1)*m.speed,m.nw??inf.noise_w??0.8]),[3])};
    if(cfg.speaker_id_map&&Object.keys(cfg.speaker_id_map).length) feeds.sid=new O.Tensor('int64',BigInt64Array.from([0n]),[1]);
-   const r=await sess.run(feeds); out.push(r.output.data,gap);
+   const r=await sess.run(feeds); if(out.length) out.push(gap); out.push(r.output.data);
   }
   let n=0; out.forEach(a=>n+=a.length); const pcm=new Float32Array(n); let o=0; out.forEach(a=>{pcm.set(a,o);o+=a.length;});
   postMessage({type:'audio',id:m.id,pcm,sr},[pcm.buffer]);
@@ -4655,17 +4655,70 @@ onmessage=async e=>{const m=e.data;try{
     try { const c = await caches.open(CACHE); for (const k of await c.keys()) if (!keepRuntime || /\.onnx/.test(k.url)) await c.delete(k); } catch (e) {}
     st = Object.assign(st, { installed: false }); save(); state = 'none'; emit();
   }
+  /* Anlatım: her cümle kendi duygusuyla okunur (hız, ses perdesi, canlılık, nefes araları).
+     Ses perdesi: cümle biraz daha yavaş üretilip hızlandırılır (ya da tersi) → tempo aynı kalır, ses incelir/kalınlaşır. */
+  const hash = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+  const rng = seed => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const MOOD = { gece: { ls: 1.1, p: -0.03, ns: 0.62 }, sabah: { ls: 0.93, p: 0.03, ns: 0.8 }, gun: { ls: 0.98, p: 0.01, ns: 0.72 }, aksam: { ls: 1.03, p: 0, ns: 0.7 }, gurbet: { ls: 1.08, p: -0.02, ns: 0.65 } };
+  const RE = {
+    hype: /!|geliyor|açın|haydi|başlıyoruz|başlayalım|buyrun|yaşa|imparator|gönül fm/i,
+    sad: /dert|gurbet|hüzün|yalnız|uyuyamay|gece uzun|ah ah|acı|memleket|özle|gözyaş|mendil|ayrılık|kader/i,
+    info: /saat|derece|hava|yağmur|kar |bulut|frekans/i,
+    soft: /…|ışıkları kısın|sevgili|güzel insanlar|dostlar/i
+  };
+  function plan(text, mood) {
+    const parts = (String(text).match(/[^.!?…]+(?:[.!?…]+|$)/g) || [text]).map(s => s.trim()).filter(Boolean);
+    const M = MOOD[mood] || MOOD.gun, R = rng(hash(text + mood));
+    return parts.map((s, i) => {
+      let ls = M.ls * (0.95 + R() * 0.1), p = M.p + (R() - 0.5) * 0.03, ns = M.ns + (R() - 0.5) * 0.12, nw = 0.75 + R() * 0.25, gain = 1, gap = 0.22 + R() * 0.22;
+      if (RE.sad.test(s)) { ls *= 1.12; p -= 0.03; ns -= 0.06; gain = 0.85; gap += 0.15; }
+      if (RE.hype.test(s)) { ls *= 0.92; p += 0.04; ns += 0.12; gain = 1.12; }
+      if (RE.info.test(s) && !RE.sad.test(s)) { ls *= 0.97; ns -= 0.03; }
+      if (RE.soft.test(s)) { ls *= 1.05; gain *= 0.92; }
+      if (/\?$/.test(s)) { p += 0.03; ns += 0.05; }
+      if (/…$/.test(s)) gap += 0.35;
+      if (i === parts.length - 1) { ls *= 1.04; p -= 0.015; }          // son cümle (çoğu zaman şarkı adı): tadını çıkararak
+      if (i === 0 && parts.length > 1) p += 0.015;                       // ilk cümle: hafif yüksekten başla
+      return { s, ls: Math.max(0.78, Math.min(1.35, ls)), p: Math.max(-0.07, Math.min(0.08, p)), ns: Math.max(0.45, Math.min(0.95, ns)), nw: Math.min(1.05, nw), gain, gap: i === parts.length - 1 ? 0 : gap };
+    });
+  }
+  function synth(text, ls, ns, nw) {
+    return boot().then(() => new Promise((res, rej) => {
+      const id = ++seq; wait.set(id, { res, rej });
+      worker.postMessage({ type: 'tts', id, text: clean(text), speed: ls, ns, nw });
+    }));
+  }
+  // basit yeniden örnekleme: r>1 → ses incelir ve kısalır
+  function resamp(x, r) {
+    if (Math.abs(r - 1) < 0.002) return x;
+    const n = Math.floor(x.length / r), y = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const t = i * r, k = t | 0, f = t - k; y[i] = (x[k] || 0) * (1 - f) + (x[k + 1] || 0) * f; }
+    return y;
+  }
   // metni sese çevir (aynı metin bir kez üretilir)
   function get(text) {
-    const key = st.voice + '|' + (Radio._cfg.rate || 1) + '|' + text;
+    const mood = (typeof Radio !== 'undefined' && Radio.block().mood) || 'gun', rate = Radio._cfg.rate || 1;
+    const key = st.voice + '|' + rate + '|' + mood + '|' + text;
     if (cache.has(key)) return cache.get(key);
-    const p = boot().then(() => new Promise((res, rej) => {
-      const id = ++seq; wait.set(id, { res, rej });
-      worker.postMessage({ type: 'tts', id, text: clean(text), speed: 1 / (Radio._cfg.rate || 1) });
-    })).then(m => {
+    const pl = plan(text, mood);
+    const p = (async () => {
+      const segs = [];
+      for (const x of pl) {
+        const r = 1 + x.p;                                    // perde oranı
+        const m = await synth(x.s, x.ls * r / rate, x.ns, x.nw); // r kadar yavaş üret…
+        segs.push({ pcm: resamp(m.pcm, r), sr: m.sr, x });       // …r kadar hızlandır: tempo aynı, perde r
+      }
+      const sr = segs[0].sr, fade = Math.round(sr * 0.006);
+      let n = 0; segs.forEach(g => n += g.pcm.length + Math.round(g.x.gap * sr));
+      const out = new Float32Array(n); let o = 0;
+      for (const g of segs) {
+        const L = g.pcm.length;
+        for (let i = 0; i < L; i++) { const e = i < fade ? i / fade : i > L - fade ? (L - i) / fade : 1; out[o + i] = g.pcm[i] * g.x.gain * e; }
+        o += L + Math.round(g.x.gap * sr);
+      }
       const c = Engine.ctx || (Engine.unlock(), Engine.ctx);
-      const b = c.createBuffer(1, m.pcm.length, m.sr); b.copyToChannel(m.pcm, 0); return b;
-    });
+      const b = c.createBuffer(1, out.length, sr); b.copyToChannel(out, 0); return b;
+    })();
     p.catch(() => cache.delete(key));
     cache.set(key, p);
     if (cache.size > 40) cache.delete(cache.keys().next().value);
@@ -4673,7 +4726,7 @@ onmessage=async e=>{const m=e.data;try{
   }
   const clean = t => String(t).replace(/[“”"«»]/g, '').replace(/\s+/g, ' ').trim();
   return {
-    VOICES, get, boot, install, drop, on(f) { listeners.add(f); return () => listeners.delete(f); },
+    VOICES, get, plan, boot, install, drop, on(f) { listeners.add(f); return () => listeners.delete(f); },
     get state() { return state; }, get prog() { return prog; }, get err() { return err; }, get voice() { return st.voice; },
     get installed() { return !!st.installed; }, get use() { return st.installed && st.use !== false; }, setUse(v) { st.use = v; save(); emit(); }
   };
@@ -4779,10 +4832,11 @@ const Radio = (() => {
     const a = artistName(s), t = title(s), b = block(), nm = App.userName;
     const both = a ? `${a}, ${t}` : t;
     const L = [
-      `Şimdi sırada ${both}.`, `Sıradaki parçamız ${both}.`, `${both}. Buyrun efendim.`,
-      `Dinliyoruz: ${both}.`, `Şimdi bir parça geliyor ki, gönlü yanık olanlara gelsin. ${both}.`,
-      `Ve şimdi ${both}. Sesi biraz açın.`, `Bu parça hepimize gelsin. ${both}.`,
-      `Lafı uzatmayalım. ${both}.`, `Yolda olanlara, gurbette olanlara. ${both}.`
+      `Şimdi sırada… ${both}.`, `Sıradaki parçamız, ${both}.`, `${both}. Buyrun efendim!`,
+      `Dinliyoruz… ${both}.`, `Şimdi öyle bir parça geliyor ki… gönlü yanık olanlara gelsin. ${both}.`,
+      `Ve şimdi… ${both}! Sesi biraz açın.`, `Bu parça hepimize gelsin. ${both}.`,
+      `Lafı uzatmayalım. ${both}!`, `Yolda olanlara, gurbette olanlara… ${both}.`,
+      `Ah be dostlar… Bu şarkıyı ne çok dinledik. ${both}.`, `Hazır mısınız? ${both} geliyor!`
     ];
     if (b.mood === 'gece') L.push(`Gecenin bu saatinde uyuyamayanlar için: ${both}.`, `Gece uzun, dert uzun. ${both}.`, `Işıkları kısın. ${both}.`);
     if (b.mood === 'sabah') L.push(`Çaylar demlendiyse başlıyoruz. ${both}.`, `Güne güzel bir parçayla devam: ${both}.`);
@@ -4800,7 +4854,7 @@ const Radio = (() => {
       `Ne güzel söyledi değil mi? ${a}, ${t}.`, `${t}… Ah ah. ${a} yorumuyla dinlediniz.`
     ] : [`${t} idi.`, `Dinlediğiniz parça ${t}.`]);
   }
-  const LINERS = ['Gönül FM. Gönülden gönüle.', `${freqWords()}. Gönül FM.`, 'Arabeskin adresi, Gönül FM.', 'Stuttgart\'tan bütün gurbete, Gönül FM.', 'Gönül FM. Dertler paylaşılınca azalır.'];
+  const LINERS = ['Gönül FM… Gönülden gönüle!', `${freqWords()}… Gönül FM!`, 'Arabeskin adresi… Gönül FM!', 'Stuttgart\'tan bütün gurbete… Gönül FM!', 'Gönül FM. Dertler paylaşılınca azalır…'];
   const MUSINGS = {
     gece: ['Gece yarısı herkes biraz şairdir, biraz da dertli.', 'Uyuyamayanlar, burdayız. Yalnız değilsiniz.', 'Bu saatte çalan şarkılar başka türlü dokunur insana.', 'Gece kuşları, telefonları kapatın, bu saat şarkının saati.'],
     sabah: ['Günaydın Stuttgart. S-Bahn\'a yetişenlere selam, yetişemeyenlere bir sonraki tren.', 'Sabah sabah arabesk mi olur demeyin, olur. Hem de nasıl olur.', 'Bir bardak çay, bir güzel şarkı. Güne başlamak için başka ne lazım?'],
@@ -4813,7 +4867,7 @@ const Radio = (() => {
     const p = [`${selam(d)} sevgili dinleyiciler.`, `Burası Gönül FM, frekansımız ${freqWords()}.`, `${b.n} kuşağıyla karşınızdayız.`];
     p.push(`${timeWords(d)}, bugün ${DAYS[d.getDay()]}.`);
     if (w) p.push(w);
-    p.push(rnd(['Haydi başlayalım.', 'Arkanıza yaslanın, başlıyoruz.', 'Şarkılarımız sizinle.']));
+    p.push(rnd(['Haydi başlayalım!', 'Arkanıza yaslanın… başlıyoruz!', 'Şarkılarımız sizinle!']));
     return p.join(' ');
   }
   function blockChange(b) { return rnd([`${b.n} kuşağına hoş geldiniz.`, `Ve şimdi ${b.n}.`, `Saatler ilerledi, ${b.n} başlıyor.`]); }
