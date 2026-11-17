@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 56;
+const VERSION = 57;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -5314,12 +5314,12 @@ Kurallar:
     if (txt) aiLines.add(txt);
     return txt;
   }
-  // tek seferlik DENEME alarmı: 17 Kasım 2026 15:19 (radyo açıksa; 15:30'a kadar radyo açılırsa o an)
-  const TEST_AT = new Date(2026, 10, 17, 15, 19, 0).getTime();
+  // tek seferlik DENEME alarmı: 17 Kasım 2026 16:54 (radyo açıksa; 17:05'e kadar radyo açılırsa o an)
+  const TEST_AT = new Date(2026, 10, 17, 16, 54, 0).getTime();
   setInterval(() => {
-    if (!on || alertBusy || LS.get('gp-fm-test1', false)) return;
+    if (!on || alertBusy || LS.get('gp-fm-test2', false)) return;
     const n = Date.now(); if (n < TEST_AT || n > TEST_AT + 11 * 60000) return;
-    LS.set('gp-fm-test1', true);
+    LS.set('gp-fm-test2', true);
     alertBusy = true;
     (async () => {
       try {
