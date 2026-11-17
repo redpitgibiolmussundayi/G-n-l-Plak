@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 54;
+const VERSION = 55;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -2247,7 +2247,14 @@ const SB = (() => {
   }
   function stop() { timers.forEach(clearInterval); timers = []; clearTimeout(moveT); }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && timers.length) { refresh(true); refreshNet(true); moveTrains(); } });
-  return { start, stop, bind, render, openAll, where, tripDelay, label, nm, COL, refreshNet, get net() { return net; }, get cur() { return cur; }, get deps() { return deps; }, get src() { return src; } };
+  // radyo için: Stuttgart Hauptbahnhof (tief) S-Bahn kalkışları (canlı gecikme, iptal, VVS duyuruları)
+  async function hubDeps() {
+    const h = HUBS[0], key = 'vvs:hub:' + h.q;
+    let id = ids[key];
+    if (!id) { const f = await vvsFind(h.q, h.want); if (!f.length) return []; id = ids[key] = f[0].id; LS.set('gp-sb-ids2', ids); }
+    return vvsDeps(id);
+  }
+  return { hubDeps, start, stop, bind, render, openAll, where, tripDelay, label, nm, COL, refreshNet, get net() { return net; }, get cur() { return cur; }, get deps() { return deps; }, get src() { return src; } };
 })();
 
 function setView(v) {
@@ -4788,9 +4795,9 @@ const Radio = (() => {
   /* ---------------------------------------------------------------- hava (uygulamanın Stuttgart hava verisi) */
   function weather() {
     const w = LS.get('gp-wx', null); if (!w || Date.now() - (w.at || 0) > 3 * 3600e3) return null;
-    const c = w.code, t = w.t, h = new Date().getHours(), night = h < 6 || h >= 20;
+    const c = w.code, t = w.t, h = new Date().getHours(), night = w.day != null ? !w.day : (h < 7 || h >= 18);
     const deg = (t < 0 ? 'eksi ' + num(-t) : num(t)) + ' derece';
-    const sky = c === 0 ? (night ? 'gökyüzü açık' : 'güneş tepede') : c <= 2 ? 'parçalı bulutlu' : c === 3 ? 'gökyüzü kapalı' : c <= 48 ? 'sis var' : c <= 57 ? 'yağmur çiseliyor' : c <= 67 ? 'yağmur yağıyor' : c <= 77 ? 'kar yağıyor' : c <= 82 ? 'sağanak var' : c <= 86 ? 'lapa lapa kar yağıyor' : 'fırtına var';
+    const sky = c === 0 ? (night ? 'gökyüzü açık' : 'hava güneşli') : c <= 2 ? 'parçalı bulutlu' : c === 3 ? 'gökyüzü kapalı' : c <= 48 ? 'sis var' : c <= 57 ? 'yağmur çiseliyor' : c <= 67 ? 'yağmur yağıyor' : c <= 77 ? 'kar yağıyor' : c <= 82 ? 'sağanak var' : c <= 86 ? 'lapa lapa kar yağıyor' : 'gök gürültülü sağanak var';
     const kind = c <= 2 ? 'acik' : c === 3 ? 'kapali' : c <= 48 ? 'sis' : c <= 67 || (c >= 80 && c <= 82) ? 'yagmur' : c <= 86 ? 'kar' : 'firtina';
     const flavor = {
       acik: night ? ['Yıldızlar Stuttgart\'ın üstünde, Fernsehturm ışıl ışıl.', 'Gökyüzü tertemiz, ay da bizimle.'] : ['Pencereyi açın, biraz güneş alın.', 'Böyle havada Killesberg\'de bir çay içilir.'],
@@ -4874,7 +4881,7 @@ const Radio = (() => {
   function segment() {
     const b = block(), w = weather(), r = Math.random();
     if (r < 0.35 && w) return w;
-    if (r < 0.6) return `${timeWords()}. Gönül FM\'de ${b.n} devam ediyor.`;
+    if (r < 0.6) return '§SAAT';
     return rnd(MUSINGS[b.mood] || MUSINGS.gun);
   }
   function dedLine(d, s) {
@@ -5117,6 +5124,8 @@ Kurallar:
 - Doğal konuşma ritmi: kısa cümleler; duraklama için "…", coşku için "!" kullan. Konuşur gibi yaz ("ya", "bakın", "hani", "ah be").
 - Şarkılar ve sanatçılar hakkında emin olmadığın bilgiyi (yıl, albüm, film, hikâye) UYDURMA. Emin değilsen bilgi verme; şarkının duygusundan, sözlerinin anlattığı dertten, dinleyicinin o anki hâlinden bahset. Çok bilinen lakapları kullanabilirsin (Müslüm Baba, Ferdi Baba, Orhan Baba, İmparator, Acıların Kadını).
 - Dinleyicinin adını verilirse çok seyrek kullan.
+- Saati sen söyleme (açılış hariç): yazdıkların birkaç dakika sonra okunuyor, saat yanlış olur. Saat anonslarını sistem kendisi yapıyor.
+- Hava, trafik ya da haber UYDURMA; sadece sana verilen gerçek veriyi kullan.
 - Sadece istenen alanları içeren tek bir JSON nesnesi döndür, başka hiçbir şey yazma.`;
   function histOf(s) {
     const h = LS.get('gp-hist', []), now = Date.now(); let tot = 0, wk = 0, lastT = 0;
@@ -5128,7 +5137,8 @@ Kurallar:
   const sDesc = s => `"${title(s)}"${s.artist ? ' — ' + s.artist : ''}`;
   function ctxText() {
     const d = new Date(), b = block(d), w = weather();
-    return `Şu an: ${DAYS[d.getDay()]}, ${timeWords(d).toLowerCase()} (${d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}). Kuşak: ${b.n}. ${w ? 'Hava: ' + w : 'Hava bilgisi yok.'}${App.userName ? ` Dinleyicinin adı: ${App.userName} (Hemmingen'de oturuyor, Stuttgart'ı çok seviyor).` : ''}`;
+    const wr = LS.get('gp-wx', null), wOk = wr && Date.now() - wr.at < 45 * 60000;
+    return `Şu an: ${DAYS[d.getDay()]}, saat ${d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}. Kuşak: ${b.n}. ${wOk && w ? 'Stuttgart\'ın şu anki havası (gerçek ölçüm): ' + w.split('. ')[0].replace(/^Stuttgart'ta hava /, '') + '. Havadan bahsedersen SADECE bunu kullan.' : 'Hava bilgisi yok: havadan hiç bahsetme.'}${App.userName ? ` Dinleyicinin adı: ${App.userName} (Hemmingen'de oturuyor, Stuttgart'ı çok seviyor).` : ''}`;
   }
   let aiModel = LS.get('gp-fm-model', AIM);
   async function claude(prompt, maxT = 420, force) {
@@ -5189,13 +5199,154 @@ Kurallar:
     return claude(p);
   }
 
+  /* ---------------------------------------------------------------- haberler: S-Bahn, trafik, resmi uyarılar (SADECE gerçek veri)
+     S-Bahn: VVS'nin canlı verisi (Stuttgart Hauptbahnhof alt kat): gecikme, iptal, VVS duyuruları.
+     Uyarılar: NINA (Bundesamt für Bevölkerungsschutz) — polis, afet, ciddi hava uyarıları; Stuttgart ve Ludwigsburg ili.
+     Otoyol: Autobahn GmbH (A81, A8) Stuttgart çevresi trafik uyarıları.
+     Acil bir şey varsa (bomba ihbarı, tahliye, polis operasyonu, hat kapanması…) şarkıyı kısıp hemen anons edilir.
+     Hiçbir haber uydurulmaz: veri yoksa ya da alınamazsa o bölüm hiç okunmaz. */
+  const URGENT = /bomb|spreng|verdächtig|gegenstand|evakuier|räumung|geräumt|polizeieinsatz|feuerwehreinsatz|großeinsatz|notfall|personen im gleis|person im gleis|gesperrt|sperrung|stammstrecke|kein zugverkehr|zugverkehr eingestellt|unterbrochen|amok|terror|gefahr/i;
+  let newsSaid = new Set(LS.get('gp-fm-news', [])), lastBul = 0, newsT = 0, alertBusy = false;
+  const saidKey = t => String(t).slice(0, 90);
+  const markSaid = t => { newsSaid.add(saidKey(t)); LS.set('gp-fm-news', [...newsSaid].slice(-80)); };
+  const spokenPlace = t => String(t || '').replace(/L\*b\*/g, 'Ludwigsburg').replace(/\bS-(?=[A-ZÄÖÜ])/g, 'Stuttgart-').replace(/\s+/g, ' ').trim();
+  const strip = t => String(t || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+  async function sbNow() {
+    if (typeof SB === 'undefined' || !SB.hubDeps) return null;
+    const deps = await SB.hubDeps(), now = Date.now();
+    const soon = deps.filter(d => d.planned > now - 5 * 60000 && d.planned < now + 45 * 60000);
+    if (!soon.length) return null;
+    const late = {}, canc = [], infos = new Set();
+    for (const d of soon) {
+      if (d.cancelled) canc.push(`${d.line} ${spokenPlace(d.dest)} yönü, planlanan ${new Date(d.planned).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`);
+      else if (d.est) { const m = Math.round((d.est - d.planned) / 60000); if (m >= 3 && (!late[d.line] || late[d.line].m < m)) late[d.line] = { m, dest: spokenPlace(d.dest) }; }
+      d.info.forEach(x => infos.add(strip(x)));
+    }
+    return { n: soon.length, late, canc: canc.slice(0, 4), infos: [...infos].slice(0, 5), at: now };
+  }
+  async function getJ(urls, ms = 9000) {
+    for (const u of urls) {
+      const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+      try { const r = await fetch(u, { signal: c.signal }); if (r.ok) return await r.json(); } catch (e) {} finally { clearTimeout(t); }
+    }
+    return null;
+  }
+  async function ninaNow() {
+    const out = [];
+    for (const ars of ['081110000000', '081180000000']) {   // Stuttgart, Ludwigsburg ili
+      const j = await getJ([`https://warnung.bund.de/api31/dashboard/${ars}.json`, `https://nina.api.proxy.bund.dev/api31/dashboard/${ars}.json`]);
+      if (!Array.isArray(j)) continue;
+      for (const w of j) {
+        const p = (w.payload && w.payload.data) || {}, id = w.id || '', sev = String(p.severity || '').toLowerCase();
+        const head = strip(p.headline || (w.i18nTitle && w.i18nTitle.de) || ''); if (!head) continue;
+        const src = /^pol/.test(id) ? 'polis' : /^mow/.test(id) ? 'afet uyarı sistemi' : /^kat/.test(id) ? 'Katwarn' : /^dwd/.test(id) ? 'Alman Meteoroloji Servisi' : /^lhp/.test(id) ? 'taşkın merkezi' : 'resmi uyarı sistemi';
+        out.push({ id, head, src, urgent: /^(pol|mow|kat)/.test(id) || /extreme|severe/.test(sev), sev });
+      }
+    }
+    const seen = new Set(); return out.filter(x => !seen.has(x.id) && seen.add(x.id));
+  }
+  const ROADS = /stuttgart|ludwigsburg|zuffenhausen|feuerbach|leonberg|ditzingen|korntal|engelberg|möhringen|degerloch|vaihingen|kornwestheim|pleidelsheim|freiberg/i;
+  async function roadsNow() {
+    const out = [];
+    for (const r of ['A81', 'A8']) {
+      const j = await getJ([`https://verkehr.autobahn.de/o/autobahn/${r}/services/warning`, `https://autobahn.api.proxy.bund.dev/o/autobahn/${r}/services/warning`]);
+      for (const w of (j && j.warning) || []) {
+        const txt = [w.title, w.subtitle].concat(w.description || []).map(strip).join(' ');
+        if (!ROADS.test(txt)) continue;
+        out.push(strip([w.title, w.subtitle].filter(Boolean).join(': ')) + (w.description && w.description[0] ? ' — ' + strip(w.description.slice(0, 3).join(' ')) : ''));
+      }
+    }
+    return out.slice(0, 4);
+  }
+  // haber jingle'ı ve istasyon gongu
+  function newsSting() {
+    const c = C(), o = OUT(); if (!c || !o) return;
+    const t = c.currentTime;
+    [72, 76, 79, 84].forEach((m, i) => { const os = c.createOscillator(), g = c.createGain(); os.type = 'triangle'; os.frequency.value = 440 * Math.pow(2, (m - 69) / 12); const t1 = t + i * 0.11; g.gain.setValueAtTime(0, t1); g.gain.linearRampToValueAtTime(0.12, t1 + 0.01); g.gain.exponentialRampToValueAtTime(0.0008, t1 + (i === 3 ? 0.9 : 0.25)); os.connect(g).connect(o); os.start(t1); os.stop(t1 + 1); });
+  }
+  function gong() {
+    const c = C(), o = OUT(); if (!c || !o) return;
+    const t = c.currentTime;
+    [[76, 0], [72, 0.55], [79, 1.1]].forEach(([m, d]) => {
+      const f = 440 * Math.pow(2, (m - 69) / 12);
+      [1, 2.76, 5.4].forEach((h, k) => { const os = c.createOscillator(), g = c.createGain(); os.frequency.value = f * h; const t1 = t + d; g.gain.setValueAtTime(0, t1); g.gain.linearRampToValueAtTime(0.16 / (k + 1), t1 + 0.01); g.gain.exponentialRampToValueAtTime(0.0005, t1 + 1.6 / (k + 1)); os.connect(g).connect(o); os.start(t1); os.stop(t1 + 1.7); });
+    });
+  }
+  // Claude: Almanca veriyi Türkçe radyo diline çevirir; uydurma yasak
+  const NEWS_RULE = 'Sadece verilen veriyi kullan, hiçbir bilgi ekleme, tahmin etme ya da abartma. Almanca metinleri doğru şekilde Türkçeye çevir; istasyon, semt ve yol adlarını Almanca bırak. Saat ve sayıları yazıyla yaz.';
+  async function aiNews(kind, data) {
+    if (!aiOk()) return null;
+    const ask = kind === 'alert'
+      ? `ACİL DUYURU yazacaksın. Kaynak: ${data.src}. Veri (Almanca): ${data.text}\n${NEWS_RULE}\nŞu alanla JSON yaz:\n"text": şarkıyı kesip okunacak 2-3 cümlelik ciddi, sakin, net Türkçe anons; kaynağı söyle (örneğin "VVS'nin duyurusuna göre"); dinleyiciye ne yapması gerektiği veride yazıyorsa onu da söyle`
+      : `Trafik ve ulaşım bülteni yazacaksın. Veri:\n${data}\n${NEWS_RULE}\nŞu alanla JSON yaz:\n"text": 2-5 cümlelik kısa, akıcı Türkçe bülten; "VVS'nin canlı verilerine göre" gibi kaynağı bir kez söyle; gecikme yoksa S-Bahn'ların zamanında olduğunu söyle`;
+    const o = await claude(`${ctxText()}\n${ask}`, 380);
+    return o && o.text ? o.text : null;
+  }
+  function bulletinData(sb, roads, nina) {
+    const L = [];
+    if (sb) {
+      const late = Object.entries(sb.late);
+      L.push(`S-Bahn, Stuttgart Hauptbahnhof alt kat, önümüzdeki 45 dakikada ${sb.n} kalkış.`);
+      L.push(late.length ? 'Gecikmeler: ' + late.map(([l, x]) => `${l} ${x.dest} yönü yaklaşık ${x.m} dakika`).join('; ') + '.' : 'Kayda değer gecikme yok.');
+      if (sb.canc.length) L.push('İptal edilen seferler: ' + sb.canc.join('; ') + '.');
+      const inf = sb.infos.filter(t => !URGENT.test(t)); if (inf.length) L.push('VVS duyuruları (Almanca): ' + inf.join(' | '));
+    }
+    if (roads.length) L.push('Otoyol uyarıları (Almanca, Autobahn GmbH): ' + roads.join(' | '));
+    const minor = nina.filter(x => !x.urgent);
+    if (minor.length) L.push('Resmi uyarılar (Almanca): ' + minor.map(x => `${x.src}: ${x.head}`).join(' | '));
+    return L.join('\n');
+  }
+  function bulletinTpl(sb) {
+    if (!sb) return null;
+    const late = Object.entries(sb.late), P2 = [];
+    P2.push('Gönül FM ulaşım bülteni. VVS\'nin canlı verilerine göre…');
+    if (!late.length && !sb.canc.length) P2.push('Stuttgart Hauptbahnhof\'tan S-Bahn\'lar şu an zamanında kalkıyor.');
+    late.slice(0, 3).forEach(([l, x]) => P2.push(`${l}, ${x.dest} yönüne, yaklaşık ${num(x.m)} dakika gecikmeli.`));
+    if (sb.canc.length) P2.push(`${num(sb.canc.length)} sefer iptal edilmiş, yola çıkmadan önce kontrol edin.`);
+    return P2.join(' ');
+  }
+  // şarkılar arasında bülten (yaklaşık yarım saatte bir)
+  async function bulletin() {
+    lastBul = Date.now();
+    const [sb, roads, nina] = await Promise.all([sbNow().catch(() => null), roadsNow().catch(() => []), ninaNow().catch(() => [])]);
+    if (!sb && !roads.length && !nina.length) return null;
+    const txt = (await aiNews('bul', bulletinData(sb, roads, nina))) || bulletinTpl(sb);
+    if (txt) aiLines.add(txt);
+    return txt;
+  }
+  // acil durum taraması: birkaç dakikada bir
+  async function scanUrgent() {
+    if (!on || alertBusy) return;
+    const items = [];
+    try { const sb = await sbNow(); if (sb) sb.infos.filter(t => URGENT.test(t)).forEach(t => items.push({ key: t, text: t, src: 'VVS (S-Bahn Stuttgart)' })); } catch (e) {}
+    try { (await ninaNow()).filter(x => x.urgent).forEach(x => items.push({ key: x.id + x.head, text: x.head, src: x.src })); } catch (e) {}
+    const fresh = items.find(x => !newsSaid.has(saidKey(x.key)));
+    if (!fresh || !on) return;
+    alertBusy = true; markSaid(fresh.key);
+    try {
+      const txt = (await aiNews('alert', fresh)) || `${fresh.src} kaynağından bir duyuru var. ${fresh.text}`;
+      if (!on) return;
+      hush(); rampDuck(0.07, 700); await sleep(700); gong(); await sleep(2300);
+      aiLines.add('Acil duyuru! ' + txt);
+      await say('Acil duyuru! ' + txt, { wait: 15000 });
+      await sleep(400); if (on) rampDuck(1, 1500);
+      toast('📢 ' + fresh.src + ': ' + fresh.text.slice(0, 120), 7000);
+    } finally { alertBusy = false; }
+  }
+  // hava: radyo kendi taze verisini alır (sahne havası kapalı olsa bile)
+  async function freshWx() {
+    const w = LS.get('gp-wx', null); if (w && Date.now() - w.at < 15 * 60000) return;
+    const j = await getJ(['https://api.open-meteo.com/v1/forecast?latitude=48.7758&longitude=9.1829&current=temperature_2m,weather_code,is_day&timezone=Europe%2FBerlin'], 8000);
+    if (j && j.current) LS.set('gp-wx', { t: Math.round(j.current.temperature_2m), code: j.current.weather_code, day: j.current.is_day, at: Date.now() });
+  }
+
   /* ---------------------------------------------------------------- yayın akışı
      Her şarkı başlarken bir sonraki geçiş planlanır ve spikerin cümleleri önceden sese çevrilir
      (telefon kilitliyken de hazır olsun). Geçiş iki türlü: şarkının girişinin üstüne konuşma ya da
      şarkılar arasında fon müziğiyle "ara" (kapanış + hava/saat/sohbet + sıradaki parça). */
   const P = () => [[0.45, 0.3, 4, 4, 0.35], [0.7, 0.5, 2, 3, 0.5], [0.9, 0.75, 1, 2, 0.65]][cfg.talk] || [0.7, 0.5, 2, 3, 0.5]; // [giriş, kapanış, ara konuşma her N, jingle her N, ara olasılığı]
   let flowTok = 0, plan = null;
-  const prep = t => { if (t && NV.use) NV.get(t).catch(() => {}); return t; };
+  const prep = t => { if (t && t !== '§SAAT' && NV.use) NV.get(t).catch(() => {}); return t; };
   function makePlan() {
     const s = pick(); if (!s) return null;
     const [pIn, pOut, pSeg, pJin, pBrk] = P();
@@ -5206,7 +5357,7 @@ Kurallar:
       pl.aiP = aiBreak(pl).then(o => {
         if (!o) { [pl.outroTail, pl.outroBreak, pl.seg, pl.intro].forEach(prep); return; }
         if (o.outro) { if (pl.outroTail) pl.outroTail = o.outro; if (pl.outroBreak) pl.outroBreak = o.outro; }
-        if (o.seg && pl.seg) pl.seg = o.seg;
+        if (o.seg && pl.seg && pl.seg !== '§SAAT') pl.seg = o.seg;
         if (o.intro && pl.intro) pl.intro = o.intro;
         pl.ai = true; [pl.outroTail, pl.outroBreak, pl.seg, pl.intro].forEach(prep);
       });
@@ -5237,6 +5388,13 @@ Kurallar:
     else if (pl.jingle) await jingle(true);
     else if (chance(0.4)) sweep();
     if (my !== flowTok || !on) return;
+    // yarım saatte bir ulaşım/trafik bülteni (gerçek veri; yoksa atlanır)
+    if (!skipping && Date.now() - lastBul > 30 * 60000) {
+      bedOn(); const bt = await Promise.race([bulletin().catch(() => null), sleep(12000).then(() => null)]);
+      if (my !== flowTok || !on) return;
+      if (bt) { newsSting(); await sleep(1300); await say(bt, { wait: 15000 }); if (my !== flowTok || !on) return; await sleep(300); pl.seg = null; }
+    }
+    if (pl.seg === '§SAAT') pl.seg = `${timeWords()}. Gönül FM'de ${block().n} devam ediyor.`;
     if (brk && !skipping) {
       bedOn();
       if (pl.outroBreak) { await say(pl.outroBreak); if (my !== flowTok || !on) return; await sleep(250); }
@@ -5288,6 +5446,8 @@ Kurallar:
     if (Engine.playing) Engine.pause();
     if (cfg.oldRadio) { prevRadioFx = Engine.fx.radioOn; Engine.setFx({ radioOn: true }, true); hissOn(); }
     clearInterval(tickT); tickT = setInterval(tick, 250);
+    freshWx().catch(() => {}); lastBul = Date.now() - 20 * 60000;
+    clearInterval(newsT); newsT = setInterval(() => { scanUrgent().catch(() => {}); freshWx().catch(() => {}); }, 3 * 60000); setTimeout(() => scanUrgent().catch(() => {}), 25000);
     open(); paint(); needle(true);
     let op = opening(); plan = { s: pick(), brk: false, jingle: false }; plan.intro = introLine(plan.s);
     const aiO = aiOk() ? aiOpening(plan.s) : null;
@@ -5306,7 +5466,7 @@ Kurallar:
   }
   function stop(quiet) {
     if (!on) return;
-    on = false; flowTok++; hush(); bedOff(400); hissOff(); clearInterval(tickT); clearInterval(duckT); Engine.setDuck(1); plan = null;
+    on = false; flowTok++; hush(); bedOff(400); hissOff(); clearInterval(tickT); clearInterval(newsT); clearInterval(duckT); Engine.setDuck(1); plan = null;
     if (prevRadioFx !== null) { Engine.setFx({ radioOn: prevRadioFx }, true); prevRadioFx = null; }
     document.documentElement.classList.remove('fm-on');
     if (!quiet && Engine.playing) Engine.pause();
@@ -5456,7 +5616,7 @@ Kurallar:
   }
 
   setTimeout(build, 0);
-  return { aiTest, aiUse: () => ({ usd: use.usd, n: use.n, err: aiErr, ok: aiOk() }), get on() { return on; }, get own() { return own; }, start, stop, skip, onEnd, open, say, block, timeWords, opening, introLine, outroLine, segment, _cfg: cfg };
+  return { _news: { bulletin: () => bulletin(), scanUrgent: () => scanUrgent(), sbNow: () => sbNow(), roadsNow: () => roadsNow() }, aiTest, aiUse: () => ({ usd: use.usd, n: use.n, err: aiErr, ok: aiOk() }), get on() { return on; }, get own() { return own; }, start, stop, skip, onEnd, open, say, block, timeWords, opening, introLine, outroLine, segment, _cfg: cfg };
 })();
 
 if (/[?&]fmtest=1/.test(location.search)) window.__gp = { App, Engine, Radio, NV };
