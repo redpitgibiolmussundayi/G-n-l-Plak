@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 69;
+const VERSION = 70;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -4863,6 +4863,7 @@ const Radio = (() => {
 
   /* ---------------------------------------------------------------- spikerin cümleleri */
   function introLine(s) {
+    if (useRec()) return introR(s);
     const a = artistName(s), t = title(s), b = block(), nm = App.userName;
     const both = a ? `${a}, ${t}` : t;
     const L = [
@@ -4885,6 +4886,7 @@ const Radio = (() => {
   // 500 hazır anons (Claude çalışmazken ya da kapalıyken kullanılır)
   const FM_LINES = {"G": {"gece": ["Gece yarısını geçtik dostlar, şehir sustu, şarkılar konuşsun.", "Bu saatte uyanık olanlar birbirini tanır; selam olsun hepinize.", "Stuttgart'ın ışıkları tek tek sönüyor, bizim lambamız yanık.", "Gece vardiyasından çıkanlar, kapıyı yavaş kapatın, çocuklar uyuyor.", "Gecenin en güzel tarafı ne biliyor musunuz? Kimse acele etmiyor.", "Bir çay daha koydum kendime, siz de koyun, gece uzun.", "Şimdi kulaklıklar takılsın, ses biraz kısılsın, dert biraz açılsın.", "Uyku tutmayanlar kulübüne hoş geldiniz, üyelik ücretsiz.", "Gecenin bu saatinde telefonlar sessizde, gönüller açıkta.", "Bir yerde biri camdan dışarı bakıyor şu an; bu şarkılar ona.", "Gece, insanın kendisiyle baş başa kaldığı saattir dostlar.", "Yarın erken kalkacak olanlar, bir şarkı daha, sonra yatağa.", "Sokaklar boş, Königstraße boş, ama bu frekans dolu.", "Gece otobüsünde olanlara selam, şoför ağabeye de selam.", "Gece kuşları uyanık, biz de uyanığız, eksik olan sadece uyku.", "Bu saatte çalınan şarkılar başka yere dokunur, bilirsiniz.", "Kimi kitap okuyor, kimi tavanı izliyor, kimi bizi dinliyor.", "Saat ilerledikçe sesimi biraz kısıyorum, uyuyanları uyandırmayalım.", "Gecenin karanlığı korkutmasın, sabah her zaman gelir.", "Bir mum yakın, bir şarkı açın, gerisini gece halleder.", "Uyumadan önce son bir şarkı derken üçüncüsüne geldiysek, normaldir.", "Bu gece de biz birbirimize yoldaşız dostlar.", "Pencereler kapalı, perdeler çekili, radyo açık; tam olması gerektiği gibi.", "Şu an Stuttgart'ta kaç kişi uyanık, bilmiyorum; ama hepsi bizimle.", "Gece yarısı düşünceleri ağır olur; biraz şarkıya yükleyelim.", "Hastanede nöbette olanlara, fırında hamur yoğuranlara selam olsun.", "Bu saatte kalp biraz daha yüksek sesle konuşur, dinleyin.", "Gece, gündüz söyleyemediklerimizi söyleme saatidir.", "Uykunuz kaçtıysa kızmayın, belki de bu şarkıyı duymanız gerekiyordu.", "Şehrin uğultusu dindi, bir tek bizim plak dönüyor.", "Gecenin bu saatinde telefon ekranında beklemeyin, mesaj gelmez; şarkı gelir.", "Gece yarısı arabeski, gündüz arabeskinden ağır basar.", "Saat kaç olursa olsun, burası açık; çay sıcak, plak hazır.", "Uyuyamayanlar için Gönül FM gece boyu nöbette.", "Yorgun gözler, açık kulaklar; işte gecenin dinleyicisi.", "Bu saatte balkona çıkıp bir nefes alanlar, üşümeyin.", "Gece sessizliğinde bir şarkı, bin söze bedeldir.", "Bir dertli bir dertliyi bu saatte bulur derler; buluşma yeri burası.", "Saat geç oldu ama gönül erken pes etmez.", "Ay bu gece Stuttgart'ın üstünde, bizim stüdyoya da vuruyor.", "Gece yürüyüşündeyseniz, Neckar kıyısında ayağınıza dikkat edin.", "Bu saatte yolda olan taksiciler, sizin için de çalıyoruz.", "Uykusuzluğun ilacı bulunmadı ama arabesk iyi bir yol arkadaşı.", "Gecenin bu saatinde sesler büyür; buzdolabı bile şarkı söyler.", "Biraz daha dinleyelim, sonra herkes kendi rüyasına.", "Gece yarısı düşündüklerinizi sabah ciddiye almayın; şarkıları alın ama.", "Şimdi ışıkları kısın, gerisini bize bırakın.", "Gecenin bu saatinde telefonu bırakın, sadece dinleyin.", "Bu saatlerde şarkı sözleri sanki bizim için yazılmış gibi gelir.", "Kimse görmüyor, rahat olun; istediğiniz kadar eşlik edin.", "Gece serinliği camdan giriyor, battaniyeyi unutmayın.", "Uyumak isteyenlere ninni, uyanık kalmak isteyenlere yoldaş.", "Bu saatte stüdyoda bir ben varım, bir de plaklar.", "Gece uzun ama şarkılar daha uzun, merak etmeyin.", "Şu an bir yerde biri kendi kendine mırıldanıyor; ses ver, duyalım.", "Gece yarısını geçince saatlere bakmayın, şarkılara bakın.", "Gecenin bu saatinde nostalji bedava, dağıtıyoruz.", "Bu şehir gündüz koşturur, gece dinlenir; biz de dinlenelim.", "Kim bilir şu an kaç kişi aynı şarkıyı mırıldanıyor.", "Gece, en samimi sohbetlerin saatidir; buyurun, sohbetteyiz.", "Sabah çok uzakta değil, ama acele yok.", "Bu saatte bir şarkı bazen bir dosttan daha iyi dinler.", "Uykusuz gecelerin müdavimleri, yerleriniz hazır.", "Gece kapandı üstümüze, plak açıldı önümüze.", "Gecenin yarısı geride kaldı, diğer yarısı şarkılarla geçsin.", "Yorganın altından dinleyenler, sizi görüyorum; şaka şaka.", "Bu saatte kahve içmeyin dostlar, ıhlamur için.", "Sessizliği bozmadan, usulca devam ediyoruz.", "Gece yarısının dertlileri, dertlerinizi plağa bırakın, sabaha hafiflersiniz.", "Şehir uyurken biz nöbetteyiz; Gönül FM gece yayınında."], "sabah": ["Günaydın Stuttgart, kalkın bakalım, çaylar demlendi.", "S-Bahn'a yetişmeye çalışanlar, koşmayın; bir sonraki de gelir.", "Sabah sabah arabesk dinleyen kişi güne sağlam başlar.", "Pencereyi açın, temiz havayı alın, sonra şarkıyı açın.", "Kahvaltı sofrasında simit yoksa brötchen de olur, mühim olan muhabbet.", "Bugün güzel bir gün olacak, hissediyorum dostlar.", "Erken kalkan yol alır derler; yol alırken de bizi dinler.", "Okula gidenler, çantanızı unutmayın; işe gidenler, anahtarınızı.", "Sabahın ilk çayı başka olur, ilk şarkısı da.", "Günaydın Hemmingen, günaydın Bad Cannstatt, günaydın bütün Stuttgart.", "Gözler daha tam açılmadıysa sorun yok, kulaklar açık ya.", "Sabah trafiğine takılanlar, sabır; şarkılar sizinle.", "Bugünün planı basit: iyi şarkılar, iyi insanlar.", "Uykulu gözlere bir parça neşe getirelim.", "Sabah ezanı, sabah kuşları, sabah çayı; sonra da biz.", "Alarmı üç kere erteleyenler, kızmıyoruz, anlıyoruz.", "Bugün kendinize iyi davranın, hak ediyorsunuz.", "Fırından yeni çıkmış ekmek kokusu gibi bir sabah dileriz.", "Sabahları biraz yavaş başlayın, gün zaten hızlanacak.", "Otobüs durağında bekleyenler, biraz da bizimle bekleyin.", "Kahvaltıyı atlamayın, babanız da öyle derdi.", "Yeni bir gün, yeni bir sayfa; kalemi elinize alın.", "Sabah güneşi Neckar'ın üstüne vurmuş, değmeyin keyfine.", "Bugün kimin doğum günü varsa, Gönül FM'den kutlama.", "Ders çalışanlar, sınava girenler; kolay gelsin, aklınız açık olsun.", "Erkenciler kulübünün üyeleri, size özel bir şarkı geliyor.", "Sabah sabah dert yanmayalım, akşama saklayalım.", "Pazara gidenler, domatesleri seçerek alın.", "Günün ilk saatleri en değerli saatlerdir, iyi değerlendirin.", "Sabah rüzgârı serin, ceketinizi alın.", "Uyandınız mı? Uyandınız. O zaman başlayalım.", "Sabahın bu saatinde neşeli bir parça iyi gider.", "Bugün birine güzel bir söz söyleyin, karşılığını göreceksiniz.", "Bir bardak çay, iki dilim peynir, bir de güzel şarkı; sabah tamam.", "İşe yürüyerek gidenler, adımlarınızı şarkıya uydurun.", "Sabahları şehir başka güzel; Schlossplatz bile daha sakin.", "Erken çıkan esnafa selam, dükkânlarınız bereketli olsun.", "Gün doğarken yeni umutlar da doğar dostlar.", "Sabahın en büyük düşmanı alarm, en iyi dostu çay.", "Sabah koşusuna çıkanlar, helal olsun, biz buradan alkışlıyoruz.", "Haftanın ortasındaysak bile, sabah güzel başlayabilir.", "Dünün yorgunluğunu dünde bırakın, bugün yepyeni.", "Bugün de birbirimize iyi davranalım, gerisi kolay.", "Sabah radyosu açıksa ev canlıdır derler, sizin ev canlı.", "Kalkın dostlar, gün sizi bekliyor.", "Sabahın ilk ışıklarıyla birlikte ilk şarkımız.", "Güne bir tebessümle başlamak bedava, deneyin.", "Elinizdeki çayı soğutmayın, bu şarkı onu ısıtır.", "Bugün kendinize bir iyilik yapın; mesela bu şarkıyı sonuna kadar dinleyin.", "Günaydın diyorum, dönüp günaydın deyin, duyuyorum.", "Sabah sabah sevdiklerinize bir mesaj atın, gün güzelleşsin.", "Yeni günün ilk saatlerinde Gönül FM yanınızda.", "Bugün havası nasıl olursa olsun, gönül havası güzel olsun.", "Sabahları şarkı söyleyen insan, akşam yorgun dönmez.", "Hayırlı sabahlar, hayırlı işler, bol kazançlar.", "Mutfakta çay demlenirken biz de şarkıyı demliyoruz.", "Sabahın tazeliği şarkılara da geçiyor sanki.", "Bugün de buradayız, siz de buradasınız; ne güzel.", "Erken uyanan şehir, Stuttgart; günaydın canım şehrim.", "Uyku mahmurluğunu bir şarkıyla atalım.", "Sabahın ilk saatlerinde şehir yeni doğmuş gibi.", "Ekmeği alıp eve dönenler, sıcakken yiyin.", "Bugün size güzel haberler gelsin.", "Sabah sabah bir kahkaha atın, gün açılsın.", "Okul servisini bekleyen çocuklara selam."], "gun": ["Öğle arasındakiler, yemeğinizi yiyin, şarkınızı dinleyin.", "Günün tam ortasındayız, biraz nefes alalım.", "İşte olanlara kolay gelsin, okulda olanlara da.", "Yemekten sonra çay içmeyen bizden değil, şaka şaka.", "Gün yarılandı, dert yarılandı mı bilmiyoruz.", "Ofiste gizlice dinleyenler, sesi biraz kısın, şef geliyor.", "Dükkânında müşteri bekleyen esnafa selam, bereketli olsun.", "Hayat koşturmaca ama bir şarkılık mola herkesin hakkı.", "Öğlen güneşi tepede, gölgede oturun.", "Şantiyede çalışanlar, ellerinize sağlık, şu şarkı sizin.", "Günün yorgunluğunu biraz atalım, sonra devam.", "Mesaide olanlar, saat beşe az kaldı, dayanın.", "Gün ortasında bir arabesk, ilaç gibidir.", "Annelere selam olsun, evdeki işler bitmez, şarkılar da bitmez.", "Bir kahve, bir şarkı, bir derin nefes; devam edebiliriz.", "Öğlen saatlerinde şehir kalabalık, biz sakiniz.", "Königstraße'de alışveriş yapanlar, cüzdanınıza dikkat.", "Şimdi biraz keyifli bir şey çalalım, öğleden sonra ağır gelmesin.", "Kimi çalışıyor, kimi dinleniyor, kimi bizi dinliyor; hepsi güzel.", "Bu saatte radyo açan iş yerlerine özel selam.", "Arabada olanlar, kemerlerinizi takın, hızı aşmayın.", "Günün bu saatinde bir hoş sohbet iyi gelir.", "Okuldan çıkan gençler, eve doğru, ödevler bekliyor.", "İş yerinde mola veriyorsanız, bu şarkı tam molalık.", "Güneş batmadan söylenecek çok söz var dostlar.", "Öğle sonrası uykusu gelenler, bu şarkı uyandırır.", "Şehirde hayat akıyor, biz de akışa katılıyoruz.", "İkindi vakti geldi, çaylar yeniden demleniyor.", "Biraz hız keselim, sonra yeniden hızlanırız.", "Eve misafir gelecekler, temizlik bitti mi?", "Kirli çamaşırlar bekleyebilir, şarkı bekleyemez.", "Mutfakta yemek yapanlar, tuzu az koyun, şarkıyı çok.", "Gün ortası dertleri hafif olur, akşamı beklemeyin.", "Bu şarkı uzun bir toplantıdan çıkanlara gelsin.", "İşe yeni başlayanlara bol şans, eski çalışanlara sabır.", "Öğle güneşinde Schlossplatz'ın çimleri dolu, değil mi?", "Bugün kendinize küçük bir ödül verin; mesela tatlı.", "Akşama daha var ama keyfe hiç gerek yok beklemeye.", "Gün içinde gülümseyen insan sayısını artıralım.", "Telefon başında bekleyenler, o arama gelecek, sabır.", "Bir yerlere yetişmeye çalışanlar, nefes alın.", "Herkes bir yerlere koşuyor; biz buradayız, sabit.", "Günün ikinci yarısına güzel bir şarkıyla giriyoruz.", "Çalışan da dinlesin, dinlenen de çalışsın; şaka.", "Gün ışığı varken balkona çıkın, biraz güneş alın.", "Kahvehanede okey oynayanlar, taşları dikkatli dizin.", "Hayat bazen ağır ama şarkılar hafifletir.", "Öğleden sonra arabeski bir başka güzeldir.", "Şu an bir yerde biri eşlik ediyor, belli.", "Bugünün sorunları bugünle kalsın.", "İkindi çayı saati yaklaştı, hazırlıklar başlasın.", "Günün yarısı gitti, iyi ki gitmiş, şimdi güzel kısım geliyor.", "İşte sıkılanlar, bir tek siz değilsiniz, inanın.", "Öğle saatinde bir dost sesi, iyi gelir.", "Bu saatte yollar kalabalık, sabırlı olun.", "Kim ne derse desin, gündüz de arabesk dinlenir.", "Hayatın telaşına bir ara verelim.", "Öğlen saatlerinde bize eşlik eden herkese teşekkürler.", "Biraz güneş, biraz şarkı, biraz da muhabbet.", "Şu saatlerde kahvehanede yer bulmak zor, biliyoruz.", "Bugün de bir şeyler öğrendiyseniz, gün boşa geçmemiştir.", "Gün ortasında moral bozmak yok, devam.", "Herkesin bir derdi var ama herkesin bir de şarkısı var.", "Bu şarkı servis şoförlerine, dikkatli sürün ağabeyler.", "Öğleden sonra mesaisi başladı, enerjiyi şarkıdan alın.", "Bugün kendinize biraz zaman ayırın.", "Hava güzelse dışarı çıkın, değilse bizi dinleyin.", "Zor gün geçirenler, akşam yakın, biz de yakınız.", "Şimdi kısa bir mola, sonra devam ediyoruz.", "İşte, okulda, evde; neredeyseniz oraya selam."], "aksam": ["Akşam oldu, Stuttgart'ın ışıkları yanıyor.", "Eve dönenlere hayırlı akşamlar, yolunuz açık olsun.", "Akşam yemeği hazır mı? Biz şarkıyı hazırladık.", "Günün yorgunluğunu kapının önünde bırakın.", "Akşamlar ailece oturmak içindir, televizyonu kapatın, bizi açın.", "S-Bahn'dan inip eve yürüyenler, adımlarınız hafif olsun.", "Gün bitti, şimdi kendinize zaman.", "Akşamın serinliğinde bir çay, bir şarkı.", "Mutfaktan güzel kokular geliyor, biz buradan alıyoruz.", "Akşam yürüyüşüne çıkanlar, Killesberg'e uğrayın.", "Bu akşam kimseye kızmayın, akşam küsmek yoktur.", "İşten yorgun dönenler, ayakkabıları çıkarın, rahatlayın.", "Akşam saatleri muhabbet saatleridir.", "Günün en güzel saatlerinden biri, akşam üstü.", "Sofraya oturanlara afiyet olsun.", "Bu akşam bir yakınınızı arayın, sesini duyun.", "Akşam ezanı okundu mu, çaylar demlendi mi?", "Gün batımı kızıl, şarkılar sıcak.", "Akşamın bu saatinde şehir bir başka güzel.", "Yorgun ama mutlu; işte akşamın hâli.", "Akşam haberlerinden sıkılanlar, buyurun bize.", "Balkonda oturanlar, hırkanızı alın.", "Bu akşam bir tatlı yapın, hayat zaten acı.", "Akşam olunca arabesk ayrı yakışır.", "Eve geç kalanlar, haber verin, merak ederler.", "Akşamın ilk yıldızı görünüyor mu oralardan?", "Gün boyu koşturdunuz, şimdi oturun.", "Bu saatte radyo dinleyen aileler, selam size.", "Akşam sohbetlerinde dertler paylaşılır, biz de buradayız.", "Çocuklar ödevini bitirdi mi? Bitirdiyse bir şarkı hak ettiler.", "Akşamın kızıllığında bir hüzün vardır, güzel bir hüzün.", "Bu akşam kendinizi şımartın.", "Mesai bitti, keyif başladı.", "Akşamın bu saatinde arkadaşlarla buluşanlar, iyi eğlenceler.", "Gün bitiyor ama bizim yayın bitmiyor.", "Bu şarkı akşam yemeğini hazırlayan ellere gelsin.", "Akşam üstü trafiğindekiler, az kaldı.", "Bir gün daha geride kaldı, bir gün daha tecrübe.", "Akşamları şehir yavaşlar, biz de yavaşlıyoruz.", "Ev sıcak, çay sıcak, şarkı sıcak.", "Bu akşam ne yapıyorsunuz? Bizi dinliyorsunuz, bravo.", "Akşam serinliği gelince ceketi alın.", "Hayırlı akşamlar Stuttgart, Hemmingen'den Esslingen'e kadar.", "Gün içinde biriktirdiklerinizi şarkıya bırakın.", "Akşam yemeğinden sonra bir yürüyüş, iyi gelir.", "Işıklar yandı, akşam başladı, sohbet başladı.", "Akşamları anneler sorar: yemek yedin mi? Yediyseniz devam.", "Bugün yaptıklarınız için kendinizi bir kutlayın.", "Akşam güneşi Fernsehturm'u altın gibi boyamış.", "Akşamın bu saatinde güzel bir parça iyi gider.", "Akşam oldu, kahvehaneler doldu.", "İş yerinden çıkarken kapıyı kilitlemeyi unutmayın.", "Günün kapanışı için seçtiğimiz şarkılar geliyor.", "Akşam muhabbetinin tadı başka.", "Yorgunluk bir şarkıyla geçer mi? Deneyelim.", "Bu saatlerde evlerde çay bardakları şıngırdar.", "Akşam rüzgârı Neckar'dan esiyor.", "Gün batarken içimiz biraz da olsa ısınsın.", "Akşam saatlerini bizimle geçiren herkese teşekkür.", "Akşam olur, herkes evine; biz de sizin evinize misafiriz."], "stuttgart": ["Stuttgart bizim şehir; yokuşu da bizim, Wasen'i de bizim.", "Bad Cannstatt'tan Feuerbach'a, Zuffenhausen'den Vaihingen'e, selam olsun.", "Bu şehirde büyüyen herkes bilir; Stuttgart'ın sesi başkadır.", "Königstraße'de yürüyenler, bir dondurma da bizden yiyin.", "Schlossplatz'ın çimlerinde oturanlar, akşam serinliğine dikkat.", "Hemmingen'den dinleyenler, sizi unutmadık, en güzel şarkılar size.", "Stuttgart'ın yedi tepesi var derler, her tepede bir dinleyicimiz var.", "Bu şehirde doğduk, bu şehirde büyüdük; arabeskimiz de bu şehrin.", "Cumartesi gecesi Stuttgart canlı; Theodor-Heuss-Straße kalabalık.", "Neckar kıyısında yürüyüş yapanlar, ayağınızı ıslatmayın.", "Fernsehturm'dan bakınca şehir avucunun içinde; biz de öyle bakıyoruz.", "Stuttgart'ın her semtinde bir kahvehane, her kahvehanede bir radyo.", "Bu şehrin S-Bahn'ı gecikse de biz zamanında yayındayız.", "Bad Cannstatt'ın kaynak suyu, Stuttgart'ın bereketi.", "VfB maçından dönenler, sonuç ne olursa olsun, bu şarkı size.", "Killesberg'in kulesine çıkanlar, aşağıda bizi dinleyenler var.", "Stuttgart'ı Stuttgart yapan insanları; biz de onlardan biriyiz.", "Ludwigsburg'dan Esslingen'e, bölgenin bütün dostlarına selam.", "Bu şehrin yokuşlarını çıkan bacaklara sağlık.", "Wilhelma'nın hayvanları uyudu, biz uyumuyoruz.", "Stuttgart'ın gece ışıkları bizim için yanıyor.", "Bu şehirde herkesin bir hikâyesi var; şarkılar onları anlatıyor.", "Marienplatz'ta oturanlar, biraz da bizi dinleyin.", "Stuttgart'ın havası değişken, ama bu frekans hep sabit.", "Cannstatter Wasen kurulunca şehir şenlenir; biz zaten hep şenliz.", "Stadtbahn'da kulaklığıyla bizi dinleyenler, durağınızı kaçırmayın.", "Weihnachtsmarkt zamanı yaklaşıyor, sıcak şaraplar değil, sıcak çaylar bizden.", "Bu şehrin taşında toprağında bizim de emeğimiz var.", "Stuttgart'ta arabesk dinlemek, bu şehre bir başka renk katmak.", "Hauptbahnhof'tan geçenler, inşaat bitmedi ama şarkılar bitmez.", "Bu şehir bizi büyüttü; biz de ona şarkılarımızı verdik.", "Feuersee'nin kenarında oturanlara selam.", "Stuttgart'ın sokaklarında yürürken bu şarkı kulağınızda olsun.", "Bad Cannstatt'ın çarşısında esnafa selam, işleriniz rast gelsin.", "Kim ne derse desin, Stuttgart güzel şehir.", "Bizim şehir küçük gibi görünür ama gönlü büyüktür.", "Akşam Schlossplatz'ta buluşanlar, bu şarkı sizin buluşmanıza.", "Zuffenhausen'de işten çıkanlar, kolay gelsin.", "Bu şehrin tepeleri, vadileri, bağları; hepsi bizim manzaramız.", "Stuttgart ile gurur duyanlar, sesinizi duyuyoruz.", "Bu şehrin mutfağında köfte de var, maultasche de; şarkıda da her şey var.", "Stuttgart'ta yağmur yağar, güneş açar, biz yine buradayız.", "Bu şehrin S-Bahn haritasını ezbere bilenler, sizi tebrik ediyoruz.", "Stuttgart'ın kalbi Schlossplatz'ta atar, bizim kalbimiz plakta.", "Bu şehrin gençleri, geleceği siz yazacaksınız.", "Esslingen'in eski sokaklarında dolaşanlara selam.", "Vaihingen'deki öğrencilere selam, sınavlarınız kolay geçsin.", "Stuttgart'ın üzüm bağlarında hasat bitti, şarkı hasadı devam ediyor.", "Bu şehrin çok kültürlü sofrası, bizim arabeskimize de yer açar.", "Stuttgart'ın dört bir yanından dinleyenler, hepinize selam.", "Bu şehrin gece hayatı da bizim, gündüz telaşı da.", "Degerloch'tan şehrin ışıklarına bakanlar, manzara güzel mi?", "Stuttgart deyince akla otomobil gelir; bizde gönül gelir.", "Bu şehrin her köşesinde bir anı var, bu şarkı o anılara.", "Bizim şehrin insanı çalışkandır, ama dinlenmeyi de bilir.", "Stuttgart'ta doğan herkes bu frekansı bilir.", "Bu şehrin parkları, meydanları, kahveleri; hepsine selam.", "Stuttgart'ın sabırlı sürücüleri, Neckarstraße trafiğine dayanın.", "Bu şehirde yaşamak bir şans; şükredelim.", "Stuttgart bizim memleket, Gönül FM bizim radyo.", "Botnang'dan Möhringen'e bütün dinleyicilere selam.", "Bu şehrin merdivenli sokaklarını, Stäffele'leri bilenler bilir.", "Stuttgart'ın sonbaharında bağlar kızıla döner, ne güzel.", "Kornwestheim'dan, Ditzingen'den bizi dinleyenler, unutulmadınız.", "Bu şehrin gece trenleri, gece kuşları, gece radyosu; hepsi bizim.", "Bad Cannstatt köprüsünden geçerken Neckar'a bir bakın.", "Stuttgart'ın meydanlarında yankılanan şarkılar bizim şarkılarımız.", "Şehrin dört bir yanında kahvehaneler açık, radyolar açık.", "Bu şehirde komşuluk hâlâ yaşıyor, bir selam verin.", "Stuttgart'ın akşam ışıkları vadiyi altın gibi doldurur."]}, "INTRO": ["Şimdi kulaklar bizde: {B}.", "Sıradaki parça çok sevilenlerden: {B}.", "Bir klasik geliyor dostlar… {B}.", "Sesi biraz açın, çünkü şimdi {B}.", "Bu parçayı çalmadan geçmek olmazdı: {B}.", "Hazırsanız başlıyoruz: {B}.", "Bu şarkı bugün dertli olanlara gelsin: {B}.", "Biraz duygu, biraz ses, biraz da {A}… {T}.", "Sıradaki parçamızla devam: {B}.", "Bu bir istek parçası gibi ama değil, gönülden: {B}.", "Şimdi öyle bir şarkı ki, dinleyen bir daha dinler: {B}.", "Sahnede {A}… {T}.", "Fazla söze gerek yok: {B}.", "Bu şarkı kalbi kırık olanlara: {B}.", "Bir çay söyleyin, şarkı geliyor: {B}.", "Dinlemeye doyamadığımız bir parça: {B}.", "Şimdi hep birlikte eşlik edelim: {B}.", "Bu şarkıyı duyunca bir an durursunuz, görün bakın: {B}.", "Plak dönüyor, iğne yerinde: {B}.", "Ve karşınızda {A}… {T}!", "Az önce konuştuk, şimdi şarkı konuşsun: {B}.", "Bu parça hepimizin ortak hikâyesi: {B}.", "Arabeskin en güzel örneklerinden biri: {B}.", "Şimdi biraz ağır bir parça, ama hafifletecek: {B}.", "Bu şarkı Stuttgart'ın her köşesine: {B}.", "Kalbinizi hazırlayın: {B}.", "Plaklarımızın arasından seçtim, sizin için: {B}.", "Biraz geçmişe gidelim: {B}.", "Bu şarkıyı söylerken sesimiz kısılsa da olur: {B}.", "Ve şimdi, gönül telini titreten bir parça: {B}.", "Şarkı başlasın, dertler susun: {B}.", "Bu parçayı dinlerken gözlerinizi kapatın: {B}.", "Bir sonraki şarkımız çok özel: {B}.", "Hep birlikte, bir ağızdan: {B}.", "Sizden gelen bir istek değil ama sizin için: {B}.", "Bu şarkıyı ilk duyduğunuz yeri hatırlıyor musunuz? {B}.", "Kulaklar sonuna kadar açık: {B}.", "Şimdi biraz yükseliyoruz: {B}.", "Dertlinin dermanı geliyor: {B}.", "Bu parça yolda olanlara, eve gidenlere: {B}.", "Şimdi sırada {A} var, ne güzel… {T}.", "Bir şarkı ki, sözleri insanın içine işler: {B}.", "Bu şarkı sevenleri bir araya getirir: {B}.", "Plak değişti, hava değişti: {B}.", "Şimdi tam zamanı: {B}.", "Ve geliyor… {B}!", "Bu şarkıyla biraz nefes alalım: {B}.", "Bir sonraki parça tüylerinizi diken diken edecek: {B}.", "Sevenleri çok, dinleyenleri çok: {B}.", "Ses ver Stuttgart: {B}!", "Şimdi sakin ve derin bir parça: {B}.", "Hem dinleyelim hem düşünelim: {B}.", "Bu şarkı annelere, babalara, bütün aileye: {B}.", "Kaldığımız yerden devam ediyoruz: {B}.", "Bu parçanın her notası ayrı güzel: {B}.", "Gönül FM'den sizlere: {B}.", "Şarkılarla dertleşme saatindeyiz: {B}.", "Bu şarkıyı mırıldanmayan kalmasın: {B}.", "Şimdi biraz da {A} dinleyelim… {T}.", "Bir arabesk şaheseri: {B}.", "Bu şarkı bugün şehrin bütün kahvehanelerinde çalsın: {B}.", "Arkanıza yaslanın, gelsin: {B}.", "Sözleri ezbere bilenler, sesinizi duyalım: {B}.", "Ve şimdi plaktan, sizlere: {B}.", "Bu şarkının hikâyesini herkes kendi hayatında yazar: {B}.", "Bu şarkı geçmişe bir selam: {B}.", "Şimdi gönüllerin şarkısı: {B}.", "Biraz hüzün, biraz umut: {B}.", "Hep beraber dinliyoruz: {B}.", "Bu parça sabırla bekleyenlere: {B}.", "Ve söz şimdi şarkıda: {A}, {T}.", "Bu şarkı her dinlendiğinde yeni bir şey söyler: {B}.", "Ayrı bir yeri olan bir şarkı: {B}.", "Bu şarkı bu gecenin şarkısı olsun: {B}.", "Dostlar, şimdi bir efsane: {B}.", "Bir kez daha, gönülden: {B}.", "Ve şimdi en sevdiklerimizden: {B}.", "Bu şarkıyla birlikte sıcak bir çay: {B}.", "Hadi bakalım, eşlik etmeye hazır olun: {B}.", "Plakta sıra bu parçada: {B}."], "OUTRO": ["{T}… {A} ne güzel söyledi.", "Az önce {A} vardı, {T} çaldı.", "{T}, seslendiren {A}; alkışlar ona.", "Bu şarkı {A} imzalı {T} idi.", "{T}… Sözleri hâlâ kulağımızda.", "Dinlediğimiz parça {T}, sesi {A}.", "{A}, {T}; her dinleyişte ayrı tat.", "Ah {T}… {A} yine yaktı yıktı.", "{T} bitti ama tadı bitmedi.", "{A} ile {T}; bir klasik daha.", "Bu güzel parça {T} idi, {A} yorumuyla.", "{T}… Böyle şarkılar az yazılır.", "Bir şarkı daha geride kaldı: {T}, {A}.", "{T}, sesiyle {A}; teşekkürler.", "{T} ile biraz dertleştik, değil mi?", "İşte {T}, işte {A}; başka söze gerek yok.", "{T}… Bu şarkı başka bir zaman tekrar gelecek.", "{A} söyledi, biz dinledik: {T}.", "{T}; kalbe dokunan cinsten.", "{A} imzalı bu güzel parçanın adı {T}.", "{T}… Kimbilir kaç kişi eşlik etti.", "{A} ve {T}; arabeskin unutulmazlarından.", "{T} bitti, sıra yeni şarkıda.", "Bu şarkının adı {T}, unutmayın.", "{A} bizi yine duygulandırdı: {T}."], "OUTRO_NA": ["{T}… Ne güzel bir parçaydı.", "Dinlediğimiz şarkı {T} idi.", "{T} bitti ama tadı kaldı.", "Bir güzel parça daha: {T}.", "{T}… Böyle şarkılar az bulunur."], "LINERS": ["Gönül FM… Stuttgart'ın gönül sesi!", "Gönül FM, gönülden gönüle, gece gündüz!", "Burası Gönül FM… Arabesk burada çalar!", "Doksan sekiz nokta yedi… Gönül FM!", "Gönül FM… Dertler burada paylaşılır!", "Stuttgart dinliyor… Gönül FM!", "Gönül FM… Plak dönüyor, gönül dönüyor!", "Bu frekans sizin… Gönül FM!", "Gönül FM… Çay sıcak, şarkı sıcak!", "Arabeskin kalbi Stuttgart'ta atıyor… Gönül FM!", "Gönül FM… Hep yanınızda!", "Bir dost sesi… Gönül FM!", "Gönül FM… Damar arabeskin adresi!", "Stuttgart'ın arabesk radyosu… Gönül FM!", "Gönül FM… Kulağınızın pası silinsin!", "Bütün semtlere, bütün gönüllere… Gönül FM!", "Gönül FM… Bir plak, bir çay, bir muhabbet!", "Ses ver Stuttgart… Gönül FM!", "Gönül FM… Şarkılar susmaz!", "Doksan sekiz nokta yedide gönüller buluşur!", "Gönül FM… Gece de gündüz de burada!", "Arabeskin evi… Gönül FM!", "Gönül FM… Bu şehir bizim, bu ses bizim!", "Gönül FM… Dinleyen herkese selam!", "Kalpten kalbe… Gönül FM!"], "WX": {"acik": ["Gökyüzü pırıl pırıl, Stuttgart güzel bir gün yaşıyor.", "Hava açık, dışarı çıkmak için güzel bir fırsat.", "Bulut yok, gönülde de bulut olmasın.", "Açık havada Schlossplatz'ın çimleri dolmuştur.", "Güneş de bizi dinliyor sanki."], "kapali": ["Bulutlar şehrin üstünde, ama moralimiz yüksek.", "Gri bir gün, renkli şarkılarla açalım.", "Gökyüzü kapalı, çaylar açık.", "Bulutlu havada arabesk daha güzel gider.", "Güneş saklambaç oynuyor bugün."], "sis": ["Sis var, araç kullananlar farlarınızı yakın.", "Sisin içinde şehir masal gibi.", "Görüş mesafesi düşük, yavaş gidin dostlar.", "Sis kalkınca her şey daha net görünür.", "Neckar vadisi sise gömülmüş."], "yagmur": ["Yağmur yağıyor, şemsiyeleri unutmayın.", "Yağmur sesi ile arabesk, ikisi iyi anlaşır.", "Camlara vuran damlalar şarkıya eşlik ediyor.", "Islak sokaklarda dikkatli yürüyün.", "Yağmur bereket getirir derler."], "kar": ["Kar yağıyor, sıkı giyinin.", "Beyaz örtü şehrin üstünde, ne güzel.", "Kar yağarken sıcak bir çay şart.", "Yollar kaygan olabilir, dikkat edin.", "Kardan adam yapacaklar, eldivenleri unutmasın."], "firtina": ["Fırtına var, mecbur değilseniz dışarı çıkmayın.", "Rüzgâr sert, balkondaki eşyaları toplayın.", "Fırtınalı havada evde kalın, biz yanınızdayız.", "Gök gürlüyor, biz şarkıyla cevap veriyoruz.", "Fırtına geçer, şarkı kalır."]}};
   function outroLine(s) {
+    if (useRec()) return outroR();
     const a = (s.artist || '').trim(), t = title(s);
     return rnd(a ? [
       `${t}. Yorumlayan ${a}.`, `Dinlediğiniz parça ${t}, seslendiren ${a}.`, `${a} imzalı ${t} idi.`,
@@ -4902,6 +4904,7 @@ const Radio = (() => {
   for (const k in FM_LINES.G) MUSINGS[k] = (MUSINGS[k] || []).concat(FM_LINES.G[k]);
   FM_LINES.LINERS.forEach(x => LINERS.push(x));
   function opening() {
+    if (useRec()) return openingR();
     const b = block(), w = weather(), d = new Date();
     const p = [`${selam(d)} sevgili dinleyiciler.`, `Burası Gönül FM, frekansımız ${freqWords()}.`, `${b.n} kuşağıyla karşınızdayız.`];
     p.push(`${timeWords(d)}, bugün ${DAYS[d.getDay()]}.`);
@@ -4909,9 +4912,10 @@ const Radio = (() => {
     p.push(rnd(['Haydi başlayalım!', 'Arkanıza yaslanın… başlıyoruz!', 'Şarkılarımız sizinle!']));
     return p.join(' ');
   }
-  function blockChange(b) { return rnd([`${b.n} kuşağına hoş geldiniz.`, `Ve şimdi ${b.n}.`, `Saatler ilerledi, ${b.n} başlıyor.`]); }
+  function blockChange(b) { if (useRec()) return linerR(); return rnd([`${b.n} kuşağına hoş geldiniz.`, `Ve şimdi ${b.n}.`, `Saatler ilerledi, ${b.n} başlıyor.`]); }
   function segment() {
     const b = block(), w = weather(), r = Math.random();
+    if (useRec()) { const wr = weatherR(); return r < 0.3 && wr ? wr : r < 0.5 ? timeR(new Date(), true) : moodR(); }
     if (r < 0.35 && w) return w;
     if (r < 0.6) return '§SAAT';
     return rnd(MUSINGS[b.mood] || MUSINGS.gun);
@@ -4937,7 +4941,7 @@ const Radio = (() => {
   // cümle cümle okur (iPhone uzun metinde takılıyor); bitince çözülür
   // spiker: önce doğal ses (yapay zekâ), olmazsa iPhone sesi
   let vSrc = null;
-  function playVoice(buf, my) {
+  function playVoice(buf, my, gain) {
     const c = C(), o = OUT(); if (!c || !o) return Promise.resolve();
     return new Promise(res => {
       const s = c.createBufferSource(); s.buffer = buf;
@@ -4946,7 +4950,7 @@ const Radio = (() => {
       const lo = c.createBiquadFilter(); lo.type = 'lowshelf'; lo.frequency.value = 180; lo.gain.value = 3;
       const pr = c.createBiquadFilter(); pr.type = 'peaking'; pr.frequency.value = 3200; pr.Q.value = 0.9; pr.gain.value = 3.5;
       const cp = c.createDynamicsCompressor(); cp.threshold.value = -22; cp.ratio.value = 4; cp.attack.value = 0.004; cp.release.value = 0.18; cp.knee.value = 6;
-      const g = c.createGain(); g.gain.value = 1.45;
+      const g = c.createGain(); g.gain.value = gain || 1.45;
       let tail = g;
       if (cfg.oldRadio) { const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1500; bp.Q.value = 0.55; g.connect(bp); tail = bp; }
       s.connect(hp).connect(lo).connect(pr).connect(cp).connect(g); tail.connect(o);
@@ -4956,6 +4960,7 @@ const Radio = (() => {
   }
   function say(text, opt = {}) {
     const my = ++sayTok;
+    if (isR(text)) return sayRec(text, my, opt);
     sub(text);
     if (!text) return Promise.resolve();
     if (NV.use) {
@@ -4993,6 +4998,191 @@ const Radio = (() => {
     });
   }
   function hush() { sayTok++; try { TTS && TTS.cancel(); } catch (e) {} if (vSrc) { try { vSrc.stop(); } catch (e) {} vSrc = null; } lamp(false); }
+
+  /* ---------------------------------------------------------------- Ryan: kayıtlı spiker sesi
+     Eren'in okuduğu parçalar (fm/NN-KK.mp3), yapay zekâyla "Ryan" sesine çevrildi.
+     Saat, hava, S-Bahn, trafik ve uyarılar bu parçalar birleştirilerek o anki veriyle söylenir.
+     Satır biçimi: "§R:01-03 02-20#altyazı" — plan/prep/say zinciri metin gibi taşır. */
+  const REC_V = VERSION;
+  const useRec = () => cfg.rec !== false;
+  const p2 = n => String(n).padStart(2, '0');
+  const R = (ids, cap) => '§R:' + ids.filter(Boolean).join(' ') + '#' + (cap || '');
+  const isR = t => typeof t === 'string' && t.startsWith('§R:');
+  const parseR = t => { const i = t.indexOf('#'); return { ids: t.slice(3, i).split(' ').filter(Boolean), cap: t.slice(i + 1) }; };
+  const CAP = {
+    '01': ['Gönül FM, Stuttgart\'ın arabesk frekansı!', 'Burası Gönül FM. Dertler bizden, şarkılar sizden.', 'Gönül FM\'desiniz, sesi biraz açın, bu şarkılar kısık dinlenmez.', 'İyi ki geldiniz, Gönül FM yayında.', 'Stuttgart\'tan sevgilerle, Gönül FM.', 'Hoş geldiniz, kahveniz, çayınız hazırsa başlıyoruz.', 'Gönül FM, kalbin çaldığı yer.', 'Arabaya binen, mutfakta olan, işte olan herkese merhaba. Gönül FM!', 'Ben buradayım, şarkılar burada, siz de buradasınız. Daha ne olsun.', 'Gönül FM. Yüksek sesle, bol efkârla.', 'Kanalı değiştirmeyin, en güzeli daha gelmedi.', 'Bad Cannstatt\'a, Zuffenhausen\'a, Hemmingen\'e, bütün Stuttgart\'a selam olsun!', 'Gönül FM, saat kaç olursa olsun yanınızda.', 'Az konuşup çok çalan radyo: Gönül FM.', 'Bu radyo gece de susmaz, gündüz de susmaz.', 'Geri döndük! Gönül FM kaldığı yerden devam ediyor.', 'Biraz müzik, biraz muhabbet, Gönül FM.', 'Telefonunuz cebinizde, gönlünüz Gönül FM\'de.', 'Sizi bekletmeyelim, müzik geliyor.', 'Gönül FM\'den herkese iyi dinlemeler.'],
+    '09': ['Bu şarkıyı sesi sonuna kadar açıp dinleyin.', 'Şimdi öyle bir şarkı geliyor ki, yüreği olan dayanamaz.', 'Bu şarkı benim, sen sadece dinle.', 'Kimin aklına kim geliyorsa, bu şarkı onun için.', 'Hazır mısınız? Çünkü ben değilim.', 'Bu şarkıyı duyduğum günü hâlâ çok iyi hatırlıyorum.', 'Yavaş yavaş girelim. Acelesi yok.', 'Mendilleri hazırlayın gençler.', 'Bir sigara yakmadan bunu dinlemek olmaz derdi babam. Siz yakmayın ama, yüreğinizle dinleyin.', 'Bu şarkıda bir şey var. Anlatılmaz, dinlenir. Dinlemek için birkaç şey yaşamanız gerekir.', 'Eşlik edenleri duyuyorum. Devam, durmak yok!', 'Şimdi biraz hızlanıyoruz.', 'Şimdi biraz yavaşlıyoruz.', 'İstek parçamız geliyor.', 'Bunu duyunca arabada camı açıp bağıran varsa, selam olsun.', 'Klasik. Söze gerek yok.', 'Bir tane daha, sonra biraz konuşuruz.', 'Bu şarkıyı bir dinleyin, sonra muhabbete geçeriz.', 'Ben susuyorum, şarkı konuşsun.', 'Ses sizde.'],
+    '10': ['Ah be dostlar, ne şarkıydı ama.', 'Bu şarkıdan sonra bir dakika susmak lazım bence.', 'Hâlâ tüylerim diken diken.', 'İşte buna arabesk deniyor.', 'Kim yazdıysa ellerine sağlık. Çok güzel yazmış vallahi.', 'Bu şarkı her dinleyişte başka bir yerden vuruyor.', 'Söylemeye gerek yok, siz de hissettiniz zaten.', 'Güzeldi değil mi? Devam ediyoruz.', 'Şimdi bir nefes alalım.', 'Böyle şarkılar artık yapılmıyor.', 'Bunu tekrar çalsam kızar mısınız? Neyse, sonraya bırakalım.', 'Gözü dolan varsa ayıp değil.', 'Biri bu şarkıyı bana ithaf etsin artık.', 'Bir dahakine daha yüksek sesle.', 'Şarkı bitti ama içimizde çalmaya devam ediyor.', 'Bundan sonra gelen de az değil.', 'Bekleyin bekleyin, daha bitmedi.', 'Bu daha bir şey değil, bunun daha ötesi var.', 'Böyle, aynen bu ritimde devam.'],
+    '11': ['Gece yarısını geçtik, uyuyamayanlar burada.', 'Bu saatte uyanık olan ya âşıktır ya dertli… ya da üçü birden.', 'Herkes uyurken biz şarkı dinliyoruz.', 'Gece uzun, şarkılar da uzun.', 'Şehrin ışıkları sönüyor, bizimki hâlâ yanık.', 'Bu saatte elinde telefon, mesaj atmayı düşünen varsa: atma. Şarkıyı dinle.', 'Gecenin bu saatinde düşünceler ağırlaşır, şarkılar hafifletir.', 'Gece vardiyasında olanlar kolay gelsin. Allah güç kuvvet versin.', 'Taksi şoförlerine, gece çalışan herkese selam olsun.', 'Bu gece biraz efkârlıyız. Kabul etmek zorundayız bunu gençler.', 'Uyku gelmiyorsa, şarkı gelsin.', 'Sabaha az kaldı, dayanın.', 'Yalnız değilsin, Gönül FM burada.', 'Bir çay daha koy, gece daha bitmedi.'],
+    '12': ['Evet, günaydın Stuttgart!', 'Uyandınız mı? Kalkın kalkın, gün başlıyor.', 'S-Bahn\'a yetişmeye çalışanlar, koşmayın, önce bilgiyi dinleyin.', 'Kahvaltı hazır mı bilmem ama müzik hazır. Her zamanki gibi.', 'Okula, işe gidenlere kolay gelsin.', 'Bugün güzel bir gün olacak, hissediyorum. Siz de inanın.', 'Sabah sabah arabesk. Kimse bizi anlamaz ama olsun.', 'Biz arabeskle sevdik, arabeskle mutlu olduk. Anlamazlarsa boş verin.', 'Gözünü açamayanlar için biraz ses açıyorum.', 'Günaydın sevgili dinleyiciler. Çayınızı demleyin, dertlerinizi azaltın.', 'Yeni bir gün, yeni bir şarkı.'],
+    '13': ['Öğle arası, biraz nefes alalım.', 'İşte olanlar, kulaklıkları takın.', 'Öğleden sonra yorgunluğu var mı? Şarkı geliyor.', 'Mesai bitti mi? Bitti! Eve dönüş şarkıları başlıyor.', 'İyi akşamlar Stuttgart.', 'Akşam yemeğini yiyenlere afiyet olsun.', 'Günün yorgunluğunu atıyoruz.', 'Akşam oldu, ışıklar yandı, şarkılar başladı.', 'Yarın yine iş var ama bu akşam bizim.', 'Balkona çıkın, bir şarkı da oradan dinleyin. Takmayın bu kadar kafanıza.'],
+    '14': ['Cuma geldi, hafta bitti, bayram başladı!', 'Hafta sonu! Bugün acele yok.', 'Pazar sabahı, ağır ağır.', 'Pazartesi… Biliyorum, zor. Ama bir şarkıyla atlatırız.', 'Bugün VfB\'nin maçı var, stadyuma gidenlere selam olsun!', 'VfB kazandı! Bu akşam şarkılar bir daha güzel.', 'VfB kaybetti… Hayırlısı buymuş. Arabeske devam.', 'Bayramınız mübarek olsun!', 'Yeni yılınız kutlu olsun Stuttgart!', 'Bugün doğum günü olan varsa, bu şarkı onun için.'],
+    '15': ['Evet, durum bu kadar, müziğe geri dönüyoruz.', 'Haberler bitti, şimdi gönlü dinlendirme zamanı.', 'Bilgiler benden, şarkılar sizden.', 'Bir sonraki bültende görüşürüz.', 'Gönül FM\'i dinlediğiniz için sağ olun.', 'Kendinize iyi bakın, Gönül FM\'den sevgiler.']
+  };
+  const cap = id => { const [s, k] = id.split('-'); return (CAP[s] && CAP[s][+k - 1]) || ''; };
+  // tekrar etmesin: son kullanılanları hatırla
+  let recUsed = LS.get('gp-fm-rec-used', []);
+  function pickC(sec, ks) {
+    const all = ks.map(k => sec + '-' + p2(k)), fresh = all.filter(x => !recUsed.includes(x));
+    const id = rnd(fresh.length ? fresh : all);
+    recUsed.push(id); recUsed = recUsed.slice(-40); LS.set('gp-fm-rec-used', recUsed);
+    return id;
+  }
+  const rng = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  const numC = n => (n >= 0 && n <= 60) ? '03-' + p2(n + 1) : n === 90 ? '03-62' : null;
+  const degC = t => t < 0 ? ['03-63', numC(Math.min(60, -t))] : [numC(Math.min(60, t))];
+  // saat: "Saat on dokuz" + "otuz" / "buçuk" / "tam"
+  function timeR(d = new Date(), withLiner) {
+    const h = d.getHours(), m = d.getMinutes();
+    const ids = ['02-' + p2(h + 1), m === 0 ? '02-25' : m === 30 ? '02-26' : numC(m)];
+    if (withLiner) ids.unshift(pickC('01', [1, 7, 10, 14]));
+    return R(ids, `Saat ${p2(h)}:${p2(m)}`);
+  }
+  // hava: "Stuttgart'ta hava şu an" + derece + gökyüzü (+ bir öneri)
+  function weatherR() {
+    const w = LS.get('gp-wx', null); if (!w || Date.now() - (w.at || 0) > 3 * 3600e3) return null;
+    const c = w.code, t = w.t, night = w.day != null ? !w.day : (new Date().getHours() < 7 || new Date().getHours() >= 18);
+    const sky = c <= 1 ? (night ? null : '05-07') : c === 2 ? '05-08' : c === 3 ? '05-09' : c <= 48 ? '05-14' : c <= 61 ? '05-10' : c <= 65 ? '05-11' : c <= 67 ? '05-13' : c <= 77 ? '05-12' : c <= 82 ? '05-11' : c <= 86 ? '05-12' : '05-17';
+    const ids = ['05-01', ...degC(t), '03-64', sky];
+    let tip = null;
+    if (c >= 51 && c <= 82 && !(c >= 71 && c <= 77)) tip = '05-21';
+    else if (t <= 0 && chance(0.6)) tip = '05-18';
+    else if (t < 6) tip = '05-22';
+    else if (t >= 33) tip = '05-20';
+    else if (t >= 27) tip = '05-19';
+    else if (!night && c <= 2 && t >= 12) tip = rnd(['05-23', '05-24', '05-25']);
+    else if (chance(0.4)) tip = '05-26';
+    if (tip && chance(0.75)) ids.push(tip);
+    const skyTxt = { '05-07': 'güneşli', '05-08': 'parçalı bulutlu', '05-09': 'kapalı', '05-14': 'sisli', '05-10': 'hafif yağmur', '05-11': 'sağanak', '05-13': 'karla karışık yağmur', '05-12': 'kar', '05-17': 'gök gürültülü sağanak' }[sky] || 'açık';
+    return R(ids, `Stuttgart: ${t}°, ${skyTxt}`);
+  }
+  // sanatçı: senin doğaçlama girişlerin
+  const ART = [[/m[üu]sl[üu]m|g[üu]rses/i, 1], [/ferdi|tayfur/i, 2], [/orhan|gencebay/i, 3], [/bergen/i, 4], [/tatl[ıi]ses|ibrahim tat/i, 5], [/hakan alt[ıu]n/i, 6], [/kibariye/i, 7], [/[üu]mit besen/i, 8], [/kurto[gğ]lu/i, 9], [/azer|b[üu]lb[üu]l/i, 10], [/emrah/i, 11], [/mahsun|k[ıi]rm[ıi]z[ıi]g[üu]l/i, 12], [/g[üu]ll[üu]\b/i, 13], [/hakk[ıi] bulut/i, 14], [/ahmet kaya/i, 15], [/g[öo]khan g[üu]ney/i, 16], [/seyfi|do[gğ]anay/i, 17]];
+  const artC = s => { const a = (s && s.artist) || ''; for (const [re, k] of ART) if (re.test(a)) return '08-' + p2(k); return null; };
+  function introR(s) {
+    const a = artC(s), t = title(s), lab = (s.artist ? s.artist + ' – ' : '') + t;
+    if (a && chance(0.75)) return R(chance(0.3) ? [pickC('09', rng(1, 20)), a] : [a], lab);
+    const id = pickC('09', rng(1, 20)); return R([id], cap(id) + ' · ' + lab);
+  }
+  function outroR() { const id = pickC('10', rng(1, 19)); return R([id], cap(id)); }
+  function linerR() { const id = pickC('01', [1, 2, 3, 5, 7, 10, 11, 14, 17, 18]); return R([id], cap(id)); }
+  function moodR(d = new Date()) {
+    const h = d.getHours(), wd = d.getDay(), mo = d.getMonth(), dt = d.getDate();
+    const sp = [];
+    if ((mo === 11 && dt === 31 && h >= 18) || (mo === 0 && dt === 1)) sp.push(9);
+    if (wd === 5 && h >= 13) sp.push(1);
+    if ((wd === 6 || wd === 0) && h >= 8 && h < 20) sp.push(2);
+    if (wd === 0 && h >= 7 && h < 12) sp.push(3);
+    if (wd === 1 && h >= 5 && h < 12) sp.push(4);
+    if (sp.length && chance(0.45)) { const id = pickC('14', sp); return R([id], cap(id)); }
+    let id;
+    if (h >= 23 || h < 5) id = pickC('11', rng(1, 14).filter(k => h >= 4 || k !== 12));
+    else if (h < 10) id = pickC('12', rng(1, 11));
+    else if (h < 16) id = pickC('13', [1, 2, 3]);
+    else if (h < 19) id = pickC('13', wd >= 1 && wd <= 5 ? [3, 4, 5, 7] : [5, 7, 8]);
+    else id = pickC('13', h < 21 ? [5, 6, 7, 8, 9, 10] : [7, 8, 9, 10]);
+    return R([id], cap(id));
+  }
+  function openingR() {
+    const d = new Date(), w = weatherR();
+    const op = pickC('01', [1, 2, 4, 6, 8, 12, 13, 16, 20]);
+    const ids = [op, ...parseR(timeR(d)).ids];
+    if (w) ids.push(...parseR(w).ids);
+    ids.push(pickC('01', [3, 19]));
+    return R(ids, cap(op));
+  }
+  // S-Bahn / trafik / uyarı parçaları
+  const LINE = { S1: 1, S2: 2, S3: 3, S4: 4, S5: 5, S6: 6, S60: 7 };
+  const lineC = l => { const m = /S\s?(\d+)/i.exec(l || ''); const k = m && LINE['S' + m[1]]; return k ? '04-' + p2(k) : null; };
+  const DIRS = [[/kirchheim/i, 12], [/herrenberg/i, 13], [/schorndorf/i, 14], [/filderstadt|bernhausen/i, 15], [/backnang/i, 16], [/flughafen|messe/i, 17], [/marbach/i, 18], [/bietigheim/i, 19], [/schwabstr/i, 20], [/weil der stadt/i, 21], [/b[öo]blingen/i, 22]];
+  const dirC = d => { for (const [re, k] of DIRS) if (re.test(d || '')) return '04-' + p2(k); return null; };
+  const PLACES = [[/hauptbahnhof|\bhbf\b/i, 24], [/stadtmitte|rotebühl/i, 25], [/feuersee/i, 26], [/schwabstr/i, 27], [/cannstatt/i, 28], [/vaihingen/i, 29], [/zuffenhausen/i, 30], [/feuerbach/i, 31], [/ludwigsburg/i, 32], [/esslingen/i, 33], [/korntal/i, 34], [/b[öo]blingen/i, 35], [/flughafen/i, 36]];
+  const placeC = t => { for (const [re, k] of PLACES) if (re.test(t || '')) return '04-' + p2(k); return null; };
+  function sbInfoC(t) {
+    if (/stammstrecke/i.test(t) && /sperr|unterbroch|eingestellt|kein/i.test(t)) return '04-39';
+    if (/ersatzverkehr|\bsev\b|busse/i.test(t)) return '04-40';
+    if (/person(en)? im gleis/i.test(t)) return '04-45';
+    if (/polizei/i.test(t)) return '04-46';
+    if (/signal/i.test(t)) return '04-43';
+    if (/störung|technisch|reparatur/i.test(t)) return '04-44';
+    if (/ausf[äa]ll|eingeschränkt|takt/i.test(t)) return '04-41';
+    return null;
+  }
+  function bulletinR(sb, roads) {
+    const ids = [], cap2 = [];
+    if (sb) {
+      const late = Object.entries(sb.late).sort((a, b) => b[1].m - a[1].m).slice(0, 3);
+      for (const [l, x] of late) {
+        const lc = lineC(l); if (!lc) continue;
+        ids.push(lc, dirC(x.dest), numC(Math.min(60, x.m)), '04-37'); cap2.push(`${l} → ${x.dest}: ${x.m} dk gecikme`);
+      }
+      for (const c of (sb.cancRaw || []).slice(0, 2)) { const lc = lineC(c.line); if (!lc) continue; ids.push(lc, dirC(c.dest), '04-38'); cap2.push(`${c.line} → ${c.dest}: iptal`); }
+      const seen = new Set();
+      for (const t of sb.infos) { const k = sbInfoC(t); if (k && !seen.has(k)) { seen.add(k); ids.push(placeC(t), k); cap2.push(t.slice(0, 80)); } if (seen.size >= 2) break; }
+      if (!ids.length) { ids.push('04-48'); cap2.push('S-Bahn: her şey yolunda'); }
+      ids.push('04-47');
+    }
+    let rn = 0;
+    for (const r of roads || []) {
+      const road = /^A\s?81/i.test(r) ? '06-01' : /^A\s?8\b/i.test(r) ? '06-02' : null; if (!road) continue;
+      const km = /(\d+(?:[.,]\d)?)\s*km/i.exec(r), part = [road];
+      if (/leonberg/i.test(r)) part.push('06-09'); else if (/stuttgart/i.test(r)) part.push('06-10');
+      if (/unfall/i.test(r)) part.push('06-11');
+      if (km && /stau/i.test(r)) part.push(numC(Math.min(60, Math.round(parseFloat(km[1].replace(',', '.'))))), '06-12');
+      else if (/stau|stockend|dicht/i.test(r)) part.push('06-13');
+      if (/vollsperrung|gesperrt|sperrung/i.test(r) && !/fahrstreifen/i.test(r)) part.push('06-15');
+      else if (/fahrstreifen/i.test(r)) part.push('06-16');
+      else if (/baustelle|arbeiten/i.test(r)) part.push('06-14');
+      if (part.length < 2) continue;
+      ids.push(...part); cap2.push(r.slice(0, 80)); if (++rn >= 2) break;
+    }
+    if (sb && !rn && chance(0.5)) { ids.push('06-18'); }
+    if (!ids.length) return null;
+    ids.push(pickC('15', [1, 2, 3, 4]));
+    return R(ids, '🚆 ' + cap2.join(' · '));
+  }
+  function alertR(f) {
+    const t = f.text || '', nina = !/vvs/i.test(f.src || ''), ids = ['07-02'];
+    const kind = /bomb|spreng/i.test(t) ? '07-03' : /verdächtig|gegenstand|koffer|paket|gepäck/i.test(t) ? '07-04' : /polizei/i.test(t) ? '07-05' : nina ? '07-09' : '07-01';
+    ids.push(placeC(t), kind);
+    if (/räum|evakuier|polizei|bomb|verdächtig|gefahr/i.test(t)) ids.push('07-06', '07-07');
+    if (!nina) { const k = sbInfoC(t); if (/kein zugverkehr|eingestellt|unterbrochen|halt(en)? nicht|ohne halt/i.test(t)) ids.push('07-08'); else if (k) ids.push(k); }
+    if (nina && /extreme|severe|fenster|türen|innenr/i.test((f.sev || '') + ' ' + t)) ids.push('07-10');
+    ids.push('07-11');
+    return R(ids, '⚠️ ' + (f.src || '') + ': ' + t.slice(0, 140));
+  }
+  // parçaları indir, çöz, birleştir
+  const recBuf = new Map(), recLoad = new Map();
+  function recGet(id) {
+    if (recBuf.has(id)) return Promise.resolve(recBuf.get(id));
+    if (!recLoad.has(id)) recLoad.set(id, fetch(`fm/${id}.mp3?v=${REC_V}`).then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status))
+      .then(ab => new Promise((res, rej) => C().decodeAudioData(ab, res, rej)))
+      .then(b => { recBuf.set(id, b); recLoad.delete(id); return b; }, () => { recLoad.delete(id); return null; }));
+    return recLoad.get(id);
+  }
+  const recPrep = t => { if (isR(t) && C()) parseR(t).ids.forEach(recGet); };
+  async function recJoin(ids) {
+    const c = C(); if (!c) return null;
+    const bs = (await Promise.all(ids.map(recGet))).filter(Boolean); if (!bs.length) return null;
+    const sr = c.sampleRate, gap = Math.round(sr * 0.14);
+    const len = bs.reduce((a, b) => a + Math.ceil(b.duration * sr) + gap, 0);
+    const out = c.createBuffer(1, len, sr), o = out.getChannelData(0);
+    let pos = 0;
+    for (const b of bs) {
+      let d = b.getChannelData(0);
+      if (b.sampleRate !== sr) { const r = b.sampleRate / sr, n = Math.floor(d.length / r), x = new Float32Array(n); for (let i = 0; i < n; i++) x[i] = d[Math.floor(i * r)]; d = x; }
+      o.set(d.subarray(0, Math.min(d.length, len - pos)), pos); pos += d.length + gap;
+    }
+    return out;
+  }
+  async function sayRec(text, my, opt) {
+    const { ids, cap: c } = parseR(text);
+    sub(c); lamp(true);
+    const buf = await Promise.race([recJoin(ids), sleep(opt.wait || 9000).then(() => null)]);
+    if (my !== sayTok || !on) return;
+    if (buf) await playVoice(buf, my, 1.1);
+    if (my === sayTok) { lamp(false); setTimeout(() => { if (my === sayTok) sub(''); }, 1500); }
+  }
 
   /* ---------------------------------------------------------------- ses: üretilen radyo sesleri */
   const C = () => Engine.ctx;
@@ -5123,7 +5313,7 @@ const Radio = (() => {
     const c = C(), o = OUT(), b = makeJingle(); if (!c || !o || !b) return;
     const s = c.createBufferSource(), g = c.createGain(); g.gain.value = 0.9; s.buffer = b; s.connect(g).connect(o); s.start();
     await sleep(2400);
-    if (withLiner) await Promise.all([say(rnd(LINERS)), sleep(1800)]); else await sleep(2000);
+    if (withLiner) await Promise.all([say(useRec() ? linerR() : rnd(LINERS)), sleep(1800)]); else await sleep(2000);
   }
 
   /* ---------------------------------------------------------------- şarkı seçimi */
@@ -5148,7 +5338,7 @@ const Radio = (() => {
   let use = LS.get('gp-fm-ai', { m: mon(), usd: 0, n: 0 });
   if (use.m !== mon()) use = { m: mon(), usd: 0, n: 0 };
   let aiPause = 0, aiErr = '', aiSaid = LS.get('gp-fm-said', []);
-  const aiOk = () => cfg.ai !== false && !!AI.key && Date.now() > aiPause && use.usd * 0.95 < (cfg.aiLimit || 2) && navigator.onLine !== false;
+  const aiOk = () => !useRec() && cfg.ai !== false && !!AI.key && Date.now() > aiPause && use.usd * 0.95 < (cfg.aiLimit || 2) && navigator.onLine !== false;
   const SYS = `Sen "Gönül FM 98,7"nin gece-gündüz mikrofon başındaki spikeri Selim Ağabey'sin. Yaşın elliyi geçmiş, Bad Cannstatt'ta doğup büyümüş bir Stuttgartlısın; yıllarca bir kahvehanenin üstündeki küçük stüdyodan yayın yapmışsın. Arabeski, kaset devrini, Stuttgart'ın Türklerini ve bu şehrin her sokağını çok iyi bilirsin. Stuttgart senin memleketin, dinleyicilerinin de memleketi; Stuttgart'ı asla gurbet ya da yabancı bir yer gibi anlatmazsın, 'gönül memlekette' türü sıla özlemi klişeleri yapmazsın. Sesin sıcak, biraz buğulu; dinleyicine "dostlar", "sevgili dinleyiciler", "güzel insanlar" diye seslenirsin. Ağlak değilsin; hüzünle espriyi karıştırırsın, arada kendinle dalga geçersin, çay demlemekten, stüdyonun eski mikrofonundan, Neckar kıyısından bahsedersin. Klişe cümleleri tekrar etmezsin, her araya girişin farklı olur.
 
 Kurallar:
@@ -5248,13 +5438,14 @@ Kurallar:
     const deps = await SB.hubDeps(), now = Date.now();
     const soon = deps.filter(d => d.planned > now - 5 * 60000 && d.planned < now + 45 * 60000);
     if (!soon.length) return null;
-    const late = {}, canc = [], infos = new Set();
+    const late = {}, canc = [], cancRaw = [], infos = new Set();
     for (const d of soon) {
+      if (d.cancelled) cancRaw.push({ line: d.line, dest: d.dest });
       if (d.cancelled) canc.push(`${d.line} ${spokenPlace(d.dest)} yönü, planlanan ${new Date(d.planned).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`);
       else if (d.est) { const m = Math.round((d.est - d.planned) / 60000); if (m >= 3 && (!late[d.line] || late[d.line].m < m)) late[d.line] = { m, dest: spokenPlace(d.dest) }; }
       d.info.forEach(x => infos.add(strip(x)));
     }
-    return { n: soon.length, late, canc: canc.slice(0, 4), infos: [...infos].slice(0, 5), at: now };
+    return { n: soon.length, late, canc: canc.slice(0, 4), cancRaw, infos: [...infos].slice(0, 5), at: now };
   }
   async function getJ(urls, ms = 9000) {
     for (const u of urls) {
@@ -5342,6 +5533,7 @@ Kurallar:
     lastBul = Date.now();
     const [sb, roads, nina] = await Promise.all([sbNow().catch(() => null), roadsNow().catch(() => []), ninaNow().catch(() => [])]);
     if (!sb && !roads.length && !nina.length) return null;
+    if (useRec()) return bulletinR(sb, roads);
     const txt = (await aiNews('bul', bulletinData(sb, roads, nina))) || bulletinTpl(sb);
     if (txt) aiLines.add(txt);
     return txt;
@@ -5373,11 +5565,12 @@ Kurallar:
     if (!fresh || !on) return;
     alertBusy = true; markSaid(fresh.key);
     try {
-      const txt = (await aiNews('alert', fresh)) || `${fresh.src} kaynağından bir duyuru var. ${fresh.text}`;
+      const txt = useRec() ? alertR(fresh) : (await aiNews('alert', fresh)) || `${fresh.src} kaynağından bir duyuru var. ${fresh.text}`;
+      if (useRec()) recPrep(txt);
       if (!on) return;
       hush(); rampDuck(0.07, 700); await sleep(700); gong(); await sleep(2300);
-      aiLines.add('Acil duyuru! ' + txt);
-      await say('Acil duyuru! ' + txt, { wait: 15000 });
+      if (!useRec()) aiLines.add('Acil duyuru! ' + txt);
+      await say(useRec() ? txt : 'Acil duyuru! ' + txt, { wait: 15000 });
       await sleep(400); if (on) rampDuck(1, 1500);
       toast('📢 ' + fresh.src + ': ' + fresh.text.slice(0, 120), 7000);
     } finally { alertBusy = false; }
@@ -5395,7 +5588,7 @@ Kurallar:
      şarkılar arasında fon müziğiyle "ara" (kapanış + hava/saat/sohbet + sıradaki parça). */
   const P = () => [[0.45, 0.3, 4, 4, 0.35], [0.7, 0.5, 2, 3, 0.5], [0.9, 0.75, 1, 2, 0.65]][cfg.talk] || [0.7, 0.5, 2, 3, 0.5]; // [giriş, kapanış, ara konuşma her N, jingle her N, ara olasılığı]
   let flowTok = 0, plan = null;
-  const prep = t => { if (t && t !== '§SAAT' && NV.use) NV.get(t).catch(() => {}); return t; };
+  const prep = t => { if (isR(t)) { recPrep(t); return t; } if (t && t !== '§SAAT' && NV.use) NV.get(t).catch(() => {}); return t; };
   function makePlan() {
     const s = pick(); if (!s) return null;
     const [pIn, pOut, pSeg, pJin, pBrk] = P();
@@ -5476,7 +5669,7 @@ Kurallar:
     if (Engine.playing && d.getMinutes() === 59 && d.getSeconds() >= 50 && d.getSeconds() < 55 && lastPipHour !== d.getHours()) {
       lastPipHour = d.getHours();
       const top = new Date(d.getTime() + 60000); top.setSeconds(0, 0);
-      const txt = prep(`Gönül FM. ${timeWords(top)}. ${block(top).n} devam ediyor.`);
+      const txt = prep(useRec() ? timeR(top, true) : `Gönül FM. ${timeWords(top)}. ${block(top).n} devam ediyor.`);
       const ms = top - d - 5000;
       setTimeout(() => { if (on) rampDuck(0.12, 900); }, Math.max(0, ms - 1000));
       pips(ms);
@@ -5665,7 +5858,7 @@ Kurallar:
   }
 
   setTimeout(build, 0);
-  return { _news: { bulletin: () => bulletin(), scanUrgent: () => scanUrgent(), sbNow: () => sbNow(), roadsNow: () => roadsNow() }, aiTest, aiUse: () => ({ usd: use.usd, n: use.n, err: aiErr, ok: aiOk() }), get on() { return on; }, get own() { return own; }, start, stop, skip, onEnd, open, say, block, timeWords, opening, introLine, outroLine, segment, _cfg: cfg };
+  return { _rec: { timeR, weatherR, introR, outroR, moodR, openingR, bulletinR, alertR, linerR, say: t => { const was = on; on = true; return say(t).finally(() => { on = was; }); } }, _news: { bulletin: () => bulletin(), scanUrgent: () => scanUrgent(), sbNow: () => sbNow(), roadsNow: () => roadsNow() }, aiTest, aiUse: () => ({ usd: use.usd, n: use.n, err: aiErr, ok: aiOk() }), get on() { return on; }, get own() { return own; }, start, stop, skip, onEnd, open, say, block, timeWords, opening, introLine, outroLine, segment, _cfg: cfg };
 })();
 
 if (/[?&]fmtest=1/.test(location.search)) window.__gp = { App, Engine, Radio, NV };
