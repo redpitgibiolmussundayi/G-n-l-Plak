@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 62;
+const VERSION = 63;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -3814,7 +3814,7 @@ const Rack = (() => {
 const GAMES = {
   bilardo: { file: 'bilardo.html', t: 'Bilardo', d: '8-Ball ve 9-Ball · 2D veya 3D · arkadaşınla online', img: 'bl-th-stg.webp' },
   kiraathane: { file: 'kiraathane.html', t: 'Kıraathane 3D', d: 'Stuttgart kıraathanesi · okey, bilardo, nargile, TV, plak · arkadaşlarınla online', img: 'kh-th.webp' },
-  stadt: { file: 'stadt.html', t: 'Stuttgart', d: 'Gerçek Stuttgart · açık dünya · ilk bölge: Schlossplatz', img: 'pano-sonbahar-gunduz.webp' },
+  stadt: { file: 'stadt.html', t: 'Stuttgart', d: 'Açık dünya · ilk bölge: Schlossplatz · senin fotoğraflarınla', img: 'pano-sonbahar-gunduz.webp' },
   okey: { file: 'okey.html', t: 'Okey', d: 'Stuttgart kıraathanesi · gerçek saatle manzara · arkadaşlarınla online', img: 'ok-th.webp' }
 };
 const Pool = (() => {

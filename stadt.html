@@ -53,18 +53,6 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
   <h1>Stuttgart</h1>
   <div class="spin"></div>
   <p id="loadtxt">Hazırlanıyor…</p>
-  <div id="keybox" hidden>
-    <b>Google anahtarı lazım (bir kere)</b>
-    <ol>
-      <li>console.cloud.google.com → yeni proje</li>
-      <li>Faturalandırmayı aç (ayda 1.000 oturum bedava)</li>
-      <li>APIs &amp; Services → <b>Map Tiles API</b>'yi etkinleştir</li>
-      <li>Credentials → <b>API key</b> oluştur, sadece Map Tiles API ve bu site için kısıtla</li>
-    </ol>
-    <input id="keyin" placeholder="AIza… anahtarını yapıştır" autocomplete="off" autocapitalize="off" spellcheck="false">
-    <button class="btn" id="keyok">Stuttgart'a gir</button>
-    <small>Anahtar sadece bu telefonda saklanır.</small>
-  </div>
 </div>
 <script>setTimeout(function(){var h=document.getElementById('hint');if(h)h.style.opacity=0},9000)</script>
 <script type="module" src="stadt/stadt.js"></script>
