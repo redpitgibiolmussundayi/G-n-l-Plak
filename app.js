@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 63;
+const VERSION = 64;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -4667,7 +4667,7 @@ onmessage=async e=>{const m=e.data;try{
      Ses perdesi: cümle biraz daha yavaş üretilip hızlandırılır (ya da tersi) → tempo aynı kalır, ses incelir/kalınlaşır. */
   const hash = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
   const rng = seed => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-  const MOOD = { gece: { ls: 1.1, p: -0.03, ns: 0.62 }, sabah: { ls: 0.93, p: 0.03, ns: 0.8 }, gun: { ls: 0.98, p: 0.01, ns: 0.72 }, aksam: { ls: 1.03, p: 0, ns: 0.7 }, gurbet: { ls: 1.08, p: -0.02, ns: 0.65 } };
+  const MOOD = { gece: { ls: 1.1, p: -0.03, ns: 0.62 }, sabah: { ls: 0.93, p: 0.03, ns: 0.8 }, gun: { ls: 0.98, p: 0.01, ns: 0.72 }, aksam: { ls: 1.03, p: 0, ns: 0.7 }, stuttgart: { ls: 1.04, p: 0, ns: 0.72 } };
   const RE = {
     hype: /!|geliyor|açın|haydi|başlıyoruz|başlayalım|buyrun|yaşa|imparator|gönül fm/i,
     sad: /dert|gurbet|hüzün|yalnız|uyuyamay|gece uzun|ah ah|acı|memleket|özle|gözyaş|mendil|ayrılık|kader/i,
@@ -4712,7 +4712,7 @@ onmessage=async e=>{const m=e.data;try{
     const p = (async () => {
       const segs = [];
       for (const x of pl) {
-        const r = 1 + x.p;                                    // perde oranı
+        const r = 1;                                    // perde oranı
         const m = await synth(x.s, x.ls * r / rate, x.ns, x.nw); // r kadar yavaş üret…
         segs.push({ pcm: resamp(m.pcm, r), sr: m.sr, x });       // …r kadar hızlandır: tempo aynı, perde r
       }
@@ -4803,7 +4803,7 @@ const Radio = (() => {
   /* ---------------------------------------------------------------- kuşaklar */
   function block(d = new Date()) {
     const h = d.getHours(), wd = d.getDay();
-    if (wd === 6 && h >= 18) return { id: 'gurbet', n: 'Gurbet Saati', mood: 'gurbet' };
+    if (wd === 6 && h >= 18) return { id: 'stuttgart', n: 'Stuttgart Gecesi', mood: 'stuttgart' };
     if (wd === 0 && h >= 9 && h < 13) return { id: 'pazar', n: 'Pazar Kahvaltısı', mood: 'sabah' };
     if (h >= 5 && h < 10) return { id: 'sabah', n: 'Sabah Keyfi', mood: 'sabah' };
     if (h >= 10 && h < 14) return { id: 'gonul', n: 'Gönülden Gönüle', mood: 'gun' };
@@ -4870,12 +4870,12 @@ const Radio = (() => {
       `Şimdi sırada… ${both}.`, `Sıradaki parçamız, ${both}.`, `${both}. Buyrun efendim!`,
       `Dinliyoruz… ${both}.`, `Şimdi öyle bir parça geliyor ki… gönlü yanık olanlara gelsin. ${both}.`,
       `Ve şimdi… ${both}! Sesi biraz açın.`, `Bu parça hepimize gelsin. ${both}.`,
-      `Lafı uzatmayalım. ${both}!`, `Yolda olanlara, gurbette olanlara… ${both}.`,
+      `Lafı uzatmayalım. ${both}!`, `Yolda olanlara, eve dönenlere… ${both}.`,
       `Ah be dostlar… Bu şarkıyı ne çok dinledik. ${both}.`, `Hazır mısınız? ${both} geliyor!`
     ];
     if (b.mood === 'gece') L.push(`Gecenin bu saatinde uyuyamayanlar için: ${both}.`, `Gece uzun, dert uzun. ${both}.`, `Işıkları kısın. ${both}.`);
     if (b.mood === 'sabah') L.push(`Çaylar demlendiyse başlıyoruz. ${both}.`, `Güne güzel bir parçayla devam: ${both}.`);
-    if (b.mood === 'gurbet') L.push(`Gurbette olan bütün dostlarımıza: ${both}.`, `Memleket burnunda tütenlere gelsin. ${both}.`);
+    if (b.mood === 'stuttgart') L.push(`Bad Cannstatt'tan Hemmingen'e bütün Stuttgart'a: ${both}.`, `Bu şehirde büyüyen herkese gelsin. ${both}.`);
     if (b.mood === 'aksam') L.push(`İşten dönenlere, yolda olanlara: ${both}.`);
     let line = rnd(L);
     const lore = artistLore(s); if (lore && chance(0.45)) line = lore + ' ' + (a ? t : both) + '.';
@@ -4889,13 +4889,13 @@ const Radio = (() => {
       `Ne güzel söyledi değil mi? ${a}, ${t}.`, `${t}… Ah ah. ${a} yorumuyla dinlediniz.`
     ] : [`${t} idi.`, `Dinlediğiniz parça ${t}.`]);
   }
-  const LINERS = ['Gönül FM… Gönülden gönüle!', `${freqWords()}… Gönül FM!`, 'Arabeskin adresi… Gönül FM!', 'Stuttgart\'tan bütün gurbete… Gönül FM!', 'Gönül FM. Dertler paylaşılınca azalır…'];
+  const LINERS = ['Gönül FM… Gönülden gönüle!', `${freqWords()}… Gönül FM!`, 'Arabeskin adresi… Gönül FM!', 'Stuttgart\'ın arabesk sesi… Gönül FM!', 'Gönül FM. Dertler paylaşılınca azalır…'];
   const MUSINGS = {
     gece: ['Gece yarısı herkes biraz şairdir, biraz da dertli.', 'Uyuyamayanlar, burdayız. Yalnız değilsiniz.', 'Bu saatte çalan şarkılar başka türlü dokunur insana.', 'Gece kuşları, telefonları kapatın, bu saat şarkının saati.'],
     sabah: ['Günaydın Stuttgart. S-Bahn\'a yetişenlere selam, yetişemeyenlere bir sonraki tren.', 'Sabah sabah arabesk mi olur demeyin, olur. Hem de nasıl olur.', 'Bir bardak çay, bir güzel şarkı. Güne başlamak için başka ne lazım?'],
     gun: ['İşte olanlara, okulda olanlara, yolda olanlara selam olsun.', 'Hayat koşturmaca, ama bir şarkılık mola herkesin hakkı.', 'Öğle arası çay molası verenler, bu kuşak sizin.'],
     aksam: ['Akşam oldu, Stuttgart\'ın ışıkları yanıyor.', 'Günün yorgunluğunu şarkılara bırakın.', 'Eve dönen herkese hayırlı akşamlar.'],
-    gurbet: ['Gurbet zor iş dostlar, ama bir şarkı bazen bir mektup kadar yakın.', 'Burası Stuttgart, ama gönül hep memlekette.', 'Kimimiz Hemmingen\'de, kimimiz Bad Cannstatt\'ta. Ama hepimiz aynı şarkıda buluşuyoruz.']
+    stuttgart: ['Stuttgart bizim şehrimiz dostlar; Neckar\'ı da, S-Bahn\'ı da, yokuşları da bizim.', 'Kimimiz Hemmingen\'de, kimimiz Bad Cannstatt\'ta. Ama hepimiz aynı şarkıda buluşuyoruz.', 'Fernsehturm yanıyor, Stuttgart uyumuyor, biz de uyumuyoruz.', 'Cumartesi gecesi Stuttgart\'ta, Königstraße kalabalık, biz de buradayız.']
   };
   function opening() {
     const b = block(), w = weather(), d = new Date();
@@ -5145,7 +5145,7 @@ const Radio = (() => {
   if (use.m !== mon()) use = { m: mon(), usd: 0, n: 0 };
   let aiPause = 0, aiErr = '', aiSaid = LS.get('gp-fm-said', []);
   const aiOk = () => cfg.ai !== false && !!AI.key && Date.now() > aiPause && use.usd * 0.95 < (cfg.aiLimit || 2) && navigator.onLine !== false;
-  const SYS = `Sen "Gönül FM 98,7"nin gece-gündüz mikrofon başındaki spikeri Selim Ağabey'sin. Yaşın elliyi geçmiş, seksenlerin başında Stuttgart'a gelmişsin, yıllarca Bad Cannstatt'ta bir kahvehanenin üstündeki küçük stüdyodan yayın yapmışsın. Arabeski, gurbeti, kaset devrini, Almanya'daki Türklerin hayatını çok iyi bilirsin. Sesin sıcak, biraz buğulu; dinleyicine "dostlar", "sevgili dinleyiciler", "güzel insanlar" diye seslenirsin. Ağlak değilsin; hüzünle espriyi karıştırırsın, arada kendinle dalga geçersin, çay demlemekten, stüdyonun eski mikrofonundan, Neckar kıyısından bahsedersin. Klişe cümleleri tekrar etmezsin, her araya girişin farklı olur.
+  const SYS = `Sen "Gönül FM 98,7"nin gece-gündüz mikrofon başındaki spikeri Selim Ağabey'sin. Yaşın elliyi geçmiş, Bad Cannstatt'ta doğup büyümüş bir Stuttgartlısın; yıllarca bir kahvehanenin üstündeki küçük stüdyodan yayın yapmışsın. Arabeski, kaset devrini, Stuttgart'ın Türklerini ve bu şehrin her sokağını çok iyi bilirsin. Stuttgart senin memleketin, dinleyicilerinin de memleketi; Stuttgart'ı asla gurbet ya da yabancı bir yer gibi anlatmazsın, 'gönül memlekette' türü sıla özlemi klişeleri yapmazsın. Sesin sıcak, biraz buğulu; dinleyicine "dostlar", "sevgili dinleyiciler", "güzel insanlar" diye seslenirsin. Ağlak değilsin; hüzünle espriyi karıştırırsın, arada kendinle dalga geçersin, çay demlemekten, stüdyonun eski mikrofonundan, Neckar kıyısından bahsedersin. Klişe cümleleri tekrar etmezsin, her araya girişin farklı olur.
 
 Kurallar:
 - Türkçe yaz; bu metin sesli okunacak. Sayıları yazıyla yaz (yirmi üç, dört derece). Kısaltma, emoji, parantez, tırnak kullanma.
@@ -5212,7 +5212,7 @@ Kurallar:
   function aiBreak(pl) {
     const want = [], spec = [];
     if (pl.outroTail || pl.outroBreak) { want.push('outro'); spec.push(`"outro": biten şarkıyı ${pl.brk ? 'bitince' : 'son saniyelerinde müziğin üstünde'} kapatan 1-2 cümle (şarkının adı ve sanatçısı geçsin)`); }
-    if (pl.seg) { want.push('seg'); spec.push('"seg": 1-3 cümlelik kısa sohbet: o anki saat, hava, gün, gurbet, hayat, Stuttgart ya da sıradaki şarkıya hazırlık; her seferinde başka bir konu seç'); }
+    if (pl.seg) { want.push('seg'); spec.push('"seg": 1-3 cümlelik kısa sohbet: o anki hava, gün, hayat, Stuttgart'ın semtleri ya da sıradaki şarkıya hazırlık; her seferinde başka bir konu seç'); }
     if (pl.intro) { want.push('intro'); spec.push(`"intro": sıradaki şarkıyı sunan ${pl.brk ? '1-3' : 'en fazla 2 kısa'} cümle; ${pl.brk ? '' : 'şarkının girişinin üstünde okunacak, 20 kelimeyi geçme; '}sanatçı ve şarkı adıyla bitsin`); }
     if (!want.length) return Promise.resolve(null);
     const p = `${ctxText()}\nBiten şarkı: ${cur ? sDesc(cur) : 'yok'}.\nSıradaki şarkı: ${sDesc(pl.s)} (${histOf(pl.s)}).${avoid()}\n\nŞu alanlarla JSON yaz:\n${spec.join('\n')}`;
