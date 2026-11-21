@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 59;
+const VERSION = 60;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -1575,7 +1575,7 @@ function step(dir, auto) {
 }
 Engine.on('end', () => { if (typeof Radio !== 'undefined' && Radio.on) Radio.onEnd(); else step(1, true); });
 Engine.on('hint', m => toast(m));
-Engine.on('state', () => { UI.now(); Wave.state(); Media.state(); if (Lamp.on) Lamp.upd(); });
+Engine.on('state', () => { UI.now(); Wave.state(); Media.state(); if (Lamp.on) Lamp.upd(); if (Efkar.on) Efkar.paint(); });
 Engine.on('busy', t => UI.busy(t));
 Engine.on('mode', () => { toast('iPhone için hazırlamalı motora geçildi. Ton, yankı ve EQ çalışır; ayar değişince ses bir saniyede güncellenir.'); UI.now(); renderFx(); UI.account(); });
 
@@ -3508,6 +3508,230 @@ const Key = (() => {
 })();
 
 /* ================= Gece lambası ================= */
+/* ================= Efkâr Penceresi =================
+   Gece, yağmurlu bir camın arkasından Stuttgart. Cam buğulu; parmağınla buğuya yazarsın, buğu yavaş yavaş geri gelir.
+   Damlalar camdan süzülürken arkalarında iz bırakır. Ara sıra şimşek. Yağmur sesi ve gök gürültüsü uygulamanın içinde üretilir.
+   Zaman zaman buğunun üstünde, sanki biri parmağıyla yazmış gibi bir efkâr cümlesi belirir. */
+const Efkar = (() => {
+  const cfg = Object.assign({ rain: 0.55, thunder: true, sleep: 0 }, LS.get('gp-efkar', {}));
+  const save = () => LS.set('gp-efkar', cfg);
+  const LINES = [
+    'Bazı geceler çay soğur, dert soğumaz', 'Camdaki buğu gider, gönüldeki kalır', 'Gurbet: dönmek isteyip dönememek',
+    'Yağmur yağar, Stuttgart susar, ben dinlerim', 'Kimse bilmez bu saatte kim uyumuyor', 'Her şarkı bir mektup, her gece bir pul',
+    'Söyleyemediklerimi şarkılar söylesin', 'Gece uzun, çay demli, gönül kırık', 'Ne sen sor, ne ben anlatayım; şarkı anlatsın',
+    'Gece yarısı bir S-Bahn geçer, içinde kimse yok', 'Neckar akar, yıllar akar', 'Bugün de geçti, yarın da geçer',
+    'Fernsehturm\'un ışığı yanar, içim yanar', 'Kalbin de camı olsa, üstüne bir isim yazardım', 'Sabah olur, buğu kalkar',
+    'Dert paylaşılınca azalır derler', 'Bu şarkı da bitecek, bu gece de', 'Yağmur bile yalnız yağmıyor',
+    'Efkâr dediğin sessiz çalan bir plak', 'Bir çay daha koy, gece daha bitmedi', 'Gönül bu, söz dinlemez'
+  ];
+  let el = null, cv, ctx, W = 0, H = 0, dpr = 1, bg = null, fog = null, mask = null, mctx = null, comp = null, cctx = null, img = null;
+  let raf = 0, on = false, drops = [], statics = null, flash = 0, nextFlash = 0, nextLine = 0, lastT = 0, lineIdx = Math.floor(Math.random() * LINES.length);
+  let lock = null, sleepT = 0, ui = 0;
+  const season = d => { const m = d.getMonth(); return m >= 2 && m <= 4 ? 'ilkbahar' : m >= 5 && m <= 7 ? 'yaz' : m >= 8 && m <= 10 ? 'sonbahar' : 'kis'; };
+  const tod = d => { const h = d.getHours(); return h >= 22 || h < 5 ? 'gece' : h < 9 ? 'sabah' : h < 16 ? 'gunduz' : h < 18 ? 'gunbatimi' : 'aksam'; };
+  const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+
+  /* ---------- ses: yağmur, cama vuran damlalar, gök gürültüsü */
+  let rainN = null;
+  function noise(c, sec, kind) {
+    const n = Math.floor(c.sampleRate * sec), b = c.createBuffer(2, n, c.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = b.getChannelData(ch); let l = 0;
+      for (let i = 0; i < n; i++) {
+        const w = Math.random() * 2 - 1;
+        if (kind === 'brown') { l = (l + 0.02 * w) / 1.02; d[i] = l * 3.5; }
+        else if (kind === 'patter') { d[i] = 0; }
+        else d[i] = w;
+      }
+      if (kind === 'patter') for (let k = 0; k < sec * 38; k++) { const at = Math.floor(Math.random() * (n - 900)), a = 0.25 + Math.random() * 0.75, f = 0.18 + Math.random() * 0.35; for (let i = 0; i < 700; i++) d[at + i] += Math.sin(i * f) * Math.exp(-i / 90) * a; }
+    }
+    return b;
+  }
+  function rainOn() {
+    const c = Engine.ctx || (Engine.unlock(), Engine.ctx), o = Engine.aux(); if (!c || !o || rainN) return;
+    const g = c.createGain(); g.gain.value = 0; g.connect(o);
+    const a = c.createBufferSource(); a.buffer = noise(c, 4, 'white'); a.loop = true;
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 700;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5200;
+    const ga = c.createGain(); ga.gain.value = 0.11; a.connect(hp).connect(lp).connect(ga).connect(g);
+    const b = c.createBufferSource(); b.buffer = noise(c, 5, 'brown'); b.loop = true;
+    const gb = c.createGain(); gb.gain.value = 0.22; b.connect(gb).connect(g);
+    const p = c.createBufferSource(); p.buffer = noise(c, 6, 'patter'); p.loop = true;
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = 0.8;
+    const gp = c.createGain(); gp.gain.value = 0.16; p.connect(bp).connect(gp).connect(g);
+    [a, b, p].forEach(s => s.start());
+    g.gain.linearRampToValueAtTime(cfg.rain * 0.9, c.currentTime + 2.5);
+    rainN = { g, srcs: [a, b, p] };
+  }
+  function rainVol() { if (rainN) { const c = Engine.ctx; rainN.g.gain.cancelScheduledValues(c.currentTime); rainN.g.gain.setTargetAtTime(cfg.rain * 0.9, c.currentTime, 0.2); } }
+  function rainOff(ms = 1500) {
+    if (!rainN) return; const r = rainN, c = Engine.ctx; rainN = null;
+    try { r.g.gain.cancelScheduledValues(c.currentTime); r.g.gain.setValueAtTime(r.g.gain.value, c.currentTime); r.g.gain.linearRampToValueAtTime(0, c.currentTime + ms / 1000); r.srcs.forEach(s => s.stop(c.currentTime + ms / 1000 + 0.1)); } catch (e) {}
+  }
+  function thunder(dist) {
+    const c = Engine.ctx, o = Engine.aux(); if (!c || !o || !cfg.thunder) return;
+    const t = c.currentTime + dist, s = c.createBufferSource(); s.buffer = noise(c, 7, 'brown');
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(900, t); lp.frequency.exponentialRampToValueAtTime(90, t + 5);
+    const g = c.createGain(), v = Math.min(1, cfg.rain * 1.4) * (dist < 1.5 ? 1 : 0.6);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + 0.08); g.gain.linearRampToValueAtTime(v * 0.5, t + 0.9); g.gain.linearRampToValueAtTime(v * 0.7, t + 1.6); g.gain.exponentialRampToValueAtTime(0.001, t + 6.5);
+    s.connect(lp).connect(g).connect(o); s.start(t); s.stop(t + 7);
+  }
+
+  /* ---------- görüntü */
+  function cover(c, im, w, h, shift) {
+    const r = Math.max(w / im.width, h / im.height), iw = im.width * r, ih = im.height * r;
+    c.drawImage(im, (w - iw) / 2 + (shift || 0) * (iw - w) / 2, (h - ih) / 2, iw, ih);
+  }
+  function build() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = Math.round(innerWidth * dpr); H = Math.round(innerHeight * dpr);
+    cv.width = W; cv.height = H;
+    bg = mk(W, H); const b = bg.getContext('2d');
+    b.fillStyle = '#07070c'; b.fillRect(0, 0, W, H);
+    if (img) { cover(b, img, W, H, 0); }
+    b.fillStyle = 'rgba(8,10,24,.28)'; b.fillRect(0, 0, W, H);
+    // buğu: bulanık + soluk
+    const s = mk(Math.max(8, W >> 4), Math.max(8, H >> 4)), sc = s.getContext('2d'); sc.drawImage(bg, 0, 0, s.width, s.height);
+    const s2 = mk(Math.max(8, W >> 5), Math.max(8, H >> 5)); s2.getContext('2d').drawImage(s, 0, 0, s2.width, s2.height);
+    fog = mk(W, H); const f = fog.getContext('2d'); f.imageSmoothingQuality = 'high'; f.drawImage(s2, 0, 0, W, H);
+    f.fillStyle = 'rgba(185,195,215,.2)'; f.fillRect(0, 0, W, H);
+    const gr = f.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, 'rgba(255,255,255,.04)'); gr.addColorStop(1, 'rgba(255,255,255,.12)'); f.fillStyle = gr; f.fillRect(0, 0, W, H);
+    // buğu maskesi (opak = buğulu)
+    const old = mask; mask = mk(W, H); mctx = mask.getContext('2d'); mctx.fillStyle = '#000'; mctx.fillRect(0, 0, W, H);
+    if (old) mctx.drawImage(old, 0, 0, W, H);
+    comp = mk(W, H); cctx = comp.getContext('2d');
+    // camdaki sabit küçük damlalar
+    statics = mk(W, H); const st = statics.getContext('2d');
+    const n = Math.round(W * H / (dpr * dpr) / 1800);
+    for (let i = 0; i < n; i++) lens(st, Math.random() * W, Math.random() * H, (0.8 + Math.random() * Math.random() * 3.2) * dpr);
+    drops = []; for (let i = 0; i < 16; i++) drops.push(newDrop(true));
+  }
+  // bir damla: arkasındaki manzarayı ters ve küçük gösteren mercek
+  function lens(c, x, y, r) {
+    c.save(); c.beginPath(); c.ellipse(x, y, r, r * 1.12, 0, 0, Math.PI * 2); c.clip();
+    c.translate(x, y); c.scale(-0.22, -0.22); c.drawImage(bg, -x - W * 0.0, -y, W, H); c.restore();
+    c.save(); c.globalAlpha = 0.55; c.strokeStyle = 'rgba(0,0,0,.45)'; c.lineWidth = Math.max(0.6, r * 0.18); c.beginPath(); c.ellipse(x, y + r * 0.08, r * 0.96, r * 1.06, 0, 0.2, Math.PI - 0.2); c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.75)'; c.beginPath(); c.arc(x - r * 0.32, y - r * 0.4, Math.max(0.5, r * 0.2), 0, Math.PI * 2); c.fill(); c.restore();
+  }
+  function newDrop(any) { return { x: Math.random() * W, y: any ? Math.random() * H : -20, r: (2.2 + Math.random() * 3.6) * dpr, v: 0, wait: Math.random() * 4, wob: Math.random() * 6 }; }
+  function wipe(x0, y0, x1, y1, w) {
+    mctx.save(); mctx.globalCompositeOperation = 'destination-out'; mctx.lineCap = 'round'; mctx.lineJoin = 'round';
+    mctx.strokeStyle = 'rgba(0,0,0,.92)'; mctx.lineWidth = w; mctx.shadowColor = '#000'; mctx.shadowBlur = w * 0.35;
+    mctx.beginPath(); mctx.moveTo(x0, y0); mctx.lineTo(x1, y1); mctx.stroke(); mctx.restore();
+  }
+  // buğuya parmakla yazılmış gibi bir cümle
+  function fogWrite(text) {
+    const size = Math.round(Math.min(W / 12, 46 * dpr)), maxW = W * 0.84;
+    mctx.save(); mctx.globalCompositeOperation = 'destination-out'; mctx.font = `${size}px "GP Hand", "Marker Felt", cursive`;
+    mctx.textAlign = 'center'; mctx.textBaseline = 'middle'; mctx.fillStyle = 'rgba(0,0,0,.9)'; mctx.shadowColor = '#000'; mctx.shadowBlur = size * 0.12;
+    const words = text.split(' '), lines = []; let cur = '';
+    for (const w of words) { const t = cur ? cur + ' ' + w : w; if (mctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t; }
+    lines.push(cur);
+    const y0 = H * (0.28 + Math.random() * 0.12) - (lines.length - 1) * size * 0.6, rot = (Math.random() - 0.5) * 0.08;
+    mctx.translate(W / 2, y0); mctx.rotate(rot);
+    lines.forEach((l, i) => mctx.fillText(l, 0, i * size * 1.2));
+    mctx.restore();
+  }
+  function frame(t) {
+    if (!on) return;
+    raf = requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (t - (lastT || t)) / 1000); lastT = t;
+    if (dt === 0) return;
+    // buğu yavaş yavaş geri gelir
+    mctx.globalCompositeOperation = 'source-over'; mctx.fillStyle = `rgba(0,0,0,${(dt * 0.045).toFixed(4)})`; mctx.fillRect(0, 0, W, H);
+    // süzülen damlalar: buğuyu silerek iner
+    for (const d of drops) {
+      if (d.wait > 0) { d.wait -= dt; continue; }
+      d.v = Math.min(260 * dpr, d.v + (d.r > 4 * dpr ? 120 : 40) * dpr * dt * (Math.random() < 0.03 ? 0 : 1));
+      const ny = d.y + d.v * dt, nx = d.x + Math.sin((d.y + d.wob) / (24 * dpr)) * 0.35 * dpr;
+      wipe(d.x, d.y, nx, ny, d.r * 1.3); d.x = nx; d.y = ny;
+      if (Math.random() < 0.004) d.wait = 0.3 + Math.random() * 1.2;
+      if (d.y > H + 30) Object.assign(d, newDrop(false), { wait: Math.random() * 3 });
+    }
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    ctx.drawImage(bg, 0, 0);
+    cctx.globalCompositeOperation = 'source-over'; cctx.clearRect(0, 0, W, H); cctx.drawImage(fog, 0, 0);
+    cctx.globalCompositeOperation = 'destination-in'; cctx.drawImage(mask, 0, 0);
+    ctx.drawImage(comp, 0, 0);
+    ctx.drawImage(statics, 0, 0);
+    for (const d of drops) if (d.wait <= 0 || d.y > 0) lens(ctx, d.x, d.y, d.r);
+    // şimşek
+    const now = performance.now();
+    if (now > nextFlash) { flash = 1; nextFlash = now + 35000 + Math.random() * 70000; thunder(0.6 + Math.random() * 3); }
+    if (flash > 0.01) { ctx.fillStyle = `rgba(220,225,255,${(flash * flash * 0.5).toFixed(3)})`; ctx.fillRect(0, 0, W, H); flash *= Math.random() < 0.08 ? 1.6 : 0.86; if (flash > 1) flash = 1; }
+    if (now > nextLine) { fogWrite(LINES[lineIdx++ % LINES.length]); nextLine = now + 50000 + Math.random() * 40000; }
+  }
+
+  /* ---------- arayüz */
+  function paint() {
+    if (!el) return;
+    const s = App.byId(App.curId);
+    $('efT').textContent = s ? s.title : 'Bir şarkı çal';
+    $('efA').textContent = s ? (s.artist || '') : 'Gönül Plak';
+    $('efPlay').innerHTML = Engine.playing ? ICON.pause : ICON.play;
+  }
+  function showUi() { el.classList.add('ui'); clearTimeout(ui); ui = setTimeout(() => el.classList.remove('ui'), 4500); }
+  function make() {
+    el = document.createElement('div'); el.id = 'efkar'; el.className = 'efkar'; el.hidden = true;
+    el.innerHTML = `<canvas id="efCv"></canvas>
+      <div class="ef-top"><button class="ef-x" id="efX" aria-label="Kapat">✕</button><button class="ef-x" id="efS" aria-label="Ayarlar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button></div>
+      <div class="ef-set" id="efSet" hidden>
+        <label><span>Yağmur sesi</span><input type="range" id="efRain" min="0" max="1" step="0.05" value="${cfg.rain}"></label>
+        <label class="ef-tg"><input type="checkbox" id="efTh" ${cfg.thunder ? 'checked' : ''}><span>Gök gürültüsü</span></label>
+        <div class="ef-sl"><span>Uyku</span><div class="seg" id="efSleep">${[0, 15, 30, 60].map(m => `<button data-m="${m}" aria-pressed="${cfg.sleep === m}">${m ? m + ' dk' : 'Kapalı'}</button>`).join('')}</div></div>
+      </div>
+      <div class="ef-bot"><div class="ef-np"><div class="ef-t" id="efT"></div><div class="ef-a" id="efA"></div><div class="ef-bar"><i id="efBar"></i></div></div>
+        <div class="ef-ctl"><button id="efPrev" aria-label="Önceki">${'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.5 5H8v14H5.5zM19 5.5v13L9.5 12z"/></svg>'}</button><button id="efPlay" class="pl" aria-label="Çal / duraklat"></button><button id="efNext" aria-label="Sonraki">${'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5.5v13l9.5-6.5zM16 5h2.5v14H16z"/></svg>'}</button></div></div>
+      <div class="ef-hint" id="efHint">Cama parmağınla yaz</div>`;
+    document.body.appendChild(el);
+    cv = $('efCv'); ctx = cv.getContext('2d');
+    $('efX').onclick = close;
+    $('efS').onclick = e => { e.stopPropagation(); $('efSet').hidden = !$('efSet').hidden; showUi(); };
+    $('efRain').oninput = e => { cfg.rain = +e.target.value; save(); rainVol(); };
+    $('efTh').onchange = e => { cfg.thunder = e.target.checked; save(); };
+    el.querySelectorAll('#efSleep button').forEach(b => b.onclick = () => { cfg.sleep = +b.dataset.m; save(); el.querySelectorAll('#efSleep button').forEach(x => x.setAttribute('aria-pressed', x === b)); armSleep(); toast(cfg.sleep ? cfg.sleep + ' dakika sonra yavaşça susacak' : 'Uyku zamanlayıcısı kapalı'); });
+    $('efPrev').onclick = () => { step(-1); }; $('efNext').onclick = () => { step(1); };
+    $('efPlay').onclick = () => { Engine.unlock(); if (Engine.playing) Engine.pause(); else if (App.curId) Engine.play(); else { const s = App.songs.find(x => x.blob); if (s) playSong(s.id); } setTimeout(paint, 60); };
+    // parmakla buğuya yazma
+    let px = null, py = null;
+    const pos = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * dpr, (e.clientY - r.top) * dpr]; };
+    cv.addEventListener('pointerdown', e => { [px, py] = pos(e); wipe(px, py, px + 0.1, py + 0.1, 22 * dpr); showUi(); $('efHint').classList.add('gone'); cv.setPointerCapture && cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener('pointermove', e => { if (px == null) return; const [x, y] = pos(e); wipe(px, py, x, y, 22 * dpr); px = x; py = y; });
+    const up = () => { px = py = null; };
+    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+    setInterval(() => { if (on && Engine.duration) { $('efBar').style.width = (Engine.pos / Engine.duration * 100).toFixed(2) + '%'; } }, 500);
+    addEventListener('resize', () => { if (on) build(); });
+  }
+  function armSleep() {
+    clearTimeout(sleepT); if (!cfg.sleep || !on) return;
+    sleepT = setTimeout(async () => {
+      if (!on) return;
+      const v0 = Engine.duck; for (let i = 1; i <= 30; i++) { await new Promise(r => setTimeout(r, 1000)); Engine.setDuck(v0 * (1 - i / 30)); if (rainN) rainN.g.gain.value = cfg.rain * 0.9 * (1 - i / 30); }
+      Engine.pause(); Engine.setDuck(1); rainOff(500); toast('İyi geceler 🌙');
+    }, cfg.sleep * 60000 - 30000);
+  }
+  async function wake() { try { if ('wakeLock' in navigator) lock = await navigator.wakeLock.request('screen'); } catch (e) { lock = null; } }
+  function open() {
+    if (!el) make();
+    Engine.unlock();
+    const d = new Date(), src = `pano-${season(d)}-${tod(d)}.webp`;
+    el.hidden = false; document.body.style.overflow = 'hidden'; on = true; lastT = 0;
+    nextFlash = performance.now() + 9000 + Math.random() * 12000; nextLine = performance.now() + 2500;
+    $('efHint').classList.remove('gone');
+    const go = () => { build(); cancelAnimationFrame(raf); raf = requestAnimationFrame(frame); };
+    if (img && img.dataset.src === src) go();
+    else { img = new Image(); img.dataset.src = src; img.onload = go; img.onerror = () => { img = null; go(); }; img.src = src; build(); cancelAnimationFrame(raf); raf = requestAnimationFrame(frame); }
+    rainOn(); wake(); armSleep(); paint(); showUi();
+    if (!Engine.playing && !App.curId) { const s = App.songs.find(x => x.blob); if (s) { toast('Bir şarkı seçip çal, pencere seni bekler'); } }
+  }
+  function close() {
+    on = false; cancelAnimationFrame(raf); rainOff(); clearTimeout(sleepT);
+    if (lock) { try { lock.release(); } catch (e) {} lock = null; }
+    if (el) el.hidden = true; document.body.style.overflow = '';
+  }
+  return { open, close, paint, get on() { return on; } };
+})();
+
 const Lamp = (() => {
   let on = false, lock = null, tick = 0, hideT = 0;
   async function wake() { try { if ('wakeLock' in navigator) { lock = await navigator.wakeLock.request('screen'); lock.addEventListener && lock.addEventListener('release', () => { lock = null; }); } } catch (e) { lock = null; } }
@@ -3538,6 +3762,7 @@ const Lamp = (() => {
     requestAnimationFrame(() => { Wave.draw(); UI.now(); });
   }
   $('lampBtn').onclick = open;
+  $('efkarBtn').onclick = () => Efkar.open();
   $('lamp').addEventListener('click', e => {
     const t = e.target;
     if (t.closest('#lClose')) return close();
