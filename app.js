@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 68;
+const VERSION = 69;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -5042,74 +5042,14 @@ const Radio = (() => {
     }
   }
   // fon müziği: spiker konuşurken altta yumuşak bir hicaz akoru
-  /* fon müziği: arabesk darbuka (düm düm teke tek, düm teke tek) + hicaz makamında kemanlar.
-     Telefonda bir kez üretilir (OfflineAudioContext), sonra döngüde çalar. Spiker konuşurken altta kısık durur. */
-  let bed = null, bedBuf = null, bedMaking = null;
-  function makeBed() {
-    if (bedBuf || bedMaking) return bedMaking;
-    const c = C(); if (!c) return null;
-    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext; if (!OAC) return null;
-    const sr = c.sampleRate, bpm = 92, beat = 60 / bpm, bar = beat * 4, bars = 8, dur = bar * bars, s16 = beat / 4;
-    const oc = new OAC(2, Math.ceil(sr * dur), sr);
-    const mix = oc.createGain(); mix.gain.value = 0.9; mix.connect(oc.destination);
-    // oda yankısı
-    const ir = oc.createBuffer(2, sr * 2, sr);
-    for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3.2); }
-    const rv = oc.createConvolver(); rv.buffer = ir; const rvg = oc.createGain(); rvg.gain.value = 0.32; rv.connect(rvg).connect(mix);
-    const noiseB = oc.createBuffer(1, sr * 0.3, sr); { const d = noiseB.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
-    // darbuka
-    const drum = oc.createGain(); drum.gain.value = 0.85; drum.connect(mix); const drv = oc.createGain(); drv.gain.value = 0.25; drum.connect(drv).connect(rv);
-    const dum = (t, v) => { const o = oc.createOscillator(), g = oc.createGain(); o.frequency.setValueAtTime(125, t); o.frequency.exponentialRampToValueAtTime(58, t + 0.14); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.006); g.gain.exponentialRampToValueAtTime(0.001, t + 0.42); o.connect(g).connect(drum); o.start(t); o.stop(t + 0.45); };
-    const tek = (t, v, f) => { const n = oc.createBufferSource(); n.buffer = noiseB; const bp = oc.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 1.4; const g = oc.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.07); n.connect(bp).connect(g).connect(drum); n.start(t); n.stop(t + 0.09);
-      const o = oc.createOscillator(), og = oc.createGain(); o.frequency.value = f * 0.33; og.gain.setValueAtTime(v * 0.25, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.05); o.connect(og).connect(drum); o.start(t); o.stop(t + 0.06); };
-    // düm düm teke tek düm teke tek  (16'lık adımlar)
-    const PAT = { 0: 'D', 2: 'D', 4: 'T', 5: 'k', 6: 'T', 8: 'D', 10: 'T', 11: 'k', 12: 'T' };
-    for (let b = 0; b < bars; b++) for (let i = 0; i < 16; i++) {
-      const p = PAT[i], t = b * bar + i * s16 + (i % 2 ? 0.012 : 0); if (!p) continue;
-      if (p === 'D') dum(t, b === 0 && i === 0 ? 0.9 : 0.75); else if (p === 'T') tek(t, 0.42, 3200); else tek(t, 0.22, 2300);
-    }
-    // kemanlar: hicaz (re) — Re Mi♭ Fa♯ Sol La Si♭ Do
-    const hz = m => 440 * Math.pow(2, (m - 69) / 12);
-    const str = oc.createGain(); str.gain.value = 0.16; const lp = oc.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3400; lp.Q.value = 0.5;
-    const body = oc.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = 1200; body.gain.value = 4; body.Q.value = 0.8;
-    str.connect(body).connect(lp); lp.connect(mix); const sv = oc.createGain(); sv.gain.value = 0.7; lp.connect(sv).connect(rv);
-    // melodi: [nota, vuruş uzunluğu]
-    const D4 = 62, Eb = 63, Fs = 66, G = 67, A = 69, Bb = 70, C5 = 72, D5 = 74;
-    const MEL = [[A, 3], [Bb, 0.5], [A, 0.5], [G, 1], [Fs, 1], [G, 2], [Fs, 1], [Eb, 1], [D4, 6],
-      [D4, 1], [Eb, 1], [Fs, 1], [G, 1], [A, 2], [Bb, 1], [C5, 1], [Bb, 1], [A, 1], [G, 1], [Fs, 1], [G, 1], [Fs, 1], [Eb, 0.5], [D4, 3.5]];
-    for (const det of [-7, 0, 6]) {
-      const o = oc.createOscillator(); o.type = 'sawtooth'; o.detune.value = det;
-      const vib = oc.createOscillator(), vg = oc.createGain(); vib.frequency.value = 5.4 + det * 0.03; vg.gain.value = 14; vib.connect(vg).connect(o.detune);
-      const g = oc.createGain(); g.gain.value = 0; o.connect(g).connect(str);
-      let t = 0.02 + Math.abs(det) * 0.004;
-      for (const [m, len] of MEL) {
-        const f = hz(m), d = len * beat;
-        o.frequency.setTargetAtTime(f, t, t < 0.05 ? 0.001 : 0.035);            // hafif kayış (glissando)
-        g.gain.setTargetAtTime(0.32, t, 0.06); g.gain.setTargetAtTime(0.24, t + d * 0.6, 0.2);
-        t += d;
-      }
-      g.gain.setTargetAtTime(0, dur - 0.6, 0.15);
-      o.start(0); vib.start(0); o.stop(dur); vib.stop(dur);
-    }
-    // alt yaylılar: Re ve La, iki ölçüde bir nefes alan akor
-    for (const m of [50, 57, 62]) for (const det of [-5, 5]) {
-      const o = oc.createOscillator(); o.type = 'sawtooth'; o.frequency.value = hz(m); o.detune.value = det;
-      const g = oc.createGain(); g.gain.value = 0; o.connect(g).connect(str);
-      for (let b = 0; b < bars; b += 2) { const t = b * bar; g.gain.setTargetAtTime(m === 62 ? 0.07 : 0.11, t + 0.05, 0.4); g.gain.setTargetAtTime(0.05, t + bar * 1.4, 0.4); }
-      g.gain.setTargetAtTime(0, dur - 0.5, 0.15);
-      o.start(0); o.stop(dur);
-    }
-    bedMaking = oc.startRendering().then(b => { bedBuf = b; bedMaking = null; return b; }, () => { bedMaking = null; return null; });
-    return bedMaking;
-  }
+  let bed = null;
   function bedOn() {
     const c = C(), o = OUT(); if (!c || !o || bed) return;
-    if (!bedBuf) { makeBed(); return; }
-    const t = c.currentTime, g = c.createGain(), s = c.createBufferSource();
-    s.buffer = bedBuf; s.loop = true;
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.3, t + 1.2);
-    s.connect(g).connect(o); s.start(t);
-    bed = { g, oscs: [s] };
+    const t = c.currentTime, g = c.createGain(), lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 650; lp.Q.value = 0.4;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05, t + 1.4);
+    const oscs = [73.42, 110, 146.83, 185].map((f, i) => { const os = c.createOscillator(); os.type = i === 3 ? 'sine' : 'sawtooth'; os.frequency.value = f; os.detune.value = (i % 2 ? 6 : -5); const og = c.createGain(); og.gain.value = i === 3 ? 0.4 : 0.22; os.connect(og).connect(lp); os.start(t); return os; });
+    const lfo = c.createOscillator(), lg = c.createGain(); lfo.frequency.value = 0.18; lg.gain.value = 180; lfo.connect(lg).connect(lp.frequency); lfo.start(t);
+    lp.connect(g).connect(o); bed = { g, oscs: oscs.concat(lfo) };
   }
   function bedOff(ms = 1200) {
     if (!bed) return; const c = C(), b = bed; bed = null;
@@ -5555,7 +5495,6 @@ Kurallar:
     if (Engine.playing) Engine.pause();
     if (cfg.oldRadio) { prevRadioFx = Engine.fx.radioOn; Engine.setFx({ radioOn: true }, true); hissOn(); }
     clearInterval(tickT); tickT = setInterval(tick, 250);
-    try { makeBed(); } catch (e) {}
     freshWx().catch(() => {}); lastBul = Date.now() - 20 * 60000;
     clearInterval(newsT); newsT = setInterval(() => { scanUrgent().catch(() => {}); freshWx().catch(() => {}); }, 3 * 60000); setTimeout(() => scanUrgent().catch(() => {}), 25000);
     open(); paint(); needle(true);
