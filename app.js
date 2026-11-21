@@ -5212,7 +5212,7 @@ Kurallar:
   function aiBreak(pl) {
     const want = [], spec = [];
     if (pl.outroTail || pl.outroBreak) { want.push('outro'); spec.push(`"outro": biten şarkıyı ${pl.brk ? 'bitince' : 'son saniyelerinde müziğin üstünde'} kapatan 1-2 cümle (şarkının adı ve sanatçısı geçsin)`); }
-    if (pl.seg) { want.push('seg'); spec.push('"seg": 1-3 cümlelik kısa sohbet: o anki hava, gün, hayat, Stuttgart'ın semtleri ya da sıradaki şarkıya hazırlık; her seferinde başka bir konu seç'); }
+    if (pl.seg) { want.push('seg'); spec.push('"seg": 1-3 cümlelik kısa sohbet: o anki hava, gün, hayat, Stuttgart\'ın semtleri ya da sıradaki şarkıya hazırlık; her seferinde başka bir konu seç'); }
     if (pl.intro) { want.push('intro'); spec.push(`"intro": sıradaki şarkıyı sunan ${pl.brk ? '1-3' : 'en fazla 2 kısa'} cümle; ${pl.brk ? '' : 'şarkının girişinin üstünde okunacak, 20 kelimeyi geçme; '}sanatçı ve şarkı adıyla bitsin`); }
     if (!want.length) return Promise.resolve(null);
     const p = `${ctxText()}\nBiten şarkı: ${cur ? sDesc(cur) : 'yok'}.\nSıradaki şarkı: ${sDesc(pl.s)} (${histOf(pl.s)}).${avoid()}\n\nŞu alanlarla JSON yaz:\n${spec.join('\n')}`;
