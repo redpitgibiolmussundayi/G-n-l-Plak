@@ -35,6 +35,7 @@ header .sp{flex:1}
 #stage .tip{position:absolute;left:14px;top:38px;font-size:.74rem;color:var(--mute);max-width:70%}
 #stage .now{position:absolute;right:14px;top:10px;font:600 1.6rem/1 Georgia,serif;color:var(--gold);opacity:0;transition:opacity .25s}
 #stage .now.on{opacity:1}
+#stage .cr{position:absolute;right:10px;bottom:8px;font-size:.66rem;color:rgba(246,239,226,.45);padding:4px 8px;border-radius:999px;border:1px solid rgba(255,226,163,.12)}
 .row{display:flex;align-items:center;gap:8px;flex:none;overflow-x:auto;scrollbar-width:none}
 .row::-webkit-scrollbar{display:none}
 .row label{font-size:.72rem;color:var(--mute);text-transform:uppercase;letter-spacing:.08em;flex:none}
@@ -86,7 +87,7 @@ select option{background:#1d1410}
     <button class="pill" id="play" hidden>▶ Dinle</button>
   </header>
   <div id="insts"></div>
-  <div id="stage"><canvas id="cv"></canvas><div class="nm" id="nm"></div><div class="tip" id="tip"></div><div class="now" id="now"></div></div>
+  <div id="stage"><canvas id="cv"></canvas><div class="nm" id="nm"></div><div class="tip" id="tip"></div><div class="now" id="now"></div><button class="cr" id="cr" hidden>Kaynaklar</button></div>
   <div class="row">
     <label class="melodic" for="mk">Makam</label>
     <select id="mk" class="melodic"></select>

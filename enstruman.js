@@ -20,7 +20,7 @@
 
   /* ------------------------------------------------------------ enstrümanlar */
   const INST = {
-    baglama: { t: 'Bağlama', kind: 'pluck', oct: 0, tech: 'Tezene titret', techOn: false, tip: 'Tuşa basılı tutup "Tezene titret"i açarsan tel titrer. Parmağını tuşlarda kaydırabilirsin.',
+    baglama: { t: 'Bağlama', kind: 'pluck', oct: -1, tech: 'Tezene titret', techOn: false, tip: 'Tuşa basılı tutup "Tezene titret"i açarsan tel titrer. Parmağını tuşlarda kaydırabilirsin.',
       ks: { dur: 2.8, t60: 2.2, bright: 0.82, pick: 0.14, courses: [[0, 1], [5, 0.85], [1200, 0.32]] },
       eq: [['highpass', 120, 0.7, 0], ['peaking', 340, 1.4, 4], ['peaking', 1500, 1.6, 3], ['peaking', 3200, 2, 4], ['highshelf', 6000, 0.7, -2]], vol: 0.9, trem: 68 },
     kanun: { t: 'Kanun', kind: 'pluck', oct: 0, tech: 'Mızrap titret', techOn: false, tip: 'Kanun telleri üçlü gerilir; titretince tıpkı taksim gibi akar.',
@@ -112,7 +112,7 @@
   const ringing = {};                                       // tuş -> çalan tel
   /* ---- gerçek kayıtlar (ens/…m4a): yoksa ya da inemezse sentez yedek olarak çalar */
   let SM = null;
-  fetch('ens/samples.json').then(r => r.json()).then(j => { SM = j; audio(); loadInst(st.inst); }).catch(() => {});
+  fetch('ens/samples.json').then(r => r.json()).then(j => { SM = j; if (j.credits) { $('cr').hidden = false; $('cr').onclick = () => { $('tip').textContent = j.credits; setTimeout(() => { $('tip').textContent = INST[st.inst].tip; }, 7000); }; } audio(); loadInst(st.inst); }).catch(() => {});
   const sbuf = new Map(), sload = new Map();
   function getBuf(u) {
     if (sbuf.has(u)) return Promise.resolve(sbuf.get(u));
