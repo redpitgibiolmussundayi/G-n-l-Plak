@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#120c09">
+<title>Enstrümanlar · Gönül Plak</title>
+<style>
+:root{--bg:#120c09;--bg2:#1d1410;--wood:#6b3f22;--wood2:#3d2213;--gold:#f0b44c;--gold2:#ffe2a3;--ink:#f6efe2;--mute:rgba(246,239,226,.6);--line:rgba(255,226,163,.14);--rec:#e5483b}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+[hidden]{display:none!important}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;padding:0}
+#app{position:fixed;inset:0;display:flex;flex-direction:column;padding:calc(env(safe-area-inset-top,0px) + 8px) max(12px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 10px) max(12px,env(safe-area-inset-left,0px));gap:10px;
+  background:radial-gradient(120% 70% at 50% 0%,#2c1a10 0%,var(--bg) 65%)}
+header{display:flex;align-items:center;gap:10px;min-height:44px}
+.rb{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.06);border:1px solid var(--line);flex:none}
+.rb svg{width:20px;height:20px}
+header h1{margin:0;font:600 1.15rem/1.1 Georgia,"Times New Roman",serif;color:var(--gold2);letter-spacing:.01em}
+header small{display:block;color:var(--mute);font-size:.75rem;font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin-top:2px}
+header .sp{flex:1}
+.pill{height:36px;padding:0 12px;border-radius:999px;display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.06);border:1px solid var(--line);font-size:.82rem;font-weight:600;white-space:nowrap}
+.pill.on{background:linear-gradient(180deg,var(--gold2),var(--gold));color:#2a1a10;border-color:transparent}
+.pill.rec.on{background:var(--rec);color:#fff}
+.pill i{width:9px;height:9px;border-radius:50%;background:var(--rec);display:inline-block}
+.pill.rec.on i{background:#fff;animation:bl 1s infinite}@keyframes bl{50%{opacity:.2}}
+#insts{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;flex:none;padding-bottom:2px}
+#insts::-webkit-scrollbar{display:none}
+.ic{flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;width:74px;padding:8px 4px 7px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--line);font-size:.76rem;font-weight:600}
+.ic canvas{width:46px;height:34px}
+.ic.on{background:linear-gradient(180deg,rgba(240,180,76,.28),rgba(240,180,76,.08));border-color:rgba(240,180,76,.7);color:var(--gold2)}
+#stage{position:relative;flex:1 1 auto;min-height:90px;border-radius:18px;overflow:hidden;background:radial-gradient(80% 90% at 50% 55%,#2a1810,#140d0a 75%);border:1px solid var(--line)}
+#stage canvas{position:absolute;inset:0;width:100%;height:100%}
+#stage .nm{position:absolute;left:14px;top:10px;font:600 1.4rem/1 Georgia,serif;color:var(--gold2);text-shadow:0 2px 8px #000}
+#stage .tip{position:absolute;left:14px;top:38px;font-size:.74rem;color:var(--mute);max-width:70%}
+#stage .now{position:absolute;right:14px;top:10px;font:600 1.6rem/1 Georgia,serif;color:var(--gold);opacity:0;transition:opacity .25s}
+#stage .now.on{opacity:1}
+.row{display:flex;align-items:center;gap:8px;flex:none;overflow-x:auto;scrollbar-width:none}
+.row::-webkit-scrollbar{display:none}
+.row label{font-size:.72rem;color:var(--mute);text-transform:uppercase;letter-spacing:.08em;flex:none}
+select{font:inherit;font-size:.85rem;font-weight:600;color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:999px;height:36px;padding:0 30px 0 12px;-webkit-appearance:none;appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--gold) 50%),linear-gradient(135deg,var(--gold) 50%,transparent 50%);background-position:calc(100% - 15px) 16px,calc(100% - 10px) 16px;background-size:5px 5px;background-repeat:no-repeat}
+select option{background:#1d1410}
+.oct{display:inline-flex;align-items:center;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--line);height:36px;flex:none}
+.oct button{width:36px;height:36px;font-size:1.2rem;font-weight:700;color:var(--gold2)}
+.oct span{min-width:58px;text-align:center;font-size:.8rem;font-weight:600}
+#keys{flex:0 0 auto;height:clamp(150px,34vh,300px);display:grid;grid-template-columns:repeat(8,1fr);gap:6px;touch-action:none}
+.k{position:relative;border-radius:12px 12px 16px 16px;background:linear-gradient(180deg,#8a5530 0%,var(--wood) 45%,var(--wood2) 100%);box-shadow:inset 0 1px 0 rgba(255,220,170,.35),inset 0 -6px 12px rgba(0,0,0,.35),0 4px 10px rgba(0,0,0,.45);
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:12px;transition:transform .06s,filter .06s;overflow:hidden}
+.k::before{content:"";position:absolute;left:50%;top:10px;bottom:52px;width:2px;transform:translateX(-50%);background:linear-gradient(180deg,rgba(255,240,210,.0),rgba(255,240,210,.55),rgba(255,240,210,.0))}
+.k b{font:700 clamp(.95rem,3.6vw,1.35rem)/1 Georgia,serif;color:#fff3df;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.k small{margin-top:5px;font-size:clamp(.6rem,2.4vw,.74rem);color:rgba(255,236,205,.75);font-weight:600;white-space:nowrap}
+.k sup{font-size:.62em;color:var(--gold2);margin-left:1px}
+.k.dn{transform:translateY(3px) scale(.985);filter:brightness(1.35) saturate(1.2);box-shadow:inset 0 0 22px rgba(255,200,120,.55),0 0 18px rgba(240,180,76,.55)}
+.k.tonic b{color:var(--gold2)}
+#pads{flex:0 0 auto;height:clamp(170px,36vh,320px);display:none;grid-template-columns:repeat(2,1fr);gap:10px;touch-action:none}
+.pad{border-radius:50%;justify-self:center;align-self:center;max-height:100%;width:min(100%,40vw,15.5vh,180px);aspect-ratio:1;display:grid;place-items:center;font:700 1.25rem Georgia,serif;color:#2a1a10;
+  background:radial-gradient(circle at 50% 45%,#f6e6c8 0%,#e8cfa2 55%,#b98b55 70%,#5a3a20 72%,#2a1a10 100%);box-shadow:0 8px 18px rgba(0,0,0,.55),inset 0 -4px 10px rgba(0,0,0,.25);transition:transform .05s}
+.pad small{display:block;font:600 .7rem -apple-system,sans-serif;color:#5a3a20;margin-top:2px}
+.pad.dn{transform:scale(.94)}
+.dar #keys{display:none}.dar #pads{display:grid}
+.dar .melodic{display:none!important}
+.rhy{display:none}.dar .rhy{display:flex}
+#toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 62px);transform:translate(-50%,-10px);opacity:0;transition:.25s;background:rgba(20,14,11,.92);border:1px solid var(--line);padding:9px 14px;border-radius:999px;font-size:.85rem;pointer-events:none;white-space:nowrap;z-index:9}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+@media (orientation:landscape) and (max-height:520px){
+  #app{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);grid-template-rows:auto auto auto 1fr;column-gap:12px;row-gap:8px}
+  header{grid-column:1/-1}
+  #insts{grid-column:1;grid-row:2}
+  #stage{grid-column:1;grid-row:3/5;min-height:0}
+  .row{grid-column:2;grid-row:2}
+  .row.r2{grid-row:3}
+  #keys,#pads{grid-column:2;grid-row:4;height:auto}
+}
+@media (orientation:landscape) and (max-height:520px){.pad{width:min(100%,19vh*1.6,170px)}#pads{grid-template-columns:repeat(4,1fr)}}
+@media (prefers-reduced-motion:reduce){.k,.pad{transition:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <button class="rb" id="back" aria-label="Geri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div><h1>Enstrümanlar</h1><small id="sub">Dokun ve çal</small></div>
+    <span class="sp"></span>
+    <button class="pill rec" id="rec"><i></i><span>Kaydet</span></button>
+    <button class="pill" id="play" hidden>▶ Dinle</button>
+  </header>
+  <div id="insts"></div>
+  <div id="stage"><canvas id="cv"></canvas><div class="nm" id="nm"></div><div class="tip" id="tip"></div><div class="now" id="now"></div></div>
+  <div class="row">
+    <label class="melodic" for="mk">Makam</label>
+    <select id="mk" class="melodic"></select>
+    <div class="oct melodic"><button id="od" aria-label="Oktav aşağı">−</button><span id="ov">Orta</span><button id="ou" aria-label="Oktav yukarı">+</button></div>
+    <label class="rhy" for="rh">Ritim</label>
+    <select id="rh" class="rhy"></select>
+    <button class="pill rhy" id="rhp">▶ Başlat</button>
+  </div>
+  <div class="row r2">
+    <button class="pill melodic" id="tech">Tezene</button>
+    <button class="pill melodic" id="dem">Dem</button>
+    <div class="oct rhy"><button id="td" aria-label="Yavaş">−</button><span id="tv">100</span><button id="tu" aria-label="Hızlı">+</button></div>
+    <button class="pill" id="rev">Yankı</button>
+  </div>
+  <div id="keys"></div>
+  <div id="pads"></div>
+</div>
+<div id="toast"></div>
+<script src="enstruman.js"></script>
+</body>
+</html>

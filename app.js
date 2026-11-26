@@ -4,7 +4,7 @@
 
 /* ================= Yardımcılar ================= */
 const C = window.GP_CONFIG || {};
-const VERSION = 73;
+const VERSION = 74;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => { if (!isFinite(t) || t < 0) t = 0; const m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + String(s).padStart(2, '0'); };
@@ -3814,7 +3814,8 @@ const Rack = (() => {
 const GAMES = {
   bilardo: { file: 'bilardo.html', t: 'Bilardo', d: '8-Ball ve 9-Ball · 2D veya 3D · arkadaşınla online', img: 'bl-th-stg.webp' },
   kiraathane: { file: 'kiraathane.html', t: 'Kıraathane 3D', d: 'Stuttgart kıraathanesi · okey, bilardo, nargile, TV, plak · arkadaşlarınla online', img: 'kh-th.webp' },
-  okey: { file: 'okey.html', t: 'Okey', d: 'Stuttgart kıraathanesi · gerçek saatle manzara · arkadaşlarınla online', img: 'ok-th.webp' }
+  okey: { file: 'okey.html', t: 'Okey', d: 'Stuttgart kıraathanesi · gerçek saatle manzara · arkadaşlarınla online', img: 'ok-th.webp' },
+  enstruman: { file: 'enstruman.html', t: 'Enstrümanlar', d: 'Bağlama, kanun, ud, keman, ney, klarnet, darbuka · do re mi ya da makamla çal', img: 'ens-th.webp' }
 };
 const Pool = (() => {
   let fr = null, cur = null, killT = 0;
