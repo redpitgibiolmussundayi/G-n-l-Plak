@@ -112,7 +112,7 @@
   const ringing = {};                                       // tuş -> çalan tel
   /* ---- gerçek kayıtlar (ens/…m4a): yoksa ya da inemezse sentez yedek olarak çalar */
   let SM = null;
-  fetch('ens/samples.json').then(r => r.json()).then(j => { SM = j; if (j.credits) { $('cr').hidden = false; $('cr').onclick = () => { $('tip').textContent = j.credits; setTimeout(() => { $('tip').textContent = INST[st.inst].tip; }, 7000); }; } audio(); loadInst(st.inst); }).catch(() => {});
+  fetch('ens/samples.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(j => { SM = j; if (j.credits) { $('cr').hidden = false; $('cr').onclick = () => { $('tip').textContent = j.credits; setTimeout(() => { $('tip').textContent = INST[st.inst].tip; }, 7000); }; } audio(); loadInst(st.inst); }).catch(() => {});
   const sbuf = new Map(), sload = new Map();
   function getBuf(u) {
     if (sbuf.has(u)) return Promise.resolve(sbuf.get(u));
@@ -122,11 +122,12 @@
     return sload.get(u);
   }
   const smList = id => { const L = SM && SM[id]; return !L ? [] : Array.isArray(L) ? L : Object.values(L).reduce((a2, b2) => a2.concat(b2), []); };
+  function srcBadge() { const L = smList(st.inst), n = L.filter(x => sbuf.has(x.u)).length, el = $('src'); if (!el) return; el.textContent = L.length && n ? 'Gerçek kayıt' : L.length ? 'Kayıtlar iniyor…' : 'Sentez'; el.classList.toggle('on', !!(L.length && n)); }
   function loadInst(id) {
     const L = smList(id); if (!L.length || !ctx) return;
     const todo = L.filter(x => !sbuf.has(x.u)); if (!todo.length) return;
     if (id === st.inst) $('tip').textContent = 'Gerçek sesler yükleniyor…';
-    Promise.all(todo.map(x => getBuf(x.u))).then(() => { if (id === st.inst) $('tip').textContent = INST[id].tip; });
+    srcBadge(); Promise.all(todo.map(x => getBuf(x.u).then(b => { srcBadge(); return b; }))).then(() => { if (id === st.inst) $('tip').textContent = INST[id].tip; srcBadge(); });
   }
   function nearest(id, f) {
     let best = null, bd = 1e9;
@@ -470,6 +471,7 @@
     buildKeys(); vis.reset(); demRefresh();
     if (ctx && inst.kind === 'pluck' && !smList(st.inst).length) warm();
     if (ctx) loadInst(st.inst);
+    srcBadge();
   }
   function warm() { const id = st.inst; let i = 0; const go = () => { if (st.inst !== id || i > 7) return; pluckBuf(id, freqOf(i++)); setTimeout(go, 8); }; go(); }
   $('mk').innerHTML = MK.map(m => `<option value="${m.id}">${m.t}</option>`).join('');
