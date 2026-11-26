@@ -1,7 +1,7 @@
 /* Gönül Plak — offline önbellek.
    Kod dosyaları önce internetten (güncel sürüm hemen gelsin), internet yoksa önbellekten.
    Resimler ve kütüphaneler önce önbellekten. */
-const CACHE = 'gonulplak-v73';
+const CACHE = 'gonulplak-v74';
 const CORE = ['./', 'index.html', 'app.js', 'i18n.js', 'config.js', 'stretch.js', 'dsp-worker.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
   ...['sabah', 'gunduz', 'gunbatimi', 'aksam', 'gece', 'kapali-sabah', 'kapali-gunduz', 'kapali-aksam', 'kapali-gece'].map(n => `stg-sonbahar-${n}.webp`)];
 const POOL = ['bilardo.html', 'bl-game.js', 'bl-bg-classic.webp', 'bl-bg-la.webp', 'bl-bg-stg.webp', 'bl-th-classic.webp', 'bl-th-la.webp', 'bl-th-stg.webp', 'bl-av-eren.webp', 'bl-av-mira.webp', 'bl-ballcollision.m4a', 'bl-cue.m4a', 'bl-cushion.m4a', 'bl-pot.m4a', 'bl-success.m4a', 'okey.html', 'okey.js', 'net.js', 'ok-k1.webp', 'ok-k2.webp', 'ok-th.webp', 'stg-gece.webp', 'stg-gunbatimi.webp', 'kiraathane.html', 'kh.js', 'kh-three.js', 'kh-css3d.js', 'kh-foto.webp', 'kh-portre.webp', 'kh-th.webp', 'kh-okey.js', 'kh-okey-core.js', 'bl-bg-kh.webp', 'kh-x-EffectComposer.js', 'kh-x-UnrealBloomPass.js', 'kh-x-OutputPass.js', 'kh-x-RenderPass.js', 'kh-x-ShaderPass.js', 'kh-x-Pass.js', 'kh-x-MaskPass.js', 'kh-x-CopyShader.js', 'kh-x-LuminosityHighPassShader.js', 'kh-x-OutputShader.js'];
