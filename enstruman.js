@@ -29,10 +29,10 @@
     ud: { t: 'Ud', kind: 'pluck', oct: -1, tech: 'Mızrap titret', techOn: false, tip: 'Perdesiz, sıcak ve derin bir ses. Kaydırınca notalar birbirine bağlanır.',
       ks: { dur: 3.0, t60: 2.0, bright: 0.55, pick: 0.2, courses: [[0, 1], [3, 0.9]] },
       eq: [['highpass', 70, 0.7, 0], ['peaking', 180, 1.2, 5], ['peaking', 900, 1.2, 1], ['highshelf', 3500, 0.7, -5]], vol: 1.0, trem: 80 },
-    keman: { t: 'Keman', kind: 'bow', oct: 1, tech: 'Vibrato', techOn: true, tip: 'Basılı tuttuğun sürece yay çeker. Parmağını kaydır, arabesk glissandosu yapsın.',
+    keman: { t: 'Keman', kind: 'bow', oct: 1, tech: 'Ekstra vibrato', techOn: false, tip: 'Basılı tuttuğun sürece yay çeker. Parmağını kaydır, arabesk glissandosu yapsın.',
       vol: 0.5, glide: 0.09 },
-    ney: { t: 'Ney', kind: 'ney', oct: 1, tech: 'Vibrato', techOn: true, tip: 'Nefesli, buğulu bir ses. Yavaş yavaş, uzun uzun çal.', vol: 0.55, glide: 0.11 },
-    klarnet: { t: 'Klarnet', kind: 'reed', oct: 0, tech: 'Vibrato', techOn: true, tip: 'Roman havası için Hicaz ya da Kürdi seç, tuşlar arasında kaydır.', vol: 0.5, glide: 0.07 },
+    ney: { t: 'Ney', kind: 'ney', oct: 1, tech: 'Ekstra vibrato', techOn: false, tip: 'Nefesli, buğulu bir ses. Yavaş yavaş, uzun uzun çal.', vol: 0.55, glide: 0.11 },
+    klarnet: { t: 'Klarnet', kind: 'reed', oct: 0, tech: 'Ekstra vibrato', techOn: false, tip: 'Roman havası için Hicaz ya da Kürdi seç, tuşlar arasında kaydır.', vol: 0.5, glide: 0.07 },
     darbuka: { t: 'Darbuka', kind: 'drum', tip: 'Düm ortaya, tek kenara. Ritim başlatıp üstüne sen de vur.' }
   };
   const ORDER = ['baglama', 'kanun', 'ud', 'keman', 'ney', 'klarnet', 'darbuka'];
@@ -55,6 +55,7 @@
     master = ctx.createGain(); master.gain.value = 0.9; master.connect(comp).connect(ctx.destination);
     conv = ctx.createConvolver(); conv.buffer = impulse(2.3, 2.6);
     revSend = ctx.createGain(); revSend.gain.value = st.rev ? 0.26 : 0; revSend.connect(conv).connect(comp);
+    setTimeout(() => loadInst(st.inst), 0);
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const nd = noiseBuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
     return ctx;
@@ -109,7 +110,43 @@
     pluckCache.set(key, b); return b;
   }
   const ringing = {};                                       // tuş -> çalan tel
+  /* ---- gerçek kayıtlar (ens/…m4a): yoksa ya da inemezse sentez yedek olarak çalar */
+  let SM = null;
+  fetch('ens/samples.json').then(r => r.json()).then(j => { SM = j; audio(); loadInst(st.inst); }).catch(() => {});
+  const sbuf = new Map(), sload = new Map();
+  function getBuf(u) {
+    if (sbuf.has(u)) return Promise.resolve(sbuf.get(u));
+    if (!sload.has(u)) sload.set(u, fetch('ens/' + u).then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status))
+      .then(ab => new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej)))
+      .then(b => { sbuf.set(u, b); return b; }, () => { sload.delete(u); return null; }));
+    return sload.get(u);
+  }
+  const smList = id => { const L = SM && SM[id]; return !L ? [] : Array.isArray(L) ? L : Object.values(L).reduce((a2, b2) => a2.concat(b2), []); };
+  function loadInst(id) {
+    const L = smList(id); if (!L.length || !ctx) return;
+    const todo = L.filter(x => !sbuf.has(x.u)); if (!todo.length) return;
+    if (id === st.inst) $('tip').textContent = 'Gerçek sesler yükleniyor…';
+    Promise.all(todo.map(x => getBuf(x.u))).then(() => { if (id === st.inst) $('tip').textContent = INST[id].tip; });
+  }
+  function nearest(id, f) {
+    let best = null, bd = 1e9;
+    for (const x of smList(id)) { if (!sbuf.has(x.u)) continue; const d = Math.abs(Math.log2(f / x.f)) + (x.f < f ? 0.01 : 0); if (d < bd) { bd = d; best = x; } }
+    return best;
+  }
+  let sbusN = {};
+  function sbus(id) { if (sbusN[id]) return sbusN[id]; const g = ctx.createGain(); g.gain.value = (SM && SM.vol && SM.vol[id]) || 0.9; g.connect(master); g.connect(revSend); return (sbusN[id] = g); }
   function pluck(k, f, vel) {
+    const c0 = audio(), x = c0 && nearest(st.inst, f);
+    if (x) {
+      const c = c0, old = ringing[k]; if (old) { try { old.g.gain.setTargetAtTime(0, c.currentTime, 0.02); old.s.stop(c.currentTime + 0.12); } catch (e) {} }
+      const s = c.createBufferSource(), g = c.createGain(); s.buffer = sbuf.get(x.u); s.playbackRate.value = f / x.f; g.gain.value = vel;
+      s.connect(g).connect(sbus(st.inst)); s.start();
+      ringing[k] = { s, g }; s.onended = () => { if (ringing[k] && ringing[k].s === s) delete ringing[k]; };
+      return;
+    }
+    return pluckSynth(k, f, vel);
+  }
+  function pluckSynth(k, f, vel) {
     const c = audio(); if (!c) return;
     const old = ringing[k]; if (old) { try { old.g.gain.setTargetAtTime(0, c.currentTime, 0.015); old.s.stop(c.currentTime + 0.1); } catch (e) {} }
     const s = c.createBufferSource(), g = c.createGain(); s.buffer = pluckBuf(st.inst, f); g.gain.value = vel;
@@ -167,7 +204,40 @@
     if (m.noise && m.noise._bp) { m.noise._bp.frequency.setTargetAtTime(f * 2, t, 0.02); }
     m.f = f;
   }
+  let sv = null;                                  // kayıtlı sürekli ses (keman, klarnet, ney)
+  function svVoice(x, f, t, fadeIn) {
+    const s = ctx.createBufferSource(), g = ctx.createGain(); s.buffer = sbuf.get(x.u); s.loop = true; s.loopStart = x.ls; s.loopEnd = x.le;
+    s.playbackRate.value = f / x.f;
+    let lfo = null;
+    if (techOf(st.inst) && s.detune) { lfo = ctx.createOscillator(); const lg = ctx.createGain(); lfo.frequency.value = 5.6; lg.gain.value = 14; lfo.connect(lg).connect(s.detune); lfo.start(t); }
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + (fadeIn || 0.015));
+    s.connect(g).connect(sbus(st.inst)); s.start(t);
+    return { s, g, x, lfo };
+  }
+  function svStop(v, t, rel) { try { v.g.gain.cancelScheduledValues(t); v.g.gain.setValueAtTime(v.g.gain.value, t); v.g.gain.linearRampToValueAtTime(0, t + rel); v.s.stop(t + rel + 0.05); if (v.lfo) v.lfo.stop(t + rel + 0.05); } catch (e) {} }
+  function svOn(k, f) {
+    const t = ctx.currentTime, legato = sv && sv.held.length > 0, glide = INST[st.inst].glide;
+    if (!sv) sv = { v: null, held: [], id: st.inst };
+    sv.held = sv.held.filter(h => h.k !== k); sv.held.push({ k, f });
+    const v = sv.v;
+    if (legato && v) {
+      const r = f / v.x.f;
+      if (r > 0.74 && r < 1.42) { const p = v.s.playbackRate; p.cancelScheduledValues(t); p.setValueAtTime(p.value, t); p.exponentialRampToValueAtTime(r, t + glide); return; }
+      const x = nearest(st.inst, f); svStop(v, t, 0.08); sv.v = svVoice(x, f, t, 0.06); return;
+    }
+    if (v) svStop(v, t, 0.04);
+    sv.v = svVoice(nearest(st.inst, f), f, t);
+  }
+  function svOff(k) {
+    if (!sv) return;
+    const was = sv.held.length && sv.held[sv.held.length - 1].k === k;
+    sv.held = sv.held.filter(h => h.k !== k);
+    if (sv.held.length) { if (was && sv.v) svOn(sv.held[sv.held.length - 1].k, sv.held[sv.held.length - 1].f); return; }
+    if (sv.v) { svStop(sv.v, ctx.currentTime, 0.28); sv.v = null; }
+  }
+  function svKill() { if (sv && sv.v && ctx) svStop(sv.v, ctx.currentTime, 0.05); sv = null; }
   function monoOn(k, f, vel) {
+    const c0 = audio(); if (c0 && nearest(st.inst, f)) { if (mono) monoKill(); if (sv && sv.id !== st.inst) svKill(); return svOn(k, f); }
     const c = audio(); if (!c) return;
     if (mono && mono.id !== st.inst) monoKill();
     if (!mono) mono = makeMono(st.inst);
@@ -185,6 +255,7 @@
     else d.linearRampToValueAtTime(0, t + 0.1);
   }
   function monoOff(k) {
+    if (sv) { svOff(k); if (!mono) return; }
     const m = mono; if (!m) return;
     const was = m.held.length && m.held[m.held.length - 1].k === k;
     m.held = m.held.filter(h => h.k !== k);
@@ -193,6 +264,7 @@
     g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0, t + rel);
   }
   function monoKill() {
+    svKill();
     const m = mono; mono = null; if (!m || !ctx) return;
     const t = ctx.currentTime; m.out.gain.cancelScheduledValues(t); m.out.gain.setTargetAtTime(0, t, 0.03);
     setTimeout(() => { try { m.oscs.forEach(x => x.o.stop()); if (m.noise) m.noise.stop(); m.out.disconnect(); } catch (e) {} }, 300);
@@ -215,6 +287,14 @@
   /* ---- darbuka */
   function drum(type, when, vel) {
     const c = audio(); if (!c) return;
+    const D = SM && SM.darbuka && SM.darbuka[type], have = D && D.filter(x => sbuf.has(x.u));
+    if (have && have.length) {
+      const x = have[Math.floor(Math.random() * have.length)], t = when || c.currentTime, s = c.createBufferSource(), g = c.createGain();
+      s.buffer = sbuf.get(x.u); s.playbackRate.value = 0.98 + Math.random() * 0.04; g.gain.value = (vel == null ? 1 : vel) * (x.g || 1);
+      s.connect(g).connect(sbus('darbuka')); s.start(t);
+      if (!when) hit(type); else setTimeout(() => hit(type), Math.max(0, (t - c.currentTime) * 1000));
+      return;
+    }
     const t = when || c.currentTime, v = vel == null ? 1 : vel, out = c.createGain(); out.gain.value = v; out.connect(master); out.connect(revSend);
     const env = (node, a, d, peak) => { const g = c.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0008, t + a + d); node.connect(g).connect(out); return g; };
     const nz = (f, q, type2) => { const s = c.createBufferSource(); s.buffer = noiseBuf; s.playbackRate.value = 0.8 + Math.random() * 0.4; const b = c.createBiquadFilter(); b.type = type2 || 'bandpass'; b.frequency.value = f; b.Q.value = q; s.connect(b); s.start(t, Math.random()); s.stop(t + 0.6); return b; };
@@ -388,7 +468,8 @@
     $('dem').classList.toggle('on', !!st.dem); $('rev').classList.toggle('on', !!st.rev);
     const o = octOf(st.inst); $('ov').textContent = o === 0 ? 'Orta' : (o > 0 ? '+' : '') + o + ' oktav';
     buildKeys(); vis.reset(); demRefresh();
-    if (ctx && inst.kind === 'pluck') warm();
+    if (ctx && inst.kind === 'pluck' && !smList(st.inst).length) warm();
+    if (ctx) loadInst(st.inst);
   }
   function warm() { const id = st.inst; let i = 0; const go = () => { if (st.inst !== id || i > 7) return; pluckBuf(id, freqOf(i++)); setTimeout(go, 8); }; go(); }
   $('mk').innerHTML = MK.map(m => `<option value="${m.id}">${m.t}</option>`).join('');
